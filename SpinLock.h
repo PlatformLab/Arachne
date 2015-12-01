@@ -23,7 +23,7 @@ class SpinLock {
     }
 
   private:
-    /// Implements the lock: false means free, true means locked
+    // Implements the lock: false means free, true means locked
     std::atomic<bool> state;
 };
 }

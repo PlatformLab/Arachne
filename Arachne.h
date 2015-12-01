@@ -13,9 +13,11 @@ struct WorkUnit {
     jmp_buf env;
 };
 
+void createTask(std::function<void()> task);
 void threadMainFunction(int id);
 void threadInit();
 void threadWrapper(WorkUnit work);
+void mainThreadJoinPool();
 
 }
 
