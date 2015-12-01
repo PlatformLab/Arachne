@@ -3,6 +3,7 @@
 #include <deque>
 #include <thread>
 #include <mutex>
+#include <ucontext.h>
 #include "Arachne.h"
 #include "SpinLock.h"
 
@@ -13,6 +14,18 @@ enum InitializationState {
     INITIALIZING,
     INITIALIZED
 };
+
+struct WorkUnit {
+    std::function<void()> workFunction;
+    ucontext_t context;
+    bool finished;
+    // The stack of the current workunit, used for both indicating whether this
+    // is new or old work, and also for making it easier to recycle the stacks.
+    void* stack;
+    // Used for storing the context when yielding
+    jmp_buf env;
+};
+void threadWrapper(WorkUnit work);
 
 const int stackSize = 1024 * 1024;
 const int stackPoolSize = 100;
@@ -131,9 +144,12 @@ void threadMainFunction(int id) {
         }
         // Wrap the function to restore control when the user thread
         // terminates instead of yielding.
-        // TODO(hq6): Need to create and swap context here, not just invoke the
-        // function directly.
-        threadWrapper(running);
+        getcontext(&running.context);
+        running.context.uc_stack.ss_sp = running.stack;
+        running.context.uc_stack.ss_size = stackSize;
+        running.context.uc_link = 0;
+        makecontext(&running.context, (void(*)()) threadWrapper, 1, &running);
+        setcontext(&running.context);
     }
 }
 
