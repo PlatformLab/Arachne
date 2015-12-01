@@ -30,7 +30,7 @@ static std::vector<std::deque<WorkUnit> > workQueues;
 /**
  * Protect each work queue.
  */
-static std::vector<SpinLock> workQueueLocks;
+static SpinLock *workQueueLocks;
 
 thread_local int kernelThreadId;
 thread_local std::deque<void*> stackPool;
@@ -63,10 +63,18 @@ void threadInit() {
     // Allocate stacks. Note that number of cores is actually number of
     // hyperthreaded cores, rather than necessarily real CPU cores.
     numCores = std::thread::hardware_concurrency(); 
+    workQueueLocks = new SpinLock[numCores];
     for (int i = 0; i < numCores; i++) {
         workQueues.push_back(std::deque<WorkUnit>());
-        threadPool.push_back(std::thread(threadMainFunction, i));
+
+        // Leave one thread for the main thread
+        if (i != numCores - 1) {
+            threadPool.push_back(std::thread(threadMainFunction, i));
+        }
     }
+
+    // Set the kernelThreadId for the main thread
+    kernelThreadId = numCores - 1;
 
     initializationState = INITIALIZED;
 }
@@ -148,6 +156,18 @@ void createTask(std::function<void()> task) {
     work.workFunction = task;
     std::lock_guard<SpinLock> guard(workQueueLocks[kernelThreadId]);
     workQueues[kernelThreadId].push_back(work);
+}
+
+/**
+ * This is a special function to allow the main thread to join the thread pool
+ * after seeding initial tasks for itself and possibly other threads.
+ *
+ * The other way of implementing this is to merge this function with the
+ * threadInit, and ask the user to provide an initial to run in the main
+ * thread, which will presumably spawn other tasks.
+ */
+void mainThreadJoinPool() {
+    threadMainFunction(numCores - 1);
 }
 
 }
