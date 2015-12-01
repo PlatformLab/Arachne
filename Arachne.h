@@ -8,6 +8,7 @@ void createTask(std::function<void()> task);
 void threadMainFunction(int id);
 void threadInit();
 void mainThreadJoinPool();
+void yield();
 
 }
 

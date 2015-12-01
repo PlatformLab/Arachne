@@ -25,7 +25,7 @@ struct WorkUnit {
     // Used for storing the context when yielding
     jmp_buf env;
 };
-void threadWrapper(WorkUnit work);
+void threadWrapper(WorkUnit *work);
 
 const int stackSize = 1024 * 1024;
 const int stackPoolSize = 100;
@@ -141,25 +141,48 @@ void threadMainFunction(int id) {
                 workQueues[kernelThreadId].push_back(running);
                 continue;
             }
+            // Wrap the function to restore control when the user thread
+            // terminates instead of yielding.
+            getcontext(&running.context);
+            running.context.uc_stack.ss_sp = running.stack;
+            running.context.uc_stack.ss_size = stackSize;
+            running.context.uc_link = 0;
+            makecontext(&running.context, (void(*)()) threadWrapper, 1, &running);
+            setcontext(&running.context);
+        } else {
+            // Resume where we left off
+            longjmp(running.env, 0);
         }
-        // Wrap the function to restore control when the user thread
-        // terminates instead of yielding.
-        getcontext(&running.context);
-        running.context.uc_stack.ss_sp = running.stack;
-        running.context.uc_stack.ss_size = stackSize;
-        running.context.uc_link = 0;
-        makecontext(&running.context, (void(*)()) threadWrapper, 1, &running);
-        setcontext(&running.context);
     }
 }
 
 /**
- * TODO(hq6): We are missing memory barriers.
+ * TODO(hq6): We are missing memory barriers, so performance measurements will
+ * be off.
  */
-void threadWrapper(WorkUnit work) {
-   work.workFunction();
-   work.finished = true;
+void threadWrapper(WorkUnit* work) {
+   work->workFunction();
+   work->finished = true;
    longjmp(libraryContext, 0);
+}
+
+/**
+ * Restore control back to the thread library.
+ * Assume we are the running process in the current threadd if we are calling
+ * yield.
+ */
+void yield() {
+    workQueueLocks[kernelThreadId].lock();
+    if (workQueues[kernelThreadId].empty()) {
+        workQueueLocks[kernelThreadId].unlock();
+        return; // Yield is noop if there is no longer work to be done.
+    }
+
+    if (setjmp(running.env) == 0) {
+        workQueues[kernelThreadId].push_back(running);
+        workQueueLocks[kernelThreadId].unlock();
+        longjmp(libraryContext, 0);
+    }
 }
 
 /**
@@ -179,7 +202,7 @@ void createTask(std::function<void()> task) {
  * after seeding initial tasks for itself and possibly other threads.
  *
  * The other way of implementing this is to merge this function with the
- * threadInit, and ask the user to provide an initial to run in the main
+ * threadInit, and ask the user to provide an initial task to run in the main
  * thread, which will presumably spawn other tasks.
  */
 void mainThreadJoinPool() {
