@@ -15,6 +15,11 @@ enum InitializationState {
     INITIALIZED
 };
 
+struct UserContext {
+    uint64_t esp;
+    uint64_t pc;
+};
+
 struct WorkUnit {
     std::function<void()> workFunction;
     ucontext_t context;
@@ -77,7 +82,7 @@ void threadInit() {
     // hyperthreaded cores, rather than necessarily real CPU cores.
     numCores = std::thread::hardware_concurrency(); 
     workQueueLocks = new SpinLock[numCores];
-    for (int i = 0; i < numCores; i++) {
+    for (unsigned int i = 0; i < numCores; i++) {
         workQueues.push_back(std::deque<WorkUnit>());
 
         // Leave one thread for the main thread
@@ -163,12 +168,13 @@ void threadMainFunction(int id) {
 void threadWrapper(WorkUnit* work) {
    work->workFunction();
    work->finished = true;
+   __asm__ __volatile__("lfence" ::: "memory");
    longjmp(libraryContext, 0);
 }
 
 /**
  * Restore control back to the thread library.
- * Assume we are the running process in the current threadd if we are calling
+ * Assume we are the running process in the current kernel thread if we are calling
  * yield.
  */
 void yield() {
@@ -193,6 +199,7 @@ void createTask(std::function<void()> task) {
     WorkUnit work;
     work.finished = false;
     work.workFunction = task;
+    work.stack = NULL;
     std::lock_guard<SpinLock> guard(workQueueLocks[kernelThreadId]);
     workQueues[kernelThreadId].push_back(work);
 }
