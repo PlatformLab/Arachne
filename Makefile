@@ -10,3 +10,6 @@ libArachne.a: Arachne.o
 
 clean:
 	rm -f *.o *.a
+
+Arachne.S: Arachne.cc Arachne.h
+	g++ -S -Wall -Werror  -O2 $(DEBUG) -c -std=c++11 -o $@ $<
