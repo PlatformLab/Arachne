@@ -3,7 +3,6 @@
 #include <deque>
 #include <thread>
 #include <mutex>
-#include <ucontext.h>
 #include "Arachne.h"
 #include "SpinLock.h"
 
@@ -15,22 +14,16 @@ enum InitializationState {
     INITIALIZED
 };
 
-struct UserContext {
-    uint64_t esp;
-    uint64_t pc;
-};
-
 struct WorkUnit {
     std::function<void()> workFunction;
-    ucontext_t context;
+    UserContext context;
     bool finished;
-    // The stack of the current workunit, used for both indicating whether this
-    // is new or old work, and also for making it easier to recycle the stacks.
+    // The top of the stack of the current workunit, used for both indicating
+    // whether this is new or old work, and also for making it easier to
+    // recycle the stacks.
     void* stack;
-    // Used for storing the context when yielding
-    jmp_buf env;
 };
-void threadWrapper(WorkUnit *work);
+void threadWrapper();
 
 const int stackSize = 1024 * 1024;
 const int stackPoolSize = 100;
@@ -57,10 +50,7 @@ thread_local std::deque<void*> stackPool;
  * These two values store the place in the kernel thread to return to when a
  * user task either yields or completes.
  */
-thread_local jmp_buf libraryContext;
-//thread_local void* libraryStackPointer;
-//void* libraryInstructionPointer;
-
+thread_local UserContext libraryContext;
 thread_local WorkUnit running;
 
 /**
@@ -110,20 +100,6 @@ void threadMainFunction(int id) {
 
     kernelThreadId = id;
 
-    // Resume here when user task finishes or yields
-    int error = setjmp(libraryContext);
-    if (error == 1) {
-        // Check if the currently running user thread is finished and recycle
-        // its stack if it is.
-        if (running.finished) {
-            stackPool.push_front(running.stack);
-        }
-    }
-    else if (error != 0) {
-        fprintf(stderr, "Library setjmp failed! Exiting...");
-        exit(1);
-    }
-
     // Poll for work on my queue
     while (true) {
         // Need to lock the queue with a SpinLock
@@ -148,28 +124,99 @@ void threadMainFunction(int id) {
             }
             // Wrap the function to restore control when the user thread
             // terminates instead of yielding.
-            getcontext(&running.context);
-            running.context.uc_stack.ss_sp = running.stack;
-            running.context.uc_stack.ss_size = stackSize;
-            running.context.uc_link = 0;
-            makecontext(&running.context, (void(*)()) threadWrapper, 1, &running);
-            setcontext(&running.context);
+            // TODO(hq6): Figure out whether I need to be on the other end since the stack grows down. Or the middle.
+            running.context.esp = (char*) running.stack + stackSize - 64; 
+            running.context.pc = (void*) threadWrapper;
+//            running.context.argc = 1;
+//            running.context.argv = &running;
+
+            // set up the stack to pass the single argument in this case.
+            *(void**) running.context.esp = (void*) &running;
+            running.context.esp = (char*) running.context.esp - sizeof (void*);
+
+            swapcontext(&running.context, &libraryContext);
+
+            // Resume right after here when user task finishes or yields
+            // Check if the currently running user thread is finished and recycle
+            // its stack if it is.
+            if (running.finished) {
+                stackPool.push_front(running.stack);
+            }
         } else {
             // Resume where we left off
-            longjmp(running.env, 0);
+            setcontext(&running.context);
         }
     }
 }
 
 /**
+ * Load a new context without saving anything.
+ */
+void  __attribute__ ((noinline))  setcontext(UserContext *context) {
+//   asm("movq  0(%rdi), %rsp");
+//   asm("movq  8(%rdi), %rax"); // TODO: Switch to using push / pop instructions
+//   asm("movq  %rax, 0(%rsp)");
+   // Return to that address
+
+    // Try manual setting and jump
+    asm("movq (%rdi), %rsp");
+    asm("movq 8(%rdi), %rax");
+    asm("jmp *%rax");
+   
+}
+
+/**
+ * Save one set of registers and load another set.
+ * %rdi, %rsi are the two arguments.
+ */
+void  __attribute__ ((noinline))  swapcontext(UserContext *saved, UserContext *target) {
+//   asm("movq  %rsp, (%rdi)");
+//   asm("movq  (%rsp), %rax");
+//   asm("movq  %rax, 8(%rdi)");
+//
+//   // Load (need more registers but this is the high levle idea)
+//   asm("movq  0(%rdi), %rsp");
+//   asm("movq  8(%rdi), %rax");
+//   asm("movq  %rax, 0(%rsp)");
+
+//   asm("pushq %rax"); // Desired return pointer
+//   asm("pushq %rbp"); // former base pointer
+//   asm("movq %rsp, %rbp"); // move the current base pointer to the stack pointer.
+//   asm("ret");
+
+    // Try saving the previous instruction pointer for the next jump
+    asm("movq  %rsp, (%rsi)");
+    asm("movq 8(%rbp), %rax");
+    asm("movq %rax, 8(%rsi)");
+
+    // Try manual setting and jump
+    asm("movq (%rdi), %rsp");
+    asm("movq 8(%rdi), %rax");
+    asm("jmp *%rax");
+}
+
+/**
  * TODO(hq6): We are missing memory barriers, so performance measurements will
  * be off.
+ * TODO(hq6): Figure out whether we can omit the argument altogether and just
+ * use the 'running' global variable instead.
+ *
+ * Note that this function will be jumped to directly using setcontext, so
+ * there might be some weirdness with local variables.
  */
-void threadWrapper(WorkUnit* work) {
-   work->workFunction();
-   work->finished = true;
-   __asm__ __volatile__("lfence" ::: "memory");
-   longjmp(libraryContext, 0);
+void threadWrapper() {
+    asm("mov %rax, %rax");
+    printf("TESTING\n");
+    fflush(stdout);
+//   WorkUnit* work = NULL;
+//   // Pull the argument off the stack manually.
+//   asm("movq -8(%rsp), %rax");
+//   asm("movq %rax, (%rsp)");
+//
+//   work->workFunction();
+//   work->finished = true;
+//   __asm__ __volatile__("lfence" ::: "memory");
+   setcontext(&libraryContext);
 }
 
 /**
@@ -184,11 +231,10 @@ void yield() {
         return; // Yield is noop if there is no longer work to be done.
     }
 
-    if (setjmp(running.env) == 0) {
-        workQueues[kernelThreadId].push_back(running);
-        workQueueLocks[kernelThreadId].unlock();
-        longjmp(libraryContext, 0);
-    }
+    // Swap to library context and save the current context into the library
+    workQueues[kernelThreadId].push_back(running);
+    workQueueLocks[kernelThreadId].unlock();
+    swapcontext(&running.context, &libraryContext);
 }
 
 /**
