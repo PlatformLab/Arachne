@@ -131,8 +131,6 @@ void threadMainFunction(int id) {
             running.context.esp = (char*) running.context.esp - sizeof (void*);
             *(void**) running.context.esp = (void*) threadWrapper;
 
-            // See if this segfaults also
-            running.workFunction();
             swapcontext(&running.context, &libraryContext);
 
             // Resume right after here when user task finishes or yields
@@ -161,7 +159,6 @@ void  __attribute__ ((noinline))  setcontext(UserContext *context) {
     asm("movq (%rdi), %rsp");
     asm("movq (%rsp), %rax");
     asm("jmp *%rax");
-   
 }
 
 /**
@@ -183,13 +180,10 @@ void  __attribute__ ((noinline))  swapcontext(UserContext *saved, UserContext *t
 //   asm("movq %rsp, %rbp"); // move the current base pointer to the stack pointer.
 //   asm("ret");
 
-    // Try saving the previous instruction pointer for the next jump
     asm("movq  %rsp, (%rsi)");
 
     // Try manual setting stack and jump
     asm("movq (%rdi), %rsp");
-    asm("movq (%rsp), %rax");
-    asm("jmp *%rax");
 }
 
 /**
@@ -224,7 +218,7 @@ void yield() {
     // Swap to library context and save the current context into the library
     workQueues[kernelThreadId].push_back(running);
     workQueueLocks[kernelThreadId].unlock();
-    swapcontext(&running.context, &libraryContext);
+    swapcontext(&libraryContext, &workQueues[kernelThreadId].back().context);
 }
 
 /**
