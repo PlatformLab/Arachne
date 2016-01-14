@@ -131,6 +131,8 @@ void threadMainFunction(int id) {
             running.context.esp = (char*) running.context.esp - sizeof (void*);
             *(void**) running.context.esp = (void*) threadWrapper;
 
+            // See if this segfaults also
+            running.workFunction();
             swapcontext(&running.context, &libraryContext);
 
             // Resume right after here when user task finishes or yields
@@ -200,9 +202,10 @@ void  __attribute__ ((noinline))  swapcontext(UserContext *saved, UserContext *t
  * there might be some weirdness with local variables.
  */
 void threadWrapper(WorkUnit* work) {
-   asm("movq 8(%rsp), %rdi");
+   asm("movq 16(%%rsp), %0": "=r" (work));
+   work->workFunction();
    work->finished = true;
-//   __asm__ __volatile__("lfence" ::: "memory");
+   __asm__ __volatile__("lfence" ::: "memory");
    setcontext(&libraryContext);
 }
 
