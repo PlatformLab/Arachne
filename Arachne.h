@@ -17,7 +17,6 @@ void yield();
 
 struct UserContext {
     void* esp;
-    void* pc;
 };
 
 void setcontext(UserContext *context);

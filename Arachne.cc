@@ -124,15 +124,12 @@ void threadMainFunction(int id) {
             }
             // Wrap the function to restore control when the user thread
             // terminates instead of yielding.
-            // TODO(hq6): Figure out whether I need to be on the other end since the stack grows down. Or the middle.
             running.context.esp = (char*) running.stack + stackSize - 64; 
-            running.context.pc = (void*) threadWrapper;
-//            running.context.argc = 1;
-//            running.context.argv = &running;
 
             // set up the stack to pass the single argument in this case.
             *(void**) running.context.esp = (void*) &running;
             running.context.esp = (char*) running.context.esp - sizeof (void*);
+            *(void**) running.context.esp = (void*) threadWrapper;
 
             swapcontext(&running.context, &libraryContext);
 
@@ -160,7 +157,7 @@ void  __attribute__ ((noinline))  setcontext(UserContext *context) {
 
     // Try manual setting and jump
     asm("movq (%rdi), %rsp");
-    asm("movq 8(%rdi), %rax");
+    asm("movq (%rsp), %rax");
     asm("jmp *%rax");
    
 }
@@ -186,12 +183,10 @@ void  __attribute__ ((noinline))  swapcontext(UserContext *saved, UserContext *t
 
     // Try saving the previous instruction pointer for the next jump
     asm("movq  %rsp, (%rsi)");
-    asm("movq (%rsp), %rax");
-    asm("movq %rax, 8(%rsi)");
 
     // Try manual setting stack and jump
     asm("movq (%rdi), %rsp");
-    asm("movq 8(%rdi), %rax");
+    asm("movq (%rsp), %rax");
     asm("jmp *%rax");
 }
 
