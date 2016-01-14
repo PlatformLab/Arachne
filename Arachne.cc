@@ -23,7 +23,7 @@ struct WorkUnit {
     // recycle the stacks.
     void* stack;
 };
-void threadWrapper();
+void threadWrapper(WorkUnit* work);
 
 const int stackSize = 1024 * 1024;
 const int stackPoolSize = 100;
@@ -186,10 +186,10 @@ void  __attribute__ ((noinline))  swapcontext(UserContext *saved, UserContext *t
 
     // Try saving the previous instruction pointer for the next jump
     asm("movq  %rsp, (%rsi)");
-    asm("movq 8(%rbp), %rax");
+    asm("movq (%rsp), %rax");
     asm("movq %rax, 8(%rsi)");
 
-    // Try manual setting and jump
+    // Try manual setting stack and jump
     asm("movq (%rdi), %rsp");
     asm("movq 8(%rdi), %rax");
     asm("jmp *%rax");
@@ -204,17 +204,9 @@ void  __attribute__ ((noinline))  swapcontext(UserContext *saved, UserContext *t
  * Note that this function will be jumped to directly using setcontext, so
  * there might be some weirdness with local variables.
  */
-void threadWrapper() {
-    asm("mov %rax, %rax");
-    printf("TESTING\n");
-    fflush(stdout);
-//   WorkUnit* work = NULL;
-//   // Pull the argument off the stack manually.
-//   asm("movq -8(%rsp), %rax");
-//   asm("movq %rax, (%rsp)");
-//
-//   work->workFunction();
-//   work->finished = true;
+void threadWrapper(WorkUnit* work) {
+   asm("movq 8(%rsp), %rdi");
+   work->finished = true;
 //   __asm__ __volatile__("lfence" ::: "memory");
    setcontext(&libraryContext);
 }
