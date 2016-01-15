@@ -17,8 +17,7 @@ enum InitializationState {
 struct WorkUnit {
     std::function<void()> workFunction;
     UserContext context;
-    bool finished;
-    // The top of the stack of the current workunit, used for both indicating
+    bool finished; // The top of the stack of the current workunit, used for both indicating
     // whether this is new or old work, and also for making it easier to
     // recycle the stacks.
     void* stack;
@@ -30,7 +29,6 @@ const int stackPoolSize = 100;
 
 InitializationState initializationState = NOT_INITIALIZED;
 unsigned numCores = 1;
-std::vector<std::thread> threadPool;
 
 /**
  * Work to do on each thread. 
@@ -77,7 +75,7 @@ void threadInit() {
 
         // Leave one thread for the main thread
         if (i != numCores - 1) {
-            threadPool.push_back(std::thread(threadMainFunction, i));
+            std::thread(threadMainFunction, i).detach();
         }
     }
 
@@ -157,8 +155,6 @@ void  __attribute__ ((noinline))  setcontext(UserContext *context) {
 
     // Try manual setting and jump
     asm("movq (%rdi), %rsp");
-    asm("movq (%rsp), %rax");
-    asm("jmp *%rax");
 }
 
 /**
@@ -196,7 +192,7 @@ void  __attribute__ ((noinline))  swapcontext(UserContext *saved, UserContext *t
  * there might be some weirdness with local variables.
  */
 void threadWrapper(WorkUnit* work) {
-   asm("movq 16(%%rsp), %0": "=r" (work));
+   asm("movq 8(%%rsp), %0": "=r" (work));
    work->workFunction();
    work->finished = true;
    __asm__ __volatile__("lfence" ::: "memory");
