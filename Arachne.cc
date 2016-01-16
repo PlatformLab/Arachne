@@ -34,7 +34,7 @@ unsigned numCores = 1;
  * Work to do on each thread. 
  * TODO(hq6): If vector is too slow, we may switch to a linked list.
  */
-static std::vector<std::deque<WorkUnit> > workQueues;
+static std::vector<std::deque<WorkUnit*> > workQueues;
 
 /**
  * Protect each work queue.
@@ -49,7 +49,7 @@ thread_local std::deque<void*> stackPool;
  * user task either yields or completes.
  */
 thread_local UserContext libraryContext;
-thread_local WorkUnit running;
+thread_local WorkUnit *running;
 
 /**
  * This function will allocate stacks and create kernel threads pinned to particular cores.
@@ -71,7 +71,7 @@ void threadInit() {
     numCores = std::thread::hardware_concurrency(); 
     workQueueLocks = new SpinLock[numCores];
     for (unsigned int i = 0; i < numCores; i++) {
-        workQueues.push_back(std::deque<WorkUnit>());
+        workQueues.push_back(std::deque<WorkUnit*>());
 
         // Leave one thread for the main thread
         if (i != numCores - 1) {
@@ -83,6 +83,49 @@ void threadInit() {
     kernelThreadId = numCores - 1;
 
     initializationState = INITIALIZED;
+}
+
+/**
+ * A utility function that runs the running user thread, and saves the current
+ * user context into saveContext.
+ *
+ * If the running thread is a new thread and we have run out of stacks, we
+ * simply put the running context back onto the queue, and return.
+ */
+bool runThread(UserContext* saveContext) {
+    // No stack implies this thread has never run before
+    if (!running->stack) {
+        if (!stackPool.empty()) {
+            running->stack = stackPool.front();
+            stackPool.pop_front();
+        } else {
+            // Yield to someone else who does have a stack to run on
+            std::lock_guard<SpinLock> guard(workQueueLocks[kernelThreadId]);
+            workQueues[kernelThreadId].push_back(running);
+            return false;
+        }
+        // Wrap the function to restore control when the user thread
+        // terminates instead of yielding.
+        running->context.esp = (char*) running->stack + stackSize - 64; 
+
+        // set up the stack to pass the single argument in this case.
+        *(void**) running->context.esp = (void*) running;
+        running->context.esp = (char*) running->context.esp - sizeof (void*);
+        *(void**) running->context.esp = (void*) threadWrapper;
+
+        swapcontext(&running->context, &libraryContext);
+
+        // Resume right after here when user task finishes or yields
+        // Check if the currently running user thread is finished and recycle
+        // its stack if it is.
+        if (running->finished) {
+            stackPool.push_front(running->stack);
+        }
+    } else {
+        // Resume where we left off
+        setcontext(&running->context);
+    }
+    return true;
 }
 
 /**
@@ -108,39 +151,7 @@ void threadMainFunction(int id) {
             running = workQueues[kernelThreadId].front();
             workQueues[kernelThreadId].pop_front();
         }
-
-        // No stack implies this thread has never run before
-        if (!running.stack) {
-            if (!stackPool.empty()) {
-                running.stack = stackPool.front();
-                stackPool.pop_front();
-            } else {
-                // Yield to someone else who does have a stack to run on
-                std::lock_guard<SpinLock> guard(workQueueLocks[kernelThreadId]);
-                workQueues[kernelThreadId].push_back(running);
-                continue;
-            }
-            // Wrap the function to restore control when the user thread
-            // terminates instead of yielding.
-            running.context.esp = (char*) running.stack + stackSize - 64; 
-
-            // set up the stack to pass the single argument in this case.
-            *(void**) running.context.esp = (void*) &running;
-            running.context.esp = (char*) running.context.esp - sizeof (void*);
-            *(void**) running.context.esp = (void*) threadWrapper;
-
-            swapcontext(&running.context, &libraryContext);
-
-            // Resume right after here when user task finishes or yields
-            // Check if the currently running user thread is finished and recycle
-            // its stack if it is.
-            if (running.finished) {
-                stackPool.push_front(running.stack);
-            }
-        } else {
-            // Resume where we left off
-            setcontext(&running.context);
-        }
+        runThread(&libraryContext);
     }
 }
 
@@ -183,8 +194,6 @@ void  __attribute__ ((noinline))  swapcontext(UserContext *saved, UserContext *t
 }
 
 /**
- * TODO(hq6): We are missing memory barriers, so performance measurements will
- * be off.
  * TODO(hq6): Figure out whether we can omit the argument altogether and just
  * use the 'running' global variable instead.
  *
@@ -211,10 +220,16 @@ void yield() {
         return; // Yield is noop if there is no longer work to be done.
     }
 
-    // Swap to library context and save the current context into the library
+    UserContext* saved = &running->context;
+
     workQueues[kernelThreadId].push_back(running);
+    running = workQueues[kernelThreadId].front();
+    workQueues[kernelThreadId].pop_front();
     workQueueLocks[kernelThreadId].unlock();
-    swapcontext(&libraryContext, &workQueues[kernelThreadId].back().context);
+
+    // Loop until we find a thread to run, in case there are new threads that
+    // do not have a thread.
+    while (!runThread(saved));
 }
 
 /**
@@ -222,10 +237,10 @@ void yield() {
  * function.
  */
 void createTask(std::function<void()> task) {
-    WorkUnit work;
-    work.finished = false;
-    work.workFunction = task;
-    work.stack = NULL;
+    WorkUnit *work = new WorkUnit;
+    work->finished = false;
+    work->workFunction = task;
+    work->stack = NULL;
     std::lock_guard<SpinLock> guard(workQueueLocks[kernelThreadId]);
     workQueues[kernelThreadId].push_back(work);
 }
