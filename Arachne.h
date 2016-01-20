@@ -15,12 +15,8 @@ void yield();
 // private API and should be in a different header. Move them in the CPP
 // refactor.
 
-struct UserContext {
-    void* esp;
-};
-
-void setcontext(UserContext *context);
-void swapcontext(UserContext *saved, UserContext *target);
+void setcontext(void **context);
+void swapcontext(void **saved, void **target);
 
 }
 

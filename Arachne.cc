@@ -17,7 +17,7 @@ enum InitializationState {
 
 struct WorkUnit {
     std::function<void()> workFunction;
-    UserContext context;
+    void* sp;
     bool finished; // The top of the stack of the current workunit, used for both indicating
     // whether this is new or old work, and also for making it easier to
     // recycle the stacks.
@@ -49,7 +49,7 @@ thread_local std::deque<void*> stackPool;
  * These two values store the place in the kernel thread to return to when a
  * user task either yields or completes.
  */
-thread_local UserContext libraryContext;
+thread_local void* libraryStackPointer;
 thread_local WorkUnit *running;
 
 /**
@@ -88,12 +88,12 @@ void threadInit() {
 
 /**
  * A utility function that runs the running user thread, and saves the current
- * user context into saveContext.
+ * stack pointer into saveStackPointer.
  *
  * If the running thread is a new thread and we have run out of stacks, we
  * simply put the running context back onto the queue, and return.
  */
-bool runThread(UserContext* saveContext) {
+bool runThread(void** saveStackPointer) {
     // No stack implies this thread has never run before
     if (!running->stack) {
         if (!stackPool.empty()) {
@@ -107,19 +107,19 @@ bool runThread(UserContext* saveContext) {
         }
         // Wrap the function to restore control when the user thread
         // terminates instead of yielding.
-        running->context.esp = (char*) running->stack + stackSize - 64; 
+        running->sp = (char*) running->stack + stackSize - 64; 
 
 
         // set up the stack to pass the single argument in this case.
-        *(void**) running->context.esp = (void*) running;
-        running->context.esp = (char*) running->context.esp - sizeof (void*);
-        *(void**) running->context.esp = (void*) threadWrapper;
+        *(void**) running->sp = (void*) running;
+        running->sp = (char*) running->sp - sizeof (void*);
+        *(void**) running->sp = (void*) threadWrapper;
 
         // Set up the initial stack with the registers. Currently we assume a reasonable initial value for the registers is 0.
-        memset(((void**) running->context.esp - 6), 0, 6*sizeof(void*));
-        running->context.esp = (char*) running->context.esp - 6*sizeof (void*);
+        memset(((void**) running->sp - 6), 0, 6*sizeof(void*));
+        running->sp = (char*) running->sp - 6*sizeof (void*);
 
-        swapcontext(&running->context, saveContext);
+        swapcontext(&running->sp, saveStackPointer);
 
         // Resume right after here when user task finishes or yields
         // Check if the currently running user thread is finished and recycle
@@ -129,7 +129,7 @@ bool runThread(UserContext* saveContext) {
         }
     } else {
         // Resume where we left off
-        swapcontext(&running->context, saveContext);
+        swapcontext(&running->sp, saveStackPointer);
     }
     return true;
 }
@@ -157,14 +157,14 @@ void threadMainFunction(int id) {
             running = workQueues[kernelThreadId].front();
             workQueues[kernelThreadId].pop_front();
         }
-        runThread(&libraryContext);
+        runThread(&libraryStackPointer);
     }
 }
 
 /**
  * Load a new context without saving anything.
  */
-void  __attribute__ ((noinline))  setcontext(UserContext *context) {
+void  __attribute__ ((noinline))  setcontext(void **context) {
 //   asm("movq  0(%rdi), %rsp");
 //   asm("movq  8(%rdi), %rax"); // TODO: Switch to using push / pop instructions
 //   asm("movq  %rax, 0(%rsp)");
@@ -182,11 +182,11 @@ void  __attribute__ ((noinline))  setcontext(UserContext *context) {
 
 /**
  * Save one set of registers and load another set.
- * %rdi, %rsi are the two arguments.
+ * %rdi, %rsi are the two addresses of where stack pointers are stored.
  *
  * Load from saved and store into target.
  */
-void  __attribute__ ((noinline))  swapcontext(UserContext *saved, UserContext *target) {
+void  __attribute__ ((noinline))  swapcontext(void **saved, void **target) {
 
     // Save the registers and store the stack pointer
     asm("pushq %r12\n\t"
@@ -219,7 +219,7 @@ void threadWrapper(WorkUnit* work) {
    work->workFunction();
    work->finished = true;
    __asm__ __volatile__("lfence" ::: "memory");
-   setcontext(&libraryContext);
+   setcontext(&libraryStackPointer);
 }
 
 /**
@@ -234,7 +234,7 @@ void yield() {
         return; // Yield is noop if there is no longer work to be done.
     }
 
-    UserContext* saved = &running->context;
+    void** saved = &running->sp;
 
     workQueues[kernelThreadId].push_back(running);
     running = workQueues[kernelThreadId].front();
