@@ -1,0 +1,494 @@
+Functions to be implemented
+0. thread_lib_init()
+    a. Allocate_stacks (separate stack pools for each core)
+    b. Create kernel-level threads (or processes) which are pinned to particular cores.
+2. create_thread_and_enqueue(function) // No arguments, just pass a lambda using new C++ features. Assume on same core.
+3. schedule() (ask the scheduler to invoke a function on a new user-level stack)
+4. yield() - return control to the scheduler (need to switch stacks)
+
+Use CPP for lambdas
+
+Eventually, need to run experiments where we deal with blocking IO, and non-blocking IO for RAMCloud.
+ - Handling system calls and whatnot.
+ - Get smart about core-aware scheduling, so that user-level threads respect _cores_ and not kernel threads.
+
+
+Perhaps the kernel threads should allocate their own stack *pools* in a thread-local fashion?
+
+
+John means you need to seed all the work before joining the thread pool,
+otherwise you'll have everyone in the thread pool polling for work and nobody
+to put work on.
+ - The other solution is to 
+ - The related question is - how does the application terminate? Someone has to
+   call terminate.
+
+Also, where is application code and where is the library code?
+ - We can ask the application to call join_thread_pool after it has finished seeding the work, but that is a little annoying.
+
+The worker queues should be protected by a SpinLock, a la RAMCloud.
+  - The key idea is that these normal pool threads should NEVER trap to the
+    kernel, because if they do then we've lost a core for the duration of that time.
+
+Write the guts and then pull SpinLock out and start debugging.
+
+You have to handle the case where the thread terminates as well as yielding.
+ - They probably share a library function
+
+Think about what happens on an explicit yield
+
+Where is the CS 110 project?
+    https://mail.google.com/mail/u/0/#search/cps+110+thread/11f811eeb78cacfc
+
+    - That API basically required that application was structured in a way that the thread library initialization was the very first function
+
+It is a well-defined point for each kernel thread. The same EIP, but a different ESP.
+
+In the current system, there is only a single per-core run queue. Nothing else. Just a dispatcher.
+ - Just need to be able to yield and return.
+ - Start without yield, just schedule and return
+
+Based on the following code, it seems that the stack needs to be set up in a certain way
+    http://www.opensource.apple.com/source/Libc/Libc-825.25/i386/gen/makecontext.c
+
+Let's use setjmp for now. It will faster than writing assembler.
+    http://stackoverflow.com/questions/7969075/about-setjmp-longjmp
+
+We need to get a baseline on this ping before we can know if any asm we write
+will improve things.
+ - So starting with the setjmp is a good sanity check even if it does save more
+   registers than it needs, although the compiler should know which registers
+   it needs to save.
+
+May also want to disable interrupts when library code is running to avoid multi-swap.
+ - Although it's not clear if it matters when the thread is in user-land
+
+Also no unit tests yet, still getting basics up and running.
+
+Names are nice to have for debugging, but not yet needed for this.
+
+http://stackoverflow.com/questions/2560792/multitasking-using-setjmp-longjmp
+ - Screw portability to non-POSIX systems?
+ - Changing the stack and the EIP also
+
+One more thing -- we need to figure out how to reclaim stacks after a user-level thread finishes. That's also not yet implemented.
+ - Maybe the point where we longjmp to should also handle this part
+ - Either that or the stacks can be a circular buffer where we track the
+   beginning and ending node.
+ - that means when we are taking something off the run queue, we need to
+   determine whether it needs a new stack or not.
+
+https://gcc.gnu.org/onlinedocs/gcc-4.6.2/gcc/Return-Address.html#Return-Address
+ - Non-portable return address
+
+ Remember to initialize your stack pointer to NULL when you first create the WorkUnit.
+    - Or just assign it in the function add_task();
+  - Perhaps a constructor would be in order
+Need to implement thread_yield() also as well as add_task().
+
+Since only one (real) kernel thread can be executing at a time, and only that thread touches the stack queue, we should not require a lock to protect the stack queue.
+
+Fix compiler errors, and then perhaps fall back to setcontext / makecontext until I'm ready to write assembler.
+
+http://www.1024cores.net/home/lock-free-algorithms/tricks/fibers
+ - use this trick and try it and see how well it works.
+ - Or maybe makecontext is fine too.
+
+Remember, we need threadWrapper so that library code can run on the user thread's stack after the user thread exits, and the user thread won't just fall off a cliff.
+
+You need a baseline before you can play the assembler trick. Start from a point of known correctness.
+
+One workaround is to make threadInit never return (ie take in a function to become), but that would go against co-existence, or would it?
+    - One thread turns into the threadInit function
+    - For now, we can have a manual separation (init, add initial task, then join the
+      threadpool)
+
+
+http://www.linuxplumbersconf.org/2013/ocw/system/presentations/1653/original/LPC%20-%20User%20Threading.pdf
+
+Without the context change, you don't manage the stack, so all you have a set
+of short-lived events.
+ - let's build this and run an application on it before we do the other thing.
+
+don't forget to enable optimizations
+
+The WorkUnit structure is purely internal so it may not belong in a public header.
+
+Also for thread pinning and stuff, perhaps I should take a dependency on the
+PerfUtils which I had already factored out earlier.
+
+The Main thread can join the pool without needing a thread instance.
+ - The other data structures can be used directly
+ Library should probably return the most unloaded core.
+
+
+Could I be pointing at the wrong end of the stack?
+
+Also, we are failing after the double-yield, so look at that path.
+Mayhaps we need logging also?
+
+Invariant: A completed running thread should never become re-enqueued
+
+Remember to assume nothing. Just because it appears to work correctly does not
+mean it is correct.
+
+We shall see if asm is necessary. We also need to pin kernel threads lols...
+
+
+--------------------------------------------------------------------------------
+The current status seems to be that the stack pointer got corrupted somehow.
+
+(gdb) bt
+#0  0x00007ffff7313cc9 in __GI_raise (sig=sig@entry=6) at ../nptl/sysdeps/unix/sysv/linux/raise.c:56
+#1  0x00007ffff73170d8 in __GI_abort () at abort.c:89
+#2  0x00007ffff7350394 in __libc_message (do_abort=do_abort@entry=2, fmt=fmt@entry=0x7ffff745c52b "*** %s ***: %s terminated\n") at ../sysdeps/posix/libc_fatal.c:175
+#3  0x00007ffff73e7c9c in __GI___fortify_fail (msg=<optimized out>) at fortify_fail.c:37
+#4  0x00007ffff73e7bad in ____longjmp_chk () at ../sysdeps/unix/sysv/linux/x86_64/____longjmp_chk.S:100
+#5  0x00007ffff73e7b09 in __longjmp_chk (env=0x1, env@entry=<error reading variable: Asked for position 0 of stack, stack only has 0 elements on it.>, val=val@entry=0)
+    at ../setjmp/longjmp.c:38
+    #6  0x000000000040283c in Arachne::threadMainFunction (id=3) at Arachne.cc:154
+    #7  0x00000000004029a2 in Arachne::mainThreadJoinPool () at Arachne.cc:211
+    #8  0x00000000004012cf in main () at ArachneTest.cc:35
+
+Remember, you need to save the RETURN Address, because that is precisely where
+you want to jump immediately after you swap back in. That way, you return to
+the instruction that would have run immediately AFTER you regain the context.
+
+Savecontext:
+ save eip
+ push callee-saved registers
+ save ebp # just saving a register 
+ save esp
+
+loadcontext
+ - load esp
+ - load ebp
+ - pop callee-saved registers
+
+
+swapcontext
+
+ - Figure out how to link in ASM - should be no optimization effects there.
+    - Write that, test it, measure it, and then figure out whether we can do better by saving fewer registers into our structure.
+Will the stack layout be the same with and without optimizations?
+
+http://www.ibiblio.org/gferg/ldp/GCC-Inline-Assembly-HOWTO.html#s2
+Crap, how do I pass arguments?
+
+Using extended asm might be the best shot.
+
+Only care about arguments on the first call.
+
+Why are we passing the address of running? Because that is the true function that we are calling?
+- but we don't really need it, do we?
+Need to figure out how to arrange the stack and registers to pass an argument.
+
+Could swapcontext be sufficient? 
+ - Is there actually a need for save and set context?
+ - would it simplify things if we didn't need to always swapcontext?
+Coming back, it could just go through the loop again, which would indicate that there is no need for saving and setting context.
+Let's write all three, and then reduce it if necessary.
+How do you set the register values for the initial context?
+
+How do you differentiate between setcontext with arguments vs without arguments?
+ how does pintos do that?
+ How does pintos handle this?
+
+It looks like pintos just lays the argument on the stack frame so that the function when invoked
+John said that you "return" to a particular place, rather than jump to it.
+
+How can I get the same mechanism for passing arguments and not passing arguments?
+ - How can we have a unified function?
+ - How does Golang handle argument passing?
+ - Is it just hardcoded?
+
+
+Also, how do you ensure that the first time you switch you have the arguments and the second time you switch, you do not have arguments?
+ - The return address is at a different location.
+
+
+On the golang side, the go functions do take an argument. So how are those passed in the initial call?
+Here's how the stack is aligned:
+     sp := newg.stack.hi - totalSize
+     spArg := sp
+      - the high end of the stack.
+      - newg.stack is where it actually is
+    runqput(_p_, newg, true)
+     - So what happens to the stack when the function unwinds?
+
+The argument is put at the top of the stack, effectively...
+ - Actually, we might be okay because the first invocation will have an IP at the function, which will try to pop off the arguments from the stack (those will be arranged onto the stack (or the registers) by the initial setup function)
+    - The second invocation will have an IP that doesn't adjust the stack.
+    - Will that simply work?
+Go just puts it onto the stack, which is fine, but I have to follow the standard convention for passing arguments.
+ - That is precisely why I need setcontext.
+ - But then how do I return to library using the same function?
+
+Swapcontext can always be a "return" but setcontext may need to be a jmp instruction as go does it.
+
+https://en.wikipedia.org/wiki/X86_calling_conventions#x86-64_calling_conventions
+ - It seems that the standard calling convention is that arguments are passed
+   through registers. Unfortunately, this may not work because I cannot prevent
+   gcc from changing registers when I make my function call.
+ - Thus, I will need to create my own calling convention and pull the argument
+   off the stack instead of registers, unless I want to jump directly instead
+   of using a call. 
+    - Or do I?
+
+I need to understand the difference between CALL and JMP.
+    http://stackoverflow.com/questions/32793117/assembly-call-vs-jmp
+    - It looks like I can just push my argument onto the stack and do a manual
+      jmp, assuming that the function will never return (it will instead jump
+      back to the library context using my code).
+ - But local variables may also be allocated onto the stack, so how do I handle that?
+
+The simplicity in Go is that they control the compiler, so they know what the function they are jumping to will look like.
+
+
+Perhaps thread_wrapper should be an asm routine that will receive the argument on the stack and then call the real function?
+
+https://www.cs.uaf.edu/2012/fall/cs301/lecture/09_24_call_and_ret.html
+
+In Capricio, they also have a thread wrapper to clean up when a thread's function finishes. - This seems to be a required component of all such systems.
+
+https://github.com/bernied/capriccio/blob/master/src/threads/threadlib.c
+
+      t->initial_func = func;
+      t->initial_arg = arg;
+      - How are these things used in the jump?
+
+The new_thread_wrapper directly calls current_thread function with the current htread argument, but my question is: How does it get the current thread?
+    - Or effectively, if current_thread is thread_local (ie Global to the current kernel thread), it may not need to pass an argument at all.
+ - However that function does at least appear to take an argument, which I find
+   a little strange, since it doesn't use that. Better check how that initial context switch works from the run queue.
+
+
+It appears to co_call leads to a pseudocode - where is the real asm exactly?
+    /home/hq6/Code/src_for_oss_projects/capriccio/src/threads/threadlib.c
+    - For various platforms, they never show the actual ASM code to do the jump?
+    - Need to find the original source.
+
+However, it does not appear that any real arguments are passed, so it seems strange that their thread wrapper function takes an argument. It seems that this may be a fake argument that allows the jump into the function to work more effectively.
+ - Ah grepping for that function does reveal some things
+     vi threads/coro-1.1.0.pre2/arch/x86-linux/coro.c
+
+ It looks like co_call is supposed to handle passing an argument to the
+ function, and the thread wrapper was intended to receive the argument, but in
+ practice only NULL is ever passed. Perhaps they tried and they failed?
+ - It is not really necessary to pass that argument though, as long as we always set running immediately before jumping to that function.
+
+Find the source code for swapcontext / setcontext in Linux. How exactly do they pass an argument in x86_64?
+
+--------------------------------------------------------------------------------
+Wed 06 Jan 2016 10:37:42 PM PST
+ - Recalling that John asked me to refactor the code into C++ style, which I can do after I get the dispatcher working.
+ - I may have mentioned at the last status update that I'd started that process.
+
+
+http://eli.thegreenplace.net/2011/09/06/stack-frame-layout-on-x86-64/
+http://zenit.senecac.on.ca/wiki/index.php/X86_64_Register_and_Instruction_Quick_Start
+https://gcc.gnu.org/onlinedocs/gcc/Basic-Asm.html
+https://gcc.gnu.org/onlinedocs/gcc/Extended-Asm.html#Clobbers
+
+Use the simplest thing that works. Do not use any extra features if you do not need them.
+
+Where are the notes from the last discussion with John?
+ - The discussion about whether we should just set up the library so that we control "main" and instead give some other main to the user program running under Arachne.
+ - I seem to have misplaced that particular set of notes somewhere.
+ - In the future may be best to use a single file and just use the timestamp tag...
+
+http://stackoverflow.com/questions/5485468/x86-assembly-pushl-popl-dont-work-with-error-suffix-or-operands-invalid
+ - Note that I'm using rax as scratch, but that may not be valid if rax is one of the callee-saved registers (should double-check that)
+
+--------------------------------------------------------------------------------
+Sun 10 Jan 2016 11:31:55 AM PST
+ - Crap. I don't think I'm debugging what I think I'm debugging if I cannot even find the actual library functions that are invoked by my client application...
+ 
+ - Oh, I see, gdb is confused by the asm. Need to si and disas
+ - first break  Arachne.cc:135
+--------------------------------------------------------------------------------
+Mon 11 Jan 2016 04:50:26 PM PST
+    x/20i $pc
+     - Cannot use disas because it tries to find function.
+
+--------------------------------------------------------------------------------
+Wed 13 Jan 2016 03:06:14 PM PST
+   si 7 
+
+It appears that swapcontext has failed.
+ - What do I expect to happen?
+ - That is the ultimate question
+ - I expect the PC to change on the return into the new thread's code.
+
+Where is the stack and where is the return address relative to the stack?
+Crap, it looks like swapcontext got inlined....
+ - Arguments did not get passed as expected.
+ - Fully assembly function in pintos seems to actually receive arguments.
+
+http://www.eecs.umich.edu/courses/eecs373/readings/Assembler.pdf
+
+Make a fake stack frame and use return
+ - High level bit is that I don't completely understand what return is doing yet.
+
+TODO: Watch a normal function call without optimizations and see how that one works
+
+mov src, dst in the AT&T syntax order
+
+    http://eli.thegreenplace.net/2012/01/03/understanding-the-x64-code-models
+
+I can do a jump, so the next steps are as follows
+    1) Save and try to jump back to the library context with setContext. DONE.
+    2) Figure out how to set up the stack correctly (make sure the pointer points at the correct end of the stack)
+        - In particular, the argument must get passed correctly to the target function.
+        - To get the argument off correctly, we have to know (a) where our C
+          variable is stored and (b) where our input is stored on the stack
+          relative to the pointer.
+    3) Figure out how to use ret correctly (maybe needs a leave first) // This is currently still open and not really working.
+    4) Save all the callee saved registers (unless the preamble to the function already does it)
+
+
+It appears that Pintos has a special struct that literally maps onto the stack
+frame, including function arguments, which makes things super convenient for the wrapper
+function, since it thinks it is a normal function with an argument.
+
+Can I do the same?
+I see no reason why not, as long as I know the correct stack layout.
+ - The only gotcha is that arguments are passed in registers in x64 land,
+   whereas the pintos calling convention has all arguments passed on the stack.
+ - A POD struct in C++ should be equivalent to a POD struct in C.
+
+Why can't I just use the `running` variable? It is TLS, no?
+ - I wanted to learn how to pass the argument, which is why I started doing it this way.
+ - But yes, in theory, I could just use running directly and avoid this whole mess of argument passing with registers.
+ - However, this is also a good sanity check for my stack layout understanding.
+ - Also, I could have made the thread start function itself a closure, thus avoiding the argument passing issue entirely
+
+Observations
+ - Now the return address in the thread library appears to be incorrect.
+ - It seems to be pointing back into the new thread, not the old thread. We
+   shall see which offset the correct address is stored at, and use that offset.
+ - The instruction pointer is stored on the top of the old stack which we kept around, so there may not be a need to store it separately.
+ - We should optimize this out for simplicity of code. This has been done.
+ - Now we shall try to execute the actual work function, which will of course segfault.
+ - It looks like callq does not do anything like what I think it does. It is very different than a jmp.
+    - Near calls and far calls galore
+ - It seems that the page range containing the function code does not have exec privileges, which may be why it is segfaulting.
+    - How did that happen?
+ - Compare a normal invocation vs my invocation.
+ - It appears that gcc is actually taking steps to protect the register $rdi
+   from my assembly instruction, by backing it up in the register rbx before my
+   code gets a chance to run.
+ - TLS may still be expensive, so perhaps I should implement that myself to make the dispatching faster.
+
+
+Crap, two user threads cause the program to hang. :(
+ - More bugs guaranteed
+ - Although this might just be a matter of not saving enough state.
+ret just ...didn't work.
+ - Now there might be a fight over `running`
+
+Thoughts on Return vs Jmp
+ - jmp gives you more fine-grained control in some sense, but it doesn't
+   necessarily make sense to use the value of esp from the previous call.
+ - However, ret lets you simple mimic the stack layout of the real function
+   call, and return exactly like a real function call without worrying as much
+   about the details such as exact esp value.
+
+
+Yield issues
+ - Is there any reason why yield would return to library instead of directly
+ swapping to the next thread? Perhaps later the library will want to implement
+ priorities and want to run that code on its own stack instead of a host
+ thread's stack.
+  - When we try to switch to the second thread, running.context is screwed up
+ - It appears that the stack is getting screwed up by the jumps. That may be
+what is causing incorrect arguments to be passed to the subsequent call to
+swapcontext.
+
+--------------------------------------------------------------------------------
+Thu 14 Jan 2016 02:26:01 PM PST
+
+Debugging with John (clarify of vision)
+ - John suggested changing the interface to just a stack pointer, since everything can in theory be stored on the stack during a context switch.
+ - Also, when he looked at Intel documentation, he seems to be able to click on the left at the index for instructions
+ - I need to use xpdf to view the thing, not evince. Then I get a table of contents.
+    http://askubuntu.com/questions/18495/which-pdf-viewer-would-you-recommend
+
+ - Switched to using only ret, and now getting a strange thread error which is
+   most likely the result of memory corruption since I do link in the
+   -lpthreads
+ - Do I actually need a data structure to hold the thread objects, or can I
+ simply detach them since I already have their queues?
+
+What happens when you yield and then fall off a cliff when you return from the yield?
+
+Expected Behavior:
+ - Yield should simply return, and eventually printEveryTwo would finish, which
+   would take us back to the libraryContext.
+
+Actual Behavior:
+ - We get the following error
+     terminate called after throwing an instance of 'std::system_error'
+       what():  Enable multithreading to use std::thread: Operation not permitted
+       http://stackoverflow.com/questions/17274032/c-threads-stdsystem-error-operation-not-permitted
+    - Still a segfault after two threads are up though
+
+ - John's idea of pooling them may make sense.
+ - Based on Pintos and The CS 110 project, it seems that there's no real reason
+   for the scheduler code to run in the library context. It can run directly on the call to yield.
+
+    - Yield is completely broken / incorrect right now. Need to fix it.
+    - At the very least you want it to be the case that UserContext is a
+    pointer or a **, because then when you store something the copy, it still
+    propogates to the real context / stack pointer.
+    - Need to watch for memory leaks if you are using a pointer, and make sure you recycle the WorkUnit memory.
+    - Maybe start out with a pool of these things and maintain the high water mark.
+Can return but swapcontext is working.
+--------------------------------------------------------------------------------
+
+Fri 15 Jan 2016 11:11:17 AM PST
+
+Two problems at the moment
+ 1) Somehow there is non-null stack on the other thread and I do not understand why yet.
+ 2) Threads without stacks cannot be run directly without initializing their stack.
+
+There are a couple of places where the code falls off a cliff
+ - If we try a yield and we cannot run the next thread beceause of lack of stack resources, then we fall off a cliff.
+ - It looks like the stack is broken, because we called setcontext instead of swapcontext.
+ - We need to think carefully about setcontext vs swapcontext
+    !! Decompose the problem of stack assignment and setup from the problem of switching context. 
+    - Need to reorganize the code to reflect this separation.
+    - We still do need to distinguish between threads with stacks and threads without and behave differently, but need to be very careful. 
+
+--------------------------------------------------------------------------------
+Tue 19 Jan 2016 10:51:48 PM PST
+
+Current Items
+ >> Find and fix all current bugs that prevent ArachneTestApp from working. DONE.
+ >> Fix swapcontext/setcontext to save the proper callee-saved registers on the stack based on the x64 calling convention. DONE.
+   - Remember to fix the way you set up the stack in the initialization as well.
+   && http://stackoverflow.com/questions/18024672/what-registers-are-preserved-through-a-linux-x86-64-function-call
+   && http://stackoverflow.com/questions/7902903/gcc-x64-function-calling
+ >> Fix ASM to avoid the possibility of gcc reordering
+   && https://gcc.gnu.org/onlinedocs/gcc/Basic-Asm.html#Basic-Asm
+ >> Change the API for swapcontext to be a single stack pointer only.
+ >> Set up the Git remotes
+ >> Run the benchmark that John asked for to see the ping.
+    - Currently we see 500 ns even without saving all the proper registers. // My code is too slow; uses STL.
+        - Or is this because I'm on my laptop with power saving?
+        - Or perhaps this is the lock overhead?
+    - Is this the TLS overhead we are seeing?
+    - Run the same benchmark on rc01 to see the difference.
+        - Still 200 ns
+        - Time to insert timetraces and use ttsum
+ - Identify the bottlenecks and eliminate them
+    - Add Time Tracing code
+    - TLS? STL? Dynamic memory allocation?
+ - Refactor code to be C++ style
+ - Get rid of the silly passing of the running argument.
+ - Decide whether you need savecontext; it doesn't seem like I do right now
+ !! After identifying the bottleneck on the STL, ask him whether I should write my own simple data structures or look for faster libraries.
+    - Most likely the answer will be "write your own"
+    - Use intrusive lists?
+    - Avoid dependencies on external?
+
