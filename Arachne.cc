@@ -172,12 +172,12 @@ void  __attribute__ ((noinline))  setcontext(UserContext *context) {
     // Load the stack pointer and restore the registers
     asm("movq (%rdi), %rsp");
 
-    asm("popq %rbp");
-    asm("popq %rbx");
-    asm("popq %r15");
-    asm("popq %r14");
-    asm("popq %r13");
-    asm("popq %r12");
+    asm("popq %rbp\n\t"
+        "popq %rbx\n\t"
+        "popq %r15\n\t"
+        "popq %r14\n\t"
+        "popq %r13\n\t"
+        "popq %r12");
 }
 
 /**
@@ -189,24 +189,22 @@ void  __attribute__ ((noinline))  setcontext(UserContext *context) {
 void  __attribute__ ((noinline))  swapcontext(UserContext *saved, UserContext *target) {
 
     // Save the registers and store the stack pointer
-    asm("pushq %r12");
-    asm("pushq %r13");
-    asm("pushq %r14");
-    asm("pushq %r15");
-    asm("pushq %rbx");
-    asm("pushq %rbp");
-
-    asm("movq  %rsp, (%rsi)");
+    asm("pushq %r12\n\t"
+        "pushq %r13\n\t"
+        "pushq %r14\n\t"
+        "pushq %r15\n\t"
+        "pushq %rbx\n\t"
+        "pushq %rbp\n\t"
+        "movq  %rsp, (%rsi)");
 
     // Load the stack pointer and restore the registers
-    asm("movq (%rdi), %rsp");
-
-    asm("popq %rbp");
-    asm("popq %rbx");
-    asm("popq %r15");
-    asm("popq %r14");
-    asm("popq %r13");
-    asm("popq %r12");
+    asm("movq (%rdi), %rsp\n\t"
+        "popq %rbp\n\t"
+        "popq %rbx\n\t"
+        "popq %r15\n\t"
+        "popq %r14\n\t"
+        "popq %r13\n\t"
+        "popq %r12");
 }
 
 /**
