@@ -3,6 +3,7 @@
 #include <deque>
 #include <thread>
 #include <mutex>
+#include "string.h"
 #include "Arachne.h"
 #include "SpinLock.h"
 
@@ -108,10 +109,15 @@ bool runThread(UserContext* saveContext) {
         // terminates instead of yielding.
         running->context.esp = (char*) running->stack + stackSize - 64; 
 
+
         // set up the stack to pass the single argument in this case.
         *(void**) running->context.esp = (void*) running;
         running->context.esp = (char*) running->context.esp - sizeof (void*);
         *(void**) running->context.esp = (void*) threadWrapper;
+
+        // Set up the initial stack with the registers. Currently we assume a reasonable initial value for the registers is 0.
+        memset(((void**) running->context.esp - 6), 0, 6*sizeof(void*));
+        running->context.esp = (char*) running->context.esp - 6*sizeof (void*);
 
         swapcontext(&running->context, saveContext);
 
@@ -163,8 +169,15 @@ void  __attribute__ ((noinline))  setcontext(UserContext *context) {
 //   asm("movq  8(%rdi), %rax"); // TODO: Switch to using push / pop instructions
 //   asm("movq  %rax, 0(%rsp)");
 
-   // Return to that address
+    // Load the stack pointer and restore the registers
     asm("movq (%rdi), %rsp");
+
+    asm("popq %rbp");
+    asm("popq %rbx");
+    asm("popq %r15");
+    asm("popq %r14");
+    asm("popq %r13");
+    asm("popq %r12");
 }
 
 /**
@@ -174,24 +187,26 @@ void  __attribute__ ((noinline))  setcontext(UserContext *context) {
  * Load from saved and store into target.
  */
 void  __attribute__ ((noinline))  swapcontext(UserContext *saved, UserContext *target) {
-//   asm("movq  %rsp, (%rdi)");
-//   asm("movq  (%rsp), %rax");
-//   asm("movq  %rax, 8(%rdi)");
-//
-//   // Load (need more registers but this is the high levle idea)
-//   asm("movq  0(%rdi), %rsp");
-//   asm("movq  8(%rdi), %rax");
-//   asm("movq  %rax, 0(%rsp)");
 
-//   asm("pushq %rax"); // Desired return pointer
-//   asm("pushq %rbp"); // former base pointer
-//   asm("movq %rsp, %rbp"); // move the current base pointer to the stack pointer.
-//   asm("ret");
+    // Save the registers and store the stack pointer
+    asm("pushq %r12");
+    asm("pushq %r13");
+    asm("pushq %r14");
+    asm("pushq %r15");
+    asm("pushq %rbx");
+    asm("pushq %rbp");
 
     asm("movq  %rsp, (%rsi)");
 
-    // Try manual setting stack and jump
+    // Load the stack pointer and restore the registers
     asm("movq (%rdi), %rsp");
+
+    asm("popq %rbp");
+    asm("popq %rbx");
+    asm("popq %r15");
+    asm("popq %r14");
+    asm("popq %r13");
+    asm("popq %r12");
 }
 
 /**
