@@ -113,7 +113,7 @@ bool runThread(UserContext* saveContext) {
         running->context.esp = (char*) running->context.esp - sizeof (void*);
         *(void**) running->context.esp = (void*) threadWrapper;
 
-        swapcontext(&running->context, &libraryContext);
+        swapcontext(&running->context, saveContext);
 
         // Resume right after here when user task finishes or yields
         // Check if the currently running user thread is finished and recycle
@@ -123,7 +123,7 @@ bool runThread(UserContext* saveContext) {
         }
     } else {
         // Resume where we left off
-        setcontext(&running->context);
+        swapcontext(&running->context, saveContext);
     }
     return true;
 }
@@ -162,15 +162,16 @@ void  __attribute__ ((noinline))  setcontext(UserContext *context) {
 //   asm("movq  0(%rdi), %rsp");
 //   asm("movq  8(%rdi), %rax"); // TODO: Switch to using push / pop instructions
 //   asm("movq  %rax, 0(%rsp)");
-   // Return to that address
 
-    // Try manual setting and jump
+   // Return to that address
     asm("movq (%rdi), %rsp");
 }
 
 /**
  * Save one set of registers and load another set.
  * %rdi, %rsi are the two arguments.
+ *
+ * Load from saved and store into target.
  */
 void  __attribute__ ((noinline))  swapcontext(UserContext *saved, UserContext *target) {
 //   asm("movq  %rsp, (%rdi)");
