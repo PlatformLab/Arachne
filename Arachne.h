@@ -17,6 +17,6 @@ void yield();
 
 void setcontext(void **context);
 void swapcontext(void **saved, void **target);
-
+void savecontext(void **target);
 }
 

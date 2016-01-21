@@ -6,6 +6,7 @@
 #include "string.h"
 #include "Arachne.h"
 #include "SpinLock.h"
+//#include "TimeTrace.h"
 
 namespace Arachne {
 
@@ -23,7 +24,7 @@ struct WorkUnit {
     // recycle the stacks.
     void* stack;
 };
-void threadWrapper(WorkUnit* work);
+void threadWrapper();
 
 const int stackSize = 1024 * 1024;
 const int stackPoolSize = 100;
@@ -33,8 +34,7 @@ unsigned numCores = 1;
 
 /**
  * Work to do on each thread. 
- * TODO(hq6): If vector is too slow, we may switch to a linked list.
- */
+ * TODO(hq6): If vector is too slow, we may switch to a linked list.  */
 static std::vector<std::deque<WorkUnit*> > workQueues;
 
 /**
@@ -69,7 +69,8 @@ void threadInit() {
 
     // Allocate stacks. Note that number of cores is actually number of
     // hyperthreaded cores, rather than necessarily real CPU cores.
-    numCores = std::thread::hardware_concurrency(); 
+    numCores = std::thread::hardware_concurrency() / 2; 
+    printf("numCores = %u\n", numCores);
     workQueueLocks = new SpinLock[numCores];
     for (unsigned int i = 0; i < numCores; i++) {
         workQueues.push_back(std::deque<WorkUnit*>());
@@ -111,14 +112,10 @@ bool runThread(void** saveStackPointer) {
 
 
         // set up the stack to pass the single argument in this case.
-        *(void**) running->sp = (void*) running;
-        running->sp = (char*) running->sp - sizeof (void*);
         *(void**) running->sp = (void*) threadWrapper;
 
-        // Set up the initial stack with the registers. Currently we assume a reasonable initial value for the registers is 0.
-        memset(((void**) running->sp - 6), 0, 6*sizeof(void*));
-        running->sp = (char*) running->sp - 6*sizeof (void*);
-
+        // Set up the initial stack with the registers from the current thread.
+        savecontext(&running->sp);
         swapcontext(&running->sp, saveStackPointer);
 
         // Resume right after here when user task finishes or yields
@@ -164,7 +161,7 @@ void threadMainFunction(int id) {
 /**
  * Load a new context without saving anything.
  */
-void  __attribute__ ((noinline))  setcontext(void **context) {
+void  __attribute__ ((noinline))  setcontext(void **saved) {
 //   asm("movq  0(%rdi), %rsp");
 //   asm("movq  8(%rdi), %rax"); // TODO: Switch to using push / pop instructions
 //   asm("movq  %rax, 0(%rsp)");
@@ -178,6 +175,25 @@ void  __attribute__ ((noinline))  setcontext(void **context) {
         "popq %r14\n\t"
         "popq %r13\n\t"
         "popq %r12");
+}
+
+/**
+ * Save a context of the currently executing process.
+ */
+void  __attribute__ ((noinline))  savecontext(void **target) {
+    // Load the new stack pointer, push the registers, and then restore the old stack pointer.
+
+    asm("movq %rsp, %r11\n\t"
+        "movq (%rdi), %rsp\n\t"
+        "pushq %r12\n\t"
+        "pushq %r13\n\t"
+        "pushq %r14\n\t"
+        "pushq %r15\n\t"
+        "pushq %rbx\n\t"
+        "pushq %rbp\n\t"
+        "movq  %rsp, (%rdi)\n\t"
+        "movq %r11, %rsp"
+        );
 }
 
 /**
@@ -214,8 +230,8 @@ void  __attribute__ ((noinline))  swapcontext(void **saved, void **target) {
  * Note that this function will be jumped to directly using setcontext, so
  * there might be some weirdness with local variables.
  */
-void threadWrapper(WorkUnit* work) {
-   asm("movq 8(%%rsp), %0": "=r" (work));
+void threadWrapper() {
+   WorkUnit *work = running; 
    work->workFunction();
    work->finished = true;
    __asm__ __volatile__("lfence" ::: "memory");
@@ -228,7 +244,9 @@ void threadWrapper(WorkUnit* work) {
  * yield.
  */
 void yield() {
+//    PerfUtils::TimeTrace::getGlobalInstance()->record("About to yield");
     workQueueLocks[kernelThreadId].lock();
+//    PerfUtils::TimeTrace::getGlobalInstance()->record("Acquired workQueueLock");
     if (workQueues[kernelThreadId].empty()) {
         workQueueLocks[kernelThreadId].unlock();
         return; // Yield is noop if there is no longer work to be done.
@@ -237,13 +255,18 @@ void yield() {
     void** saved = &running->sp;
 
     workQueues[kernelThreadId].push_back(running);
+//    PerfUtils::TimeTrace::getGlobalInstance()->record("Pushed running onto the queue");
     running = workQueues[kernelThreadId].front();
     workQueues[kernelThreadId].pop_front();
+//    PerfUtils::TimeTrace::getGlobalInstance()->record("Popped new from the queue");
     workQueueLocks[kernelThreadId].unlock();
+//    PerfUtils::TimeTrace::getGlobalInstance()->record("Unlocked the workQueueLock");
 
     // Loop until we find a thread to run, in case there are new threads that
     // do not have a thread.
+//    PerfUtils::TimeTrace::getGlobalInstance()->record("About to perform actual thread yield");
     while (!runThread(saved));
+//    PerfUtils::TimeTrace::getGlobalInstance()->record("Returned from thread yield");
 }
 
 /**
