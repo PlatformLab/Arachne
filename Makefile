@@ -2,11 +2,13 @@
 
 DEBUG=-g
 
+LIBS=-I../Arachne  -L../Arachne -lArachne  -I../PerfUtils -L../PerfUtils -lPerfUtils
+
 libArachne.a: Arachne.o
 	ar rcs $@ $<
 
 %.o: %.cc
-	g++  -Wall -Werror  -O2 $(DEBUG) -pthread -c -std=c++11  -o $@ $< 
+	g++  -Wall -Werror  -O2 $(DEBUG) $(LIBS) -c -std=c++11  -o $@ $<
 
 clean:
 	rm -f *.o *.a
