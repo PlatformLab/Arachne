@@ -491,4 +491,47 @@ Current Items
     - Most likely the answer will be "write your own"
     - Use intrusive lists?
     - Avoid dependencies on external?
+--------------------------------------------------------------------------------
+Wed 20 Jan 2016 02:56:38 PM PST
 
+Current Items
+ - Identify the bottlenecks and eliminate them
+>> It seems that TimeTrace overhead is much higher than it is in RAMCloud.
+   300 ns total overhead when we reduce the number of kernel threads.
+   - Without the traces, it only costs about 70-80ns, but we should run aggregates on that.
+ - Debugging strange segfault with FPU
+ - It looks like gdb uses AT&T syntax by default, which is src,dst instead of dst,src
+    - That would imply the current segfault is trying to write to a memory location that does not exist
+   && http://stackoverflow.com/questions/972602/att-vs-intel-syntax-and-limitations 
+ - This doesn't happen when I print to stdout, but it does happen when I use TimeTrace.
+ - One printf is enough to screw it up
+>> Remove the cute argument passing on the stack and switch to just using the (kernel) thread local state
+    - That appears to have fixed it, although it is not clear why.
+ - Two possible ideas for dealign with register initialization
+    1) Initialize them to the same values they were in for the parent thread.
+    2) Observe a direct call and see what they look like in the direct call, to see if we can find a pattern.
+ - Might want to discuss initialization with John
+>> Extend ttsum to handle a case when it is not RAMCloud logs but instead independent TimeTrace
+  - May want to add ttsum.py to the PerfUtils repository, since it is a useful combination
+  - Sanity check: If we remove the locks, are we down to where we expect?
+  - Does there exist a scheduler where we *never* need to acquire another core's lock?
+    - That is, can we live partition well enough that we never need to actually
+      rebalance?
+    - Lock free queue for each worker (representing a core)?
+
+ - At the moment, there isn't yet a need for them.
+  - The userland scheduler will eventually need to be able to change priorities on threads running on other cores though, so you will need them.
+
+ - We have written a dispatcher, not a scheduler yet.
+
+--------------------------------------------------------------------------------
+Thu 04 Feb 2016 01:45:01 AM PST
+
+
+1. John's question: What does the expression     `mov    %fs:0xffffffffffffff98,%rbx` mean?
+     http://stackoverflow.com/questions/10810203/what-is-the-fs-gs-register-intended-for 
+    - It appears to be used for thread local storage
+    - Once in yield to handle notRunning 
+    - Once in run-thread to check running->stack.
+
+2. Experiment with data structures to try to preserve a fast context switch if possible.
