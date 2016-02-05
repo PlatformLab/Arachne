@@ -88,59 +88,14 @@ void threadInit() {
 }
 
 /**
- * A utility function that runs the running user thread, and saves the current
- * stack pointer into saveStackPointer.
- *
- * If the running thread is a new thread and we have run out of stacks, we
- * simply put the running context back onto the queue, and return.
- */
-bool runThread(void** saveStackPointer) {
-    // No stack implies this thread has never run before
-    if (!running->stack) {
-        if (!stackPool.empty()) {
-            running->stack = stackPool.front();
-            stackPool.pop_front();
-        } else {
-            // Yield to someone else who does have a stack to run on
-            std::lock_guard<SpinLock> guard(workQueueLocks[kernelThreadId]);
-            workQueues[kernelThreadId].push_back(running);
-            return false;
-        }
-        // Wrap the function to restore control when the user thread
-        // terminates instead of yielding.
-        running->sp = (char*) running->stack + stackSize - 64; 
-
-
-        // set up the stack to pass the single argument in this case.
-        *(void**) running->sp = (void*) threadWrapper;
-
-        // Set up the initial stack with the registers from the current thread.
-        savecontext(&running->sp);
-        swapcontext(&running->sp, saveStackPointer);
-
-        // Resume right after here when user task finishes or yields
-        // Check if the currently running user thread is finished and recycle
-        // its stack if it is.
-        if (running->finished) {
-            stackPool.push_front(running->stack);
-        }
-    } else {
-        // Resume where we left off
-        swapcontext(&running->sp, saveStackPointer);
-    }
-    return true;
-}
-
-/**
  * Main function for a kernel-level thread participating in the thread pool. 
  * It first allocates a pool of stacks, and then polls its own work queue for
  * work to do.
  */
 void threadMainFunction(int id) {
     // Initialize stack pool for this thread
-    for (int i = 0; i < stackPoolSize; i++) {
+    for (int i = 0; i < stackPoolSize; i++)
         stackPool.push_back(malloc(stackSize));
-    }
 
     kernelThreadId = id;
 
@@ -154,7 +109,16 @@ void threadMainFunction(int id) {
             running = workQueues[kernelThreadId].front();
             workQueues[kernelThreadId].pop_front();
         }
-        runThread(&libraryStackPointer);
+
+        swapcontext(&running->sp, &libraryStackPointer);
+
+        // Resume right after here when user task finishes or yields
+        // Check if the currently running user thread is finished and recycle
+        // its stack if it is.
+        if (running->finished) {
+            stackPool.push_front(running->stack);
+            delete running;
+        }
     }
 }
 
@@ -265,7 +229,7 @@ void yield() {
     // Loop until we find a thread to run, in case there are new threads that
     // do not have a thread.
 //    PerfUtils::TimeTrace::getGlobalInstance()->record("About to perform actual thread yield");
-    while (!runThread(saved));
+    swapcontext(&running->sp, saved);
 //    PerfUtils::TimeTrace::getGlobalInstance()->record("Returned from thread yield");
 }
 
@@ -273,13 +237,27 @@ void yield() {
  * Create a WorkUnit for the given task, on the same queue as the current
  * function.
  */
-void createTask(std::function<void()> task) {
-    WorkUnit *work = new WorkUnit;
+int createTask(std::function<void()> task) {
+    std::lock_guard<SpinLock> guard(workQueueLocks[kernelThreadId]);
+    if (stackPool.empty()) return -1;
+
+    WorkUnit *work = new WorkUnit; // TODO: Get rid of the new here.
     work->finished = false;
     work->workFunction = task;
-    work->stack = NULL;
-    std::lock_guard<SpinLock> guard(workQueueLocks[kernelThreadId]);
+
+    work->stack = stackPool.front();
+    stackPool.pop_front();
     workQueues[kernelThreadId].push_back(work);
+
+    // Wrap the function to restore control when the user thread
+    // terminates instead of yielding.
+    work->sp = (char*) work->stack + stackSize - 64; 
+    // set up the stack to pass the single argument in this case.
+    *(void**) work->sp = (void*) threadWrapper;
+
+    // Set up the initial stack with the registers from the current thread.
+    savecontext(&work->sp);
+    return 0;
 }
 
 /**
