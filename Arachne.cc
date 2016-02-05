@@ -43,7 +43,7 @@ static std::vector<std::deque<WorkUnit*> > workQueues;
 static SpinLock *workQueueLocks;
 
 thread_local int kernelThreadId;
-thread_local std::deque<void*> stackPool;
+static std::vector<std::deque<void*> > stackPool;
 
 /**
  * These two values store the place in the kernel thread to return to when a
@@ -75,10 +75,16 @@ void threadInit() {
     for (unsigned int i = 0; i < numCores; i++) {
         workQueues.push_back(std::deque<WorkUnit*>());
 
+        // Initialize stack pool for each kernel thread
+        stackPool.push_back(std::deque<void*>());
+        for (int j = 0; j < stackPoolSize; j++)
+            stackPool[i].push_back(malloc(stackSize));
+
         // Leave one thread for the main thread
         if (i != numCores - 1) {
             std::thread(threadMainFunction, i).detach();
         }
+
     }
 
     // Set the kernelThreadId for the main thread
@@ -93,10 +99,6 @@ void threadInit() {
  * work to do.
  */
 void threadMainFunction(int id) {
-    // Initialize stack pool for this thread
-    for (int i = 0; i < stackPoolSize; i++)
-        stackPool.push_back(malloc(stackSize));
-
     kernelThreadId = id;
 
     // Poll for work on my queue
@@ -116,7 +118,7 @@ void threadMainFunction(int id) {
         // Check if the currently running user thread is finished and recycle
         // its stack if it is.
         if (running->finished) {
-            stackPool.push_front(running->stack);
+            stackPool[kernelThreadId].push_front(running->stack);
             delete running;
         }
     }
@@ -240,14 +242,14 @@ void yield() {
 int createTask(std::function<void()> task, int coreId) {
     if (coreId == -1) coreId = kernelThreadId;
     std::lock_guard<SpinLock> guard(workQueueLocks[coreId]);
-    if (stackPool.empty()) return -1;
+    if (stackPool[coreId].empty()) return -1;
 
     WorkUnit *work = new WorkUnit; // TODO: Get rid of the new here.
     work->finished = false;
     work->workFunction = task;
 
-    work->stack = stackPool.front();
-    stackPool.pop_front();
+    work->stack = stackPool[coreId].front();
+    stackPool[coreId].pop_front();
     workQueues[coreId].push_back(work);
 
     // Wrap the function to restore control when the user thread
