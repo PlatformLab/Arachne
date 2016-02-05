@@ -237,8 +237,9 @@ void yield() {
  * Create a WorkUnit for the given task, on the same queue as the current
  * function.
  */
-int createTask(std::function<void()> task) {
-    std::lock_guard<SpinLock> guard(workQueueLocks[kernelThreadId]);
+int createTask(std::function<void()> task, int coreId) {
+    if (coreId == -1) coreId = kernelThreadId;
+    std::lock_guard<SpinLock> guard(workQueueLocks[coreId]);
     if (stackPool.empty()) return -1;
 
     WorkUnit *work = new WorkUnit; // TODO: Get rid of the new here.
@@ -247,7 +248,7 @@ int createTask(std::function<void()> task) {
 
     work->stack = stackPool.front();
     stackPool.pop_front();
-    workQueues[kernelThreadId].push_back(work);
+    workQueues[coreId].push_back(work);
 
     // Wrap the function to restore control when the user thread
     // terminates instead of yielding.

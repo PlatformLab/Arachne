@@ -4,7 +4,7 @@
 
 namespace  Arachne {
 
-int createTask(std::function<void()> task);
+int createTask(std::function<void()> task, int coreId = -1);
 void threadMainFunction(int id);
 void threadInit();
 void mainThreadJoinPool();
