@@ -534,4 +534,13 @@ Thu 04 Feb 2016 01:45:01 AM PST
     - Once in yield to handle notRunning 
     - Once in run-thread to check running->stack.
 
-2. Experiment with data structures to try to preserve a fast context switch if possible.
+2. Get rid of stackless threads at the Arachne bottom layer.
+3. Make the number of kernel threads dynamic.
+4. Experiment with data structures to try to preserve a fast context switch if possible.
+ - Also two layers of abstraction
+    - At the thread management layer, we're pushing the stackless threads concept up.
+    - Assume threads have stacks and reject creation of you don't have a stack.
+5. Give meaningful names to different files inside Arachne. For example, the current thing is a dispatcher, so dispatcher.cc might be a better name than Arachne.cc.
+
+
+
