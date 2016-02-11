@@ -2,6 +2,7 @@
 
 namespace Arachne {
 
+    const int CACHE_LINE_SIZE = 64;
 /**
  * A simple SpinLock without any statistics.
  */
@@ -25,5 +26,8 @@ class SpinLock {
   private:
     // Implements the lock: false means free, true means locked
     std::atomic<bool> state;
+    
+    // Pad this data structure out to a cache line size to mitigate false sharing.
+    char cachePad[CACHE_LINE_SIZE-sizeof(state)];
 };
 }
