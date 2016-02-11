@@ -534,13 +534,109 @@ Thu 04 Feb 2016 01:45:01 AM PST
     - Once in yield to handle notRunning 
     - Once in run-thread to check running->stack.
 
-2. Get rid of stackless threads at the Arachne bottom layer.
-3. Make the number of kernel threads dynamic.
-4. Experiment with data structures to try to preserve a fast context switch if possible.
- - Also two layers of abstraction
+2. Get rid of stackless threads at the Arachne bottom layer. DONE.
+    - Two layers of abstraction
     - At the thread management layer, we're pushing the stackless threads concept up.
     - Assume threads have stacks and reject creation of you don't have a stack.
+3. Experiment with data structures to try to preserve a fast context switch if possible.
+    - Now the locks appear to be the bottleneck. Why are uncontended spinlocks
+      so expensive?
+      - Just to make absolute sure it is not cross-core cache traffic, let's
+        switch back to using the main thread.
+            - That is already switched.
+4. Make the number of kernel threads dynamic and changeable.
 5. Give meaningful names to different files inside Arachne. For example, the current thing is a dispatcher, so dispatcher.cc might be a better name than Arachne.cc.
+6. Refactor Arachne's interaction with applications so that it defines main and applications replace their main with AppMain().
 
+// Fix notes still
+--------------------------------------------------------------------------------
+Fri 05 Feb 2016 02:19:40 AM PST
 
+0. Request for feedback on the talk.
+0.2 Discuss meeting with Huawei and what we got out of that - event-ripping, dedicated queues. Why we can hope to do better in many ways.
+0.3 - Ask about Rpc Levels again - can those be translated directly to priorities in the user threading scheme?
 
+1. Discuss feedback from industry from the poster
+     - FB thinks there are cycles that could be used, but wants to keep utilization low regardless
+     - People are concerned about usability
+
+     Kicking background jobs out - and killing them
+      - OS tells the background cores are gone
+      - Background jobs may be able to tell their distributed scheduler that
+        they are about to lose cores.
+    - Having the knowledge of resource assignments can help
+      "Our app developers don't know anything about systems"
+Only some need to know...
+Wouldn't want every developer to know
+
+Priorities
+
+How we compute the levels and how we use the levels
+ - Every RPC has a level
+>> An Rpc at level n only invokes Rpcs less than n
+>> Specify total concurrency level
+    - As Rpcs come in, we process them in FIFO order until we hit our limit
+    - At that point, we're going to go up more until we have 1 request for every level.
+>> We only start a new request if level number is lower than any running request
+ - Rpc levels can be done above level of Arachne
+
+We may not want reads to starve writes
+ - May want to give backup requests, and pings higher priority.
+ - Other bookkeeping operations - index updates may want to have higher priorities.
+ - Are we still @ risk of deadlock with 100 RPC's queued up
+ - If any request uses a 1 MB stack, then eventually every stack may grow to that MB
+ - Do the calculation based on the largest size a thread would actually need.
+ - Buffers may be 2K
+ - We could easily track stack usage  by using sentinel values.
+ - Every Rpc has at least 1 or 2 buffers
+ - If a server is issuing 60 
+ - For cases where we need a big stack.
+ - We need sentinels in the stack to check and crash if overflow.
+ - 200k size stacks.
+ - 5000 stacks
+ - 1000 stacks is probably okay
+Can we get rid of Rpc levels entirely?
+ - Does priority need to be above Arachne?
+
+Time to think about exactly what the API looks
+ - API between Arachne and the higher level application software
+    - RC WorkerManager
+      - Does the higher level software create a bunch of threads  and let Arachne schedule them?
+      - Or Just-in-time thread creation where arachne tells the higher level software it has spare core capacity?
+ - Write out exactly what each of those APIs look like
+ - Think about Arachne needing to negotiate with the kernel
+ - Two layers of API - Arachne and OS, and Arachne and application
+
+2. Removed the stackless threads
+3. Context switch with locks and queues down to 28 ns from 150+ before, due to eliminating false sharing on locks.
+    ==> optimism
+    - Not sure if we have arrays of locks in RAMCloud that could benefit from this fix.
+
+How often does my queue need to interact with other threads?
+ - If those interactions are uncommon, use a separate mechanism for that.
+ - Suppose I have a local queue and a special variable
+ - Check the one variable - If I have other work, then the variable 
+ - Variable will be in the same cache line as the Work
+     - Indicate 
+ - Separate fast path from the exception path.
+
+Balance load without expensive locking.
+Context switch blindingly fast.
+
+For fast start/finish threads, always pay for global synchronizatoin
+ - Otherwise for yielding threads we want to do fast context switch.
+
+Stack magic is like pintos
+
+--------------------------------------------------------------------------------
+Wed 10 Feb 2016 03:37:21 PM PST
+
+1. API Design
+    - API between Arachne and higher level application software
+        - API 1: higher layer software creates a bunch of threads with priorities and Arachne schedules them based on its knowledge of cores
+        - API 2: WorkerManager does JIT thread creation when Arachne upcalls to tell it that it has spare cores.
+    - API between Arachne and Kernel
+
+2. Implementation to be faster than 28 ns for a context switch with a variable indicating whether we are busy or not.
+
+3. Special mechanism for large stacks.
