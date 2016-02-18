@@ -239,7 +239,7 @@ void yield() {
  * Create a WorkUnit for the given task, on the same queue as the current
  * function.
  */
-int createTask(std::function<void()> task, int coreId) {
+int createThread(std::function<void()> task, int coreId) {
     if (coreId == -1) coreId = kernelThreadId;
     std::lock_guard<SpinLock> guard(workQueueLocks[coreId]);
     if (stackPool[coreId].empty()) return -1;
@@ -263,11 +263,6 @@ int createTask(std::function<void()> task, int coreId) {
     return 0;
 }
 
-
-template<typename _Callable, typename... _Args>
-    void createThread(int coreId, _Callable&& __f, _Args&&... __args) {
-    return createTask([=]() { f(__args...);});
-}
 
 /**
  * This is a special function to allow the main thread to join the thread pool
