@@ -7,7 +7,7 @@ LIBS=-I../Arachne  -L../Arachne -lArachne  -I../PerfUtils -L../PerfUtils -lPerfU
 libArachne.a: Arachne.o
 	ar rcs $@ $<
 
-Arachne.o: SpinLock.h
+Arachne.o: SpinLock.h Arachne.h
 
 %.o: %.cc
 	g++  -Wall -Werror  -O2 $(DEBUG) $(LIBS) -c -std=c++11  -o $@ $<
