@@ -263,6 +263,12 @@ int createTask(std::function<void()> task, int coreId) {
     return 0;
 }
 
+
+template<typename _Callable, typename... _Args>
+    void createThread(int coreId, _Callable&& __f, _Args&&... __args) {
+    return createTask([=]() { f(__args...);});
+}
+
 /**
  * This is a special function to allow the main thread to join the thread pool
  * after seeding initial tasks for itself and possibly other threads.

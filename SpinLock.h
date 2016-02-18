@@ -2,7 +2,7 @@
 
 namespace Arachne {
 
-    const int CACHE_LINE_SIZE = 64;
+const int CACHE_LINE_SIZE = 64;
 /**
  * A simple SpinLock without any statistics.
  */

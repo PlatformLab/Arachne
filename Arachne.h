@@ -4,7 +4,13 @@
 
 namespace  Arachne {
 
-int createTask(std::function<void()> task, int coreId = -1);
+// Cannot do default arguments if we have varargs.
+template<typename _Callable, typename... _Args>
+    int createThread(int coreId, _Callable&& __f, _Args&&... __args);
+
+// Preserve closure style as well, for those who do not want to read disgusting templates.
+int createTask(std::function<void()> task, int coreId);
+
 void threadMainFunction(int id);
 void threadInit();
 void mainThreadJoinPool();
