@@ -615,8 +615,8 @@ Time to think about exactly what the API looks
 How often does my queue need to interact with other threads?
  - If those interactions are uncommon, use a separate mechanism for that.
  - Suppose I have a local queue and a special variable
- - Check the one variable - If I have other work, then the variable 
- - Variable will be in the same cache line as the Work
+ - Check the one variable - If I have other work, then the variable will change.
+ - Variable will be in the same cache line as the WorkQueueLock
      - Indicate 
  - Separate fast path from the exception path.
 
@@ -638,5 +638,150 @@ Wed 10 Feb 2016 03:37:21 PM PST
     - API between Arachne and Kernel
 
 2. Implementation to be faster than 28 ns for a context switch with a variable indicating whether we are busy or not.
+    - In particular, the thread_yield mechanism only needs to read the variable
+    and does not need to write it.
+        - If any other thread needs to touch the queue,
+   - I do not see how this is better than the SpinLock, which is also
+     cache-resident if there is no contention from other cores.
 
 3. Special mechanism for large stacks.
+
+--------------------------------------------------------------------------------
+Mailbox queue.
+
+Dual-main approach
+ - John says we should pick one and do one.
+ - Doing two things.
+
+Let's NOT take over main.
+
+
+int initial_thread_func() {
+// Create tasks, spawn other threads
+}
+int main() {
+    Arachne::Arachne libraryInit(initial_thread_func);
+}
+
+int main() {
+    Arachne::Arachne library(numCoresNeeded);
+    // Create tasks, spawn other threads
+
+    library.callMeAtEndOfMain(); // must be last call
+}
+
+Does Arachne start up more than one core at the start of execution?
+
+How do I get acess to a global Arachne object everywhere?
+ - Does it make sense to have an Arachne object?
+ - Or just static method?
+
+
+Great if the API looks like std::thread().
+
+
+int main() {
+//    Arachne::Arachne library(numCoresNeeded);
+    // Arachne::createThread
+
+    // This syntax feels simpler than asking the user to write a closure /
+    // lambda function
+    Arachne::thread firstArachneThread(func, arg1, arg2,...); // Also, the first created thread shouldaalso create the library. Cores can be allocated on demand.
+    Arachne::thread secondArachneThread(func, arg1, arg2,...);
+    ...
+    Arachne::takeMyThread(); // must be last call
+}
+
+TODO: 
+ - Look at std::thread
+ - Assume for starters that we should do everything in that library
+ - May need to look at implementation of the thread library.
+
+Should we just them Arachne threads?
+ "Task"
+
+ One thread per request.
+ Ambiguity between the thing we want to do, vs the thing that is doing the work.
+
+ ArachneThread
+
+TODO: Suppose I said the word task, what does that connote to you?
+TODO: If I said a task is the same as a thread, would that feel natural to you?
+
+Linux threads instead of kernel threads to distinguish.
+
+--------------------------------------------------------------------------------
+Wed 17 Feb 2016 12:49:41 AM PST
+
+>> The people I asked in lab seemed to think task is not quite right, and are
+>> in favor of fiber. I do not mind calling them fibers, but I'll stick with
+>> ArachneThread for now.
+
+Go over a better API.
+Is there anything else needed in the user API to match with std::thread?
+Kernel API.
+
+0. Pinning other threads in Linux. Need to use a pthread call on the underlying handle, but haven't tested this yet.
+    http://man7.org/linux/man-pages/man3/pthread_setaffinity_np.3.html
+    http://stackoverflow.com/questions/13134186/c11-stdthreads-vs-posix-threads
+
+1. Naming of fiber vs task. ArachneThreads.
+2. New kernel API. Start by discussing the one that we had last week as a
+   reminder so we can explain why we're doing the new one.
+3. User API addition on top of std::thread and differences with std::thread. (ie, no detach).
+    - John wants to be close to std::thread library to reduce the need for arguments with others for not using it.
+    - Also if you return a thread pointer, how do you know whether the pointer is still valid?
+        - Might as well have a thread ID.
+    - Does thread::join return a value or not?
+        - No, it returns void, so you can just be a no-opt when the thread has already exited.
+
+3.5. gcc bug with trying to capturing arguments and lambdas, worked around with std::bind.
+
+4. Read parts source code for std::thread library.
+    - We should be able to use lock_guard directly.
+    - Learn about perfect forwarding and std::forward and lvalue vs rvalue references, since that is how arguments are handled in std::thread
+        /home/hq6/Code/src_for_oss_projects/gcc/libstdc++-v3/include/std/thread
+        /home/hq6/Code/src_for_oss_projects/gcc/libstdc++-v3/src/c++11/thread.cc
+        /home/hq6/Code/src_for_oss_projects/gcc/libgcc/gthr-posix.h 
+        http://pubs.opengroup.org/onlinepubs/009695399/functions/pthread_detach.html
+    _M_start_thread(_S_make_state(
+              std::__bind_simple(std::forward<_Callable>(__f),
+                             std::forward<_Args>(__args)...)),
+                                    __depend);
+ >>Implement the same semantic for Arachne function forwarding.
+ - There is a thread object std::thread returned to the user (essentially a
+   glorified handle), but it is decoupled from the underlying internal thread
+   management and that is why we do not have a null pointer problem.
+
+// Internal thread state should be allocated from a pool, whereas the external thread layer might just be a stack object. 
+    The question is, be there any reason for the user thread state to be either non-moveable or non-copyable?
+    - std::thread is moveable but not copyable.
+    - Still need to think about this issue.
+ - How does the external state check if the internal state is still active?
+ - ie, to see if it has completed.
+ - That's the reason for the detach, I suspect because otherwise the internal state object has to stay alive?
+
+Move-constructable (rvalue reference from genuine rvalue or std::move) means a transfer of underlying resources so creation of one requires effective destruction  of another.
+Copy-constructable (lvalue reference) implies a deep copy.
+--------------------------------------------------------------------------------
+
+Wed 24 Feb 2016 12:04:35 AM PST
+
+1. Discuss the Google offer. Discuss Slicer and Slicer Memory. Limitations and ambitions. Architectural changes. Application Hints.
+    - Tradeoffs of possibly expanding my thesis.
+    - MSR systems group 
+    // This has been discussed. I will defer the offer until I submit a paper for Arachne to  SOSP.
+
+2. Measurement of thread creation overhead in Arachne today.
+ - When we measure thread creation time, there are actually two separate overheads that we should measure.
+      1. Thread creation overhead within the creating function. e.g. if we had // compare with std::thread
+         the stack creation in the dispatch thread every few ms.
+        - Let's do this first.
+      2. Latency from createThread to thread actually running.
+      3. Time to start and then join a thread (divide-by-n test)
+        - This can be measured with create-join, and also with n-create n-join.
+
+3. Discuss the API run-through
+    - Thoughts on whether we could sustain this every 10 ms.
+
+
