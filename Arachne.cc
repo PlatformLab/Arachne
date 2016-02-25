@@ -27,7 +27,7 @@ struct WorkUnit {
 void threadWrapper();
 
 const int stackSize = 1024 * 1024;
-const int stackPoolSize = 100;
+const int stackPoolSize = 1000;
 
 InitializationState initializationState = NOT_INITIALIZED;
 unsigned numCores = 1;
