@@ -7,7 +7,7 @@
 #include "Arachne.h"
 #include "SpinLock.h"
 #include "Cycles.h"
-//#include "TimeTrace.h"
+#include "TimeTrace.h"
 
 namespace Arachne {
 
@@ -53,7 +53,6 @@ static std::vector<std::deque<WorkUnit*> > sleepQueues;
  * Protect each work queue.
  */
 static SpinLock *workQueueLocks;
-
 thread_local int kernelThreadId;
 static std::vector<std::deque<void*> > stackPool;
 
@@ -257,6 +256,7 @@ void checkSleepQueue() {
     // Assume sorted and move it off the list
     while (sleepQueue.size() > 0 && sleepQueue[0]->wakeUpTimeInCycles < currentCycles) {
         // Move onto the ready queue
+        PerfUtils::TimeTrace::getGlobalInstance()->record("Found a thread to awaken inside the library");
         workQueues[kernelThreadId].push_back(sleepQueue[0]);
         sleepQueue.pop_front();  
     }
@@ -285,10 +285,10 @@ void sleep(uint64_t ns) {
             sleepQueue.push_back(running);
         }
     }
-
+        
+    PerfUtils::TimeTrace::getGlobalInstance()->record("Just went to sleep, about to find more work.");
     checkSleepQueue();
 
-    // TODO: Behave differently if there is work to be done vs not. If no work, then need to change to library instead.
     workQueueLocks[kernelThreadId].lock();
     if (workQueues[kernelThreadId].empty()) {
         workQueueLocks[kernelThreadId].unlock();
