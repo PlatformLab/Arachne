@@ -133,6 +133,7 @@ void threadMainFunction(int id) {
         if (running->finished) {
             stackPool[kernelThreadId].push_front(running->stack);
             delete running;
+            PerfUtils::TimeTrace::getGlobalInstance()->record("A thread has just died.");
         }
     }
 }
@@ -256,7 +257,6 @@ void checkSleepQueue() {
     // Assume sorted and move it off the list
     while (sleepQueue.size() > 0 && sleepQueue[0]->wakeUpTimeInCycles < currentCycles) {
         // Move onto the ready queue
-        PerfUtils::TimeTrace::getGlobalInstance()->record("Found a thread to awaken inside the library");
         workQueues[kernelThreadId].push_back(sleepQueue[0]);
         sleepQueue.pop_front();  
     }
@@ -286,7 +286,6 @@ void sleep(uint64_t ns) {
         }
     }
         
-    PerfUtils::TimeTrace::getGlobalInstance()->record("Just went to sleep, about to find more work.");
     checkSleepQueue();
 
     workQueueLocks[kernelThreadId].lock();
