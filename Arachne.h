@@ -17,6 +17,7 @@ void threadMainFunction(int id);
 void threadInit();
 void mainThreadJoinPool();
 void yield();
+void sleep(uint64_t ns);
 
 
 // The following data structures and functions are  technically part of the
@@ -26,5 +27,6 @@ void yield();
 void setcontext(void **context);
 void swapcontext(void **saved, void **target);
 void savecontext(void **target);
+void checkSleepQueue();
 }
 

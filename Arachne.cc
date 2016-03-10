@@ -6,9 +6,12 @@
 #include "string.h"
 #include "Arachne.h"
 #include "SpinLock.h"
+#include "Cycles.h"
 //#include "TimeTrace.h"
 
 namespace Arachne {
+
+using PerfUtils::Cycles;
 
 enum InitializationState {
     NOT_INITIALIZED,
@@ -23,6 +26,10 @@ struct WorkUnit {
     // whether this is new or old work, and also for making it easier to
     // recycle the stacks.
     void* stack;
+
+    // When a thread enters the sleep queue, it will keep its wakup time
+    // here.
+    uint64_t wakeUpTimeInCycles;
 };
 void threadWrapper();
 
@@ -36,6 +43,11 @@ unsigned numCores = 1;
  * Work to do on each thread. 
  * TODO(hq6): If vector is too slow, we may switch to a linked list.  */
 static std::vector<std::deque<WorkUnit*> > workQueues;
+
+/**
+ * Threads that are sleeping and waiting 
+ */
+static std::vector<std::deque<WorkUnit*> > sleepQueues;
 
 /**
  * Protect each work queue.
@@ -74,6 +86,7 @@ void threadInit() {
     workQueueLocks = new SpinLock[numCores];
     for (unsigned int i = 0; i < numCores; i++) {
         workQueues.push_back(std::deque<WorkUnit*>());
+        sleepQueues.push_back(std::deque<WorkUnit*>());
 
         // Initialize stack pool for each kernel thread
         stackPool.push_back(std::deque<void*>());
@@ -103,6 +116,7 @@ void threadMainFunction(int id) {
 
     // Poll for work on my queue
     while (true) {
+        checkSleepQueue();
         // Need to lock the queue with a SpinLock
         { // Make the guard go out of scope as soon as it is no longer needed.
             std::lock_guard<SpinLock> guard(workQueueLocks[kernelThreadId]);
@@ -210,6 +224,7 @@ void threadWrapper() {
  * yield.
  */
 void yield() {
+    checkSleepQueue();
 //    PerfUtils::TimeTrace::getGlobalInstance()->record("About to yield");
     workQueueLocks[kernelThreadId].lock();
 //    PerfUtils::TimeTrace::getGlobalInstance()->record("Acquired workQueueLock");
@@ -233,6 +248,63 @@ void yield() {
 //    PerfUtils::TimeTrace::getGlobalInstance()->record("About to perform actual thread yield");
     swapcontext(&running->sp, saved);
 //    PerfUtils::TimeTrace::getGlobalInstance()->record("Returned from thread yield");
+}
+void checkSleepQueue() {
+    uint64_t currentCycles = Cycles::rdtsc();
+    auto& sleepQueue = sleepQueues[kernelThreadId];
+
+    workQueueLocks[kernelThreadId].lock();
+    // Assume sorted and move it off the list
+    while (sleepQueue.size() > 0 && sleepQueue[0]->wakeUpTimeInCycles < currentCycles) {
+        // Move onto the ready queue
+        workQueues[kernelThreadId].push_back(sleepQueue[0]);
+        sleepQueue.pop_front();  
+    }
+    workQueueLocks[kernelThreadId].unlock();
+}
+
+// Sleep for at least the argument number of ns.
+// We keep in core-resident to avoid cross-core cache coherency concerns.
+// It must be the case that this function returns after at least ns have
+// passed.
+void sleep(uint64_t ns) {
+    running->wakeUpTimeInCycles = Cycles::rdtsc() + Cycles::fromNanoseconds(ns);
+
+    auto& sleepQueue = sleepQueues[kernelThreadId];
+    // TODO(hq6): Sort this by wake-up time using possibly binary search
+    if (sleepQueue.size() == 0) sleepQueue.push_back(running);
+    else {
+        auto it = sleepQueue.begin();
+        for (; it != sleepQueue.end() ; it++)
+            if ((*it)->wakeUpTimeInCycles > running->wakeUpTimeInCycles) {
+                sleepQueue.insert(it, running);
+                break;
+            }
+        // Insert now
+        if (it == sleepQueue.end()) {
+            sleepQueue.push_back(running);
+        }
+    }
+
+    checkSleepQueue();
+
+    // TODO: Behave differently if there is work to be done vs not. If no work, then need to change to library instead.
+    workQueueLocks[kernelThreadId].lock();
+    if (workQueues[kernelThreadId].empty()) {
+        workQueueLocks[kernelThreadId].unlock();
+        // Swap into library context, somehow get control again cleanly after.
+        // Same scenario as nothing on the ready queue.
+        swapcontext(&libraryStackPointer, &running->sp);
+        // Return after swapcontext returns because that means we're supposed to run
+        return;
+    }
+
+    // There is work to do, so we switch to the new work.
+    void** saved = &running->sp;
+    running = workQueues[kernelThreadId].front();
+    workQueues[kernelThreadId].pop_front();
+    workQueueLocks[kernelThreadId].unlock();
+    swapcontext(&running->sp, saved);
 }
 
 /**
