@@ -313,15 +313,19 @@ void sleep(uint64_t ns) {
 int createThread(std::function<void()> task, int coreId) {
     if (coreId == -1) coreId = kernelThreadId;
     std::lock_guard<SpinLock> guard(workQueueLocks[coreId]);
+    PerfUtils::TimeTrace::getGlobalInstance()->record("Acquired workQueueLock");
     if (stackPool[coreId].empty()) return -1;
+    PerfUtils::TimeTrace::getGlobalInstance()->record("Checked stackPool");
 
     WorkUnit *work = new WorkUnit; // TODO: Get rid of the new here.
     work->finished = false;
     work->workFunction = task;
+    PerfUtils::TimeTrace::getGlobalInstance()->record("Allocated WorkUnit and initialized");
 
     work->stack = stackPool[coreId].front();
     stackPool[coreId].pop_front();
     workQueues[coreId].push_back(work);
+    PerfUtils::TimeTrace::getGlobalInstance()->record("Added work to workQueue");
 
     // Wrap the function to restore control when the user thread
     // terminates instead of yielding.
