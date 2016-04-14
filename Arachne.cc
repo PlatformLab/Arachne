@@ -7,7 +7,7 @@
 #include "Arachne.h"
 #include "SpinLock.h"
 #include "Cycles.h"
-#include "TimeTrace.h"
+#include "CacheTrace.h"
 
 namespace Arachne {
 
@@ -20,9 +20,17 @@ enum InitializationState {
 };
 
 struct WorkUnit {
+    // The main function of the user thread.
     std::function<void()> workFunction;
+
+    // This is a pointer to the lowest valid memory address in the user thread stack.
     void* sp;
-    bool finished; // The top of the stack of the current workunit, used for both indicating
+
+    // This flag is set on completion of a thread's main function. When set,
+    // the thread dispatcher can reclaim the stack for this thread.
+    bool finished; 
+    
+    // The top of the stack of the current workunit, used for both indicating
     // whether this is new or old work, and also for making it easier to
     // recycle the stacks.
     void* stack;
@@ -119,8 +127,10 @@ void threadMainFunction(int id) {
         // Need to lock the queue with a SpinLock
         { // Make the guard go out of scope as soon as it is no longer needed.
             std::lock_guard<SpinLock> guard(workQueueLocks[kernelThreadId]);
+            // Record a time here
             if (workQueues[kernelThreadId].empty()) continue;
-
+            // Trace it here only if there was actual work in the queue.
+             
             running = workQueues[kernelThreadId].front();
             workQueues[kernelThreadId].pop_front();
         }
@@ -133,7 +143,7 @@ void threadMainFunction(int id) {
         if (running->finished) {
             stackPool[kernelThreadId].push_front(running->stack);
             delete running;
-            PerfUtils::TimeTrace::getGlobalInstance()->record("A thread has just died.");
+//            PerfUtils::CacheTrace::getGlobalInstance()->record("A thread has just died.");
         }
     }
 }
@@ -142,9 +152,6 @@ void threadMainFunction(int id) {
  * Load a new context without saving anything.
  */
 void  __attribute__ ((noinline))  setcontext(void **saved) {
-//   asm("movq  0(%rdi), %rsp");
-//   asm("movq  8(%rdi), %rax"); // TODO: Switch to using push / pop instructions
-//   asm("movq  %rax, 0(%rsp)");
 
     // Load the stack pointer and restore the registers
     asm("movq (%rdi), %rsp");
@@ -225,9 +232,7 @@ void threadWrapper() {
  */
 void yield() {
     checkSleepQueue();
-//    PerfUtils::TimeTrace::getGlobalInstance()->record("About to yield");
     workQueueLocks[kernelThreadId].lock();
-//    PerfUtils::TimeTrace::getGlobalInstance()->record("Acquired workQueueLock");
     if (workQueues[kernelThreadId].empty()) {
         workQueueLocks[kernelThreadId].unlock();
         return; // Yield is noop if there is no longer work to be done.
@@ -236,18 +241,13 @@ void yield() {
     void** saved = &running->sp;
 
     workQueues[kernelThreadId].push_back(running);
-//    PerfUtils::TimeTrace::getGlobalInstance()->record("Pushed running onto the queue");
     running = workQueues[kernelThreadId].front();
     workQueues[kernelThreadId].pop_front();
-//    PerfUtils::TimeTrace::getGlobalInstance()->record("Popped new from the queue");
     workQueueLocks[kernelThreadId].unlock();
-//    PerfUtils::TimeTrace::getGlobalInstance()->record("Unlocked the workQueueLock");
 
     // Loop until we find a thread to run, in case there are new threads that
     // do not have a thread.
-//    PerfUtils::TimeTrace::getGlobalInstance()->record("About to perform actual thread yield");
     swapcontext(&running->sp, saved);
-//    PerfUtils::TimeTrace::getGlobalInstance()->record("Returned from thread yield");
 }
 void checkSleepQueue() {
     uint64_t currentCycles = Cycles::rdtsc();
@@ -312,20 +312,21 @@ void sleep(uint64_t ns) {
  */
 int createThread(std::function<void()> task, int coreId) {
     if (coreId == -1) coreId = kernelThreadId;
+    PerfUtils::CacheTrace::getGlobalInstance()->record("Before workQueueLock", PerfUtils::Util::serialReadPmc(1));
     std::lock_guard<SpinLock> guard(workQueueLocks[coreId]);
-    PerfUtils::TimeTrace::getGlobalInstance()->record("Acquired workQueueLock");
+    PerfUtils::CacheTrace::getGlobalInstance()->record("Acquired workQueueLock", PerfUtils::Util::serialReadPmc(1));
     if (stackPool[coreId].empty()) return -1;
-    PerfUtils::TimeTrace::getGlobalInstance()->record("Checked stackPool");
+    PerfUtils::CacheTrace::getGlobalInstance()->record("Checked stackPool", PerfUtils::Util::serialReadPmc(1));
 
     WorkUnit *work = new WorkUnit; // TODO: Get rid of the new here.
     work->finished = false;
     work->workFunction = task;
-    PerfUtils::TimeTrace::getGlobalInstance()->record("Allocated WorkUnit and initialized");
+    PerfUtils::CacheTrace::getGlobalInstance()->record("Allocated WorkUnit and initialized", PerfUtils::Util::serialReadPmc(1));
 
     work->stack = stackPool[coreId].front();
     stackPool[coreId].pop_front();
     workQueues[coreId].push_back(work);
-    PerfUtils::TimeTrace::getGlobalInstance()->record("Added work to workQueue");
+    PerfUtils::CacheTrace::getGlobalInstance()->record("Added work to workQueue", PerfUtils::Util::serialReadPmc(1));
 
     // Wrap the function to restore control when the user thread
     // terminates instead of yielding.
@@ -335,6 +336,7 @@ int createThread(std::function<void()> task, int coreId) {
 
     // Set up the initial stack with the registers from the current thread.
     savecontext(&work->sp);
+    PerfUtils::CacheTrace::getGlobalInstance()->record("Finished saving context", PerfUtils::Util::serialReadPmc(1));
     return 0;
 }
 
