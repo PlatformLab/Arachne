@@ -1,5 +1,6 @@
 #include <setjmp.h>
 #include <functional>
+#include "CacheTrace.h"
 
 
 namespace  Arachne {
@@ -9,7 +10,9 @@ int createThread(std::function<void()> task, int coreId = -1);
 
 template<typename _Callable, typename... _Args>
     int createThread(int coreId, _Callable&& __f, _Args&&... __args) {
-    return createThread(std::bind(std::forward<_Callable>(__f), std::forward<_Args>(__args)...), coreId);
+    auto bound = std::bind(std::forward<_Callable>(__f), std::forward<_Args>(__args)...);
+    PerfUtils::CacheTrace::getGlobalInstance()->record("Just bound the arguments", PerfUtils::Util::serialReadPmc(1));
+    return createThread(bound, coreId);
 }
 
 

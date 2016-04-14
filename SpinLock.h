@@ -29,5 +29,5 @@ class SpinLock {
     
     // Pad this data structure out to a cache line size to mitigate false sharing.
     char cachePad[CACHE_LINE_SIZE-sizeof(state)];
-};
-}
+} __attribute__ ((aligned(CACHE_LINE_SIZE)));
+} 
