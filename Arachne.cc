@@ -1,11 +1,7 @@
 #include <stdio.h>
-#include <vector>
-#include <deque>
 #include <thread>
-#include <mutex>
 #include "string.h"
 #include "Arachne.h"
-#include "SpinLock.h"
 #include "Cycles.h"
 #include "CacheTrace.h"
 
@@ -19,30 +15,8 @@ enum InitializationState {
     INITIALIZED
 };
 
-struct WorkUnit {
-    // The main function of the user thread.
-    std::function<void()> workFunction;
-
-    // This is a pointer to the lowest valid memory address in the user thread stack.
-    void* sp;
-
-    // This flag is set on completion of a thread's main function. When set,
-    // the thread dispatcher can reclaim the stack for this thread.
-    bool finished; 
-    
-    // The top of the stack of the current workunit, used for both indicating
-    // whether this is new or old work, and also for making it easier to
-    // recycle the stacks.
-    void* stack;
-
-    // When a thread enters the sleep queue, it will keep its wakup time
-    // here.
-    uint64_t wakeUpTimeInCycles;
-};
 void threadWrapper();
 
-const int stackSize = 1024 * 1024;
-const int stackPoolSize = 1000;
 
 InitializationState initializationState = NOT_INITIALIZED;
 unsigned numCores = 1;
@@ -50,26 +24,26 @@ unsigned numCores = 1;
 /**
  * Work to do on each thread. 
  * TODO(hq6): If vector is too slow, we may switch to a linked list.  */
-static std::vector<std::deque<WorkUnit*> > workQueues;
+std::vector<std::deque<WorkBase*> > workQueues;
 
 /**
  * Threads that are sleeping and waiting 
  */
-static std::vector<std::deque<WorkUnit*> > sleepQueues;
+static std::vector<std::deque<WorkBase*> > sleepQueues;
 
 /**
  * Protect each work queue.
  */
-static SpinLock *workQueueLocks;
+SpinLock *workQueueLocks;
 thread_local int kernelThreadId;
-static std::vector<std::deque<void*> > stackPool;
+std::vector<std::deque<void*> > stackPool;
 
 /**
  * These two values store the place in the kernel thread to return to when a
  * user task either yields or completes.
  */
 thread_local void* libraryStackPointer;
-thread_local WorkUnit *running;
+thread_local WorkBase *running;
 
 /**
  * This function will allocate stacks and create kernel threads pinned to particular cores.
@@ -92,8 +66,8 @@ void threadInit() {
     printf("numCores = %u\n", numCores);
     workQueueLocks = new SpinLock[numCores];
     for (unsigned int i = 0; i < numCores; i++) {
-        workQueues.push_back(std::deque<WorkUnit*>());
-        sleepQueues.push_back(std::deque<WorkUnit*>());
+        workQueues.push_back(std::deque<WorkBase*>());
+        sleepQueues.push_back(std::deque<WorkBase*>());
 
         // Initialize stack pool for each kernel thread
         stackPool.push_back(std::deque<void*>());
@@ -218,8 +192,8 @@ void  __attribute__ ((noinline))  swapcontext(void **saved, void **target) {
  * there might be some weirdness with local variables.
  */
 void threadWrapper() {
-   WorkUnit *work = running; 
-   work->workFunction();
+   WorkBase *work = running; 
+   work->runThread();
    work->finished = true;
    __asm__ __volatile__("lfence" ::: "memory");
    setcontext(&libraryStackPointer);
@@ -306,39 +280,6 @@ void sleep(uint64_t ns) {
     swapcontext(&running->sp, saved);
 }
 
-/**
- * Create a WorkUnit for the given task, on the same queue as the current
- * function.
- */
-int createThread(std::function<void()> task, int coreId) {
-    if (coreId == -1) coreId = kernelThreadId;
-    PerfUtils::CacheTrace::getGlobalInstance()->record("Before workQueueLock", PerfUtils::Util::serialReadPmc(1));
-    std::lock_guard<SpinLock> guard(workQueueLocks[coreId]);
-    PerfUtils::CacheTrace::getGlobalInstance()->record("Acquired workQueueLock", PerfUtils::Util::serialReadPmc(1));
-    if (stackPool[coreId].empty()) return -1;
-    PerfUtils::CacheTrace::getGlobalInstance()->record("Checked stackPool", PerfUtils::Util::serialReadPmc(1));
-
-    WorkUnit *work = new WorkUnit; // TODO: Get rid of the new here.
-    work->finished = false;
-    work->workFunction = task;
-    PerfUtils::CacheTrace::getGlobalInstance()->record("Allocated WorkUnit and initialized", PerfUtils::Util::serialReadPmc(1));
-
-    work->stack = stackPool[coreId].front();
-    stackPool[coreId].pop_front();
-    workQueues[coreId].push_back(work);
-    PerfUtils::CacheTrace::getGlobalInstance()->record("Added work to workQueue", PerfUtils::Util::serialReadPmc(1));
-
-    // Wrap the function to restore control when the user thread
-    // terminates instead of yielding.
-    work->sp = (char*) work->stack + stackSize - 64; 
-    // set up the stack to pass the single argument in this case.
-    *(void**) work->sp = (void*) threadWrapper;
-
-    // Set up the initial stack with the registers from the current thread.
-    savecontext(&work->sp);
-    PerfUtils::CacheTrace::getGlobalInstance()->record("Finished saving context", PerfUtils::Util::serialReadPmc(1));
-    return 0;
-}
 
 
 /**
