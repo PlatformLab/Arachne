@@ -59,28 +59,22 @@ extern SpinLock *workQueueLocks;
 extern std::vector<std::deque<void*> > stackPool;
 extern std::vector<std::deque<WorkBase* > > workQueues;
 
-template <typename F> int createThread(F task, int coreId = -1);
-
+/**
+  * Create a user thread to run the function f with the given args on the provided core.
+  * Pass in -1 as a core ID to use the current core.
+  */
 template<typename _Callable, typename... _Args>
     int createThread(int coreId, _Callable&& __f, _Args&&... __args) {
-    auto bound = std::bind(std::forward<_Callable>(__f), std::forward<_Args>(__args)...);
-    PerfUtils::CacheTrace::getGlobalInstance()->record("Just bound the arguments", PerfUtils::Util::serialReadPmc(1));
-    return createThread(bound, coreId);
-}
-
-/**
- * Create a WorkUnit for the given task, on the same queue as the current
- * function.
- */
-template <typename F> int createThread(F task, int coreId) {
     if (coreId == -1) coreId = kernelThreadId;
-    PerfUtils::CacheTrace::getGlobalInstance()->record("Before workQueueLock", PerfUtils::Util::serialReadPmc(1));
+
+    auto task = std::bind(std::forward<_Callable>(__f), std::forward<_Args>(__args)...);
+    PerfUtils::CacheTrace::getGlobalInstance()->record("Just bound the arguments", PerfUtils::Util::serialReadPmc(1));
     std::lock_guard<SpinLock> guard(workQueueLocks[coreId]);
     PerfUtils::CacheTrace::getGlobalInstance()->record("Acquired workQueueLock", PerfUtils::Util::serialReadPmc(1));
     if (stackPool[coreId].empty()) return -1;
     PerfUtils::CacheTrace::getGlobalInstance()->record("Checked stackPool", PerfUtils::Util::serialReadPmc(1));
 
-    WorkUnit<F> *work = new WorkUnit<F>(task); // TODO: Get rid of the new here.
+    WorkBase *work = new WorkUnit<decltype(task)>(task); // TODO: Get rid of the new here.
     work->finished = false;
     PerfUtils::CacheTrace::getGlobalInstance()->record("Allocated WorkUnit and initialized", PerfUtils::Util::serialReadPmc(1));
 
@@ -100,7 +94,6 @@ template <typename F> int createThread(F task, int coreId) {
     PerfUtils::CacheTrace::getGlobalInstance()->record("Finished saving context", PerfUtils::Util::serialReadPmc(1));
     return 0;
 }
-
 
 void threadMainFunction(int id);
 void threadInit();
