@@ -62,8 +62,8 @@ void threadInit() {
 
     // Allocate stacks. Note that number of cores is actually number of
     // hyperthreaded cores, rather than necessarily real CPU cores.
-    numCores = std::thread::hardware_concurrency() / 2; 
-    printf("numCores = %u\n", numCores);
+    numCores = std::thread::hardware_concurrency(); 
+//    printf("numCores = %u\n", numCores);
     workQueueLocks = new SpinLock[numCores];
     for (unsigned int i = 0; i < numCores; i++) {
         workQueues.push_back(std::deque<WorkBase*>());
