@@ -3,7 +3,6 @@
 #include "string.h"
 #include "Arachne.h"
 #include "Cycles.h"
-#include "CacheTrace.h"
 
 namespace Arachne {
 
@@ -15,7 +14,7 @@ enum InitializationState {
     INITIALIZED
 };
 
-void threadWrapper();
+void schedulerMainLoop();
 
 
 InitializationState initializationState = NOT_INITIALIZED;
@@ -24,12 +23,13 @@ unsigned numCores = 1;
 /**
  * Work to do on each thread. 
  * TODO(hq6): If vector is too slow, we may switch to a linked list.  */
-std::vector<std::deque<WorkBase*> > workQueues;
+std::vector<std::deque<UserContext*> > workQueues;
+
 
 /**
- * Threads that are sleeping and waiting 
+ * Threads that are sleeping and waiting.
  */
-static std::vector<std::deque<WorkBase*> > sleepQueues;
+static std::vector<std::deque<UserContext*> > sleepQueues;
 
 /**
  * Protect each work queue.
@@ -43,7 +43,22 @@ std::vector<std::deque<void*> > stackPool;
  * user task either yields or completes.
  */
 thread_local void* libraryStackPointer;
-thread_local WorkBase *running;
+thread_local UserContext *running;
+
+/**
+ * When a user thread finishes and it is not the last runnable thread, it sets
+ * this pointer to indicate that the structure must be cleaned up.
+ */
+thread_local UserContext* oldContext;
+
+/**
+  * This structure holds the flags, functions, and arguments for the main functions of user threads passed across cores.
+  * TODO: In a NUMA world, it may make more sense if this is TaskBox** to allow
+  * cores on different NUMA nodes to allocate from the memory that is closer to
+  * them.
+  */
+TaskBox* taskBoxes;
+
 
 /**
  * This function will allocate stacks and create kernel threads pinned to particular cores.
@@ -65,9 +80,10 @@ void threadInit() {
     numCores = std::thread::hardware_concurrency(); 
 //    printf("numCores = %u\n", numCores);
     workQueueLocks = new SpinLock[numCores];
+    taskBoxes = new TaskBox[numCores];
     for (unsigned int i = 0; i < numCores; i++) {
-        workQueues.push_back(std::deque<WorkBase*>());
-        sleepQueues.push_back(std::deque<WorkBase*>());
+        workQueues.push_back(std::deque<UserContext*>());
+        sleepQueues.push_back(std::deque<UserContext*>());
 
         // Initialize stack pool for each kernel thread
         stackPool.push_back(std::deque<void*>());
@@ -89,37 +105,46 @@ void threadInit() {
 
 /**
  * Main function for a kernel-level thread participating in the thread pool. 
- * It first allocates a pool of stacks, and then polls its own work queue for
- * work to do.
  */
 void threadMainFunction(int id) {
+    // Switch to a user stack for symmetry, so that we can deallocate it ourselves later.
+    // If we are the last user thread on this core, we will never return since we will simply poll for work.
+    // If we are not the last, we will context switch out of this function and have our
+    // stack deallocated by the thread we swap to (perhaps in the unblock
+    // function), the next time Arachne gets control.
+    // The original thread given by the kernel is simply discarded in the
+    // current implementation.
+    oldContext = NULL;
     kernelThreadId = id;
+    auto stack = stackPool[kernelThreadId].front();
+    stackPool[kernelThreadId].pop_front();
+    running = new UserContext;
+    running->stack = stack;
+    asm("movq %0, %%rsp" :: "r" (stack));
 
-    // Poll for work on my queue
-    while (true) {
-        checkSleepQueue();
-        // Need to lock the queue with a SpinLock
-        { // Make the guard go out of scope as soon as it is no longer needed.
-            std::lock_guard<SpinLock> guard(workQueueLocks[kernelThreadId]);
-            // Record a time here
-            if (workQueues[kernelThreadId].empty()) continue;
-            // Trace it here only if there was actual work in the queue.
-             
-            running = workQueues[kernelThreadId].front();
-            workQueues[kernelThreadId].pop_front();
-        }
+    schedulerMainLoop();
+}
 
-        swapcontext(&running->sp, &libraryStackPointer);
+/**
+ * When there is a need for a new runnable thread, either because there are
+ * none, or because there are more tasks than current threads, this function is
+ * invoked to allocate a new stack and switch to it on the current core.
+ */
+void createNewRunnableThread() {
+    void** saved = &running->sp;
+    auto stack = stackPool[kernelThreadId].front();
+    stackPool[kernelThreadId].pop_front();
 
-        // Resume right after here when user task finishes or yields
-        // Check if the currently running user thread is finished and recycle
-        // its stack if it is.
-        if (running->finished) {
-            stackPool[kernelThreadId].push_front(running->stack);
-            delete running;
-//            PerfUtils::CacheTrace::getGlobalInstance()->record("A thread has just died.");
-        }
-    }
+    running = new UserContext;
+    running->stack = stack;
+
+    // Set up the stack to return to the main thread function.
+    running->sp = (char*) running->stack + stackSize - 64; 
+    *(void**) running->sp = (void*) schedulerMainLoop;
+    savecontext(&running->sp);
+
+    // Switch to the new thread and start polling for work there.
+    swapcontext(saved, &running->sp);
 }
 
 /**
@@ -185,18 +210,59 @@ void  __attribute__ ((noinline))  swapcontext(void **saved, void **target) {
 }
 
 /**
- * TODO(hq6): Figure out whether we can omit the argument altogether and just
- * use the 'running' global variable instead.
- *
- * Note that this function will be jumped to directly using setcontext, so
- * there might be some weirdness with local variables.
- */
-void threadWrapper() {
-   WorkBase *work = running; 
-   work->runThread();
-   work->finished = true;
-   __asm__ __volatile__("lfence" ::: "memory");
-   setcontext(&libraryStackPointer);
+  * This function runs the scheduler on a fresh stack when there are no
+  * runnable threads on our core.
+  * If other threads become runnable during this call, then this loop will exit
+  * by arranging for the destruction of the current thread and switching to one
+  * of the other runnable threads.
+  */
+void schedulerMainLoop() {
+    // At most one user thread on each core should be going through this loop
+    // at any given time.  Most threads should be inside runThread, and only
+    // re-enter the thread library by making an API call into Arachne.
+    while (true) {
+        // Poll for work on my taskBox and take it off first so that we avoid
+        // blocking other create requests onto our core.
+        if (taskBoxes[kernelThreadId].state.loadState.load() == FILLED) {
+
+            // Copy the task onto the local stack
+            auto task = taskBoxes[kernelThreadId].getTask();
+
+            auto expectedTaskState = FILLED; // Because of compare_exchange_strong requires a reference
+            taskBoxes[kernelThreadId].state.loadState.compare_exchange_strong(expectedTaskState, EMPTY);
+            reinterpret_cast<TaskBase*>(&task)->runThread();
+        }
+        
+        checkSleepQueue();
+        {
+            // Determine whether we are the last runnable thread.
+            std::lock_guard<SpinLock> guard(workQueueLocks[kernelThreadId]);
+            if (workQueues[kernelThreadId].empty()) continue;
+            else { // Arrange for our stack to be deallocated, and swap out
+                // Only ever need to delete oldContext if we are about to overwrite it.
+                if (oldContext != NULL) {
+                    stackPool[kernelThreadId].push_front(oldContext->stack);
+                    delete oldContext;
+                }
+                oldContext = running;
+                running = workQueues[kernelThreadId].front();
+                workQueues[kernelThreadId].pop_front();
+                // We expect this new thread to free our stack and also clean
+                // up our UserContext before any other thread can replace
+                // oldContext.
+                guard.~lock_guard<SpinLock>();
+                setcontext(&running->sp);
+            }
+        }
+
+//        // Resume right after here when user task finishes or yields
+//        // Check if the currently running user thread is finished and recycle
+//        // its stack if it is.
+//        if (running->finished) {
+//            stackPool[kernelThreadId].push_front(running->stack);
+//            delete running;
+//        }
+    }
 }
 
 /**
@@ -205,6 +271,11 @@ void threadWrapper() {
  * yield.
  */
 void yield() {
+
+    // Poll for incoming task.
+    if (taskBoxes[kernelThreadId].state.loadState.load() == FILLED) {
+        createNewRunnableThread();
+    }
     checkSleepQueue();
     workQueueLocks[kernelThreadId].lock();
     if (workQueues[kernelThreadId].empty()) {
@@ -259,20 +330,27 @@ void sleep(uint64_t ns) {
             sleepQueue.push_back(running);
         }
     }
+
+    // Poll for incoming task.
+    if (taskBoxes[kernelThreadId].state.loadState.load() == FILLED) {
+        createNewRunnableThread();
+    }
         
     checkSleepQueue();
 
     workQueueLocks[kernelThreadId].lock();
     if (workQueues[kernelThreadId].empty()) {
         workQueueLocks[kernelThreadId].unlock();
-        // Swap into library context, somehow get control again cleanly after.
-        // Same scenario as nothing on the ready queue.
-        swapcontext(&libraryStackPointer, &running->sp);
-        // Return after swapcontext returns because that means we're supposed to run
+        // Create an idle thread that runs the main scheduler loop and swap to it, so
+        // we're ready for new work with a new stack as soon as it becomes
+        // available.
+        createNewRunnableThread();
+
+        // Return after swapcontext returns because that means we have awoken from our sleep
         return;
     }
 
-    // There is work to do, so we switch to the new work.
+    // There are other runnable threads, so we simply switch to the first one.
     void** saved = &running->sp;
     running = workQueues[kernelThreadId].front();
     workQueues[kernelThreadId].pop_front();
