@@ -120,7 +120,8 @@ void threadMainFunction(int id) {
     stackPool[kernelThreadId].pop_front();
     running = new UserContext;
     running->stack = stack;
-    asm("movq %0, %%rsp" :: "r" (stack));
+    running->sp = (char*) running->stack + stackSize - 64; 
+    asm("movq %0, %%rsp" :: "r" (running->sp));
 
     schedulerMainLoop();
 }
@@ -144,7 +145,7 @@ void createNewRunnableThread() {
     savecontext(&running->sp);
 
     // Switch to the new thread and start polling for work there.
-    swapcontext(saved, &running->sp);
+    swapcontext(&running->sp, saved);
 }
 
 /**
