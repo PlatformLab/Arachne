@@ -4,6 +4,8 @@
 #include <deque>
 #include <atomic>
 #include "SpinLock.h"
+#include "TimeTrace.h"
+
 
 
 namespace  Arachne {
@@ -124,8 +126,10 @@ template<typename _Callable, typename... _Args>
                 "path is not yet implemented. Exiting...\n");
         exit(0);
     }
+    PerfUtils::TimeTrace::getGlobalInstance()->record("Changed state to FILLING!");
 
     new (&taskBox.task) Arachne::Task<decltype(task)>(task);
+    PerfUtils::TimeTrace::getGlobalInstance()->record("Constructed TaskBox!");
 
     // Notify the target thread that the taskBox has been loaded
     expectedTaskState = FILLING;
@@ -134,6 +138,7 @@ template<typename _Callable, typename... _Args>
                 "placed. This is beyond expectation! Exiting....\n");
         exit(0);
     }
+        PerfUtils::TimeTrace::getGlobalInstance()->record("Marked the TaskBox as FILLED!");
 
     return 0;
 }
