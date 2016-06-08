@@ -80,7 +80,16 @@ void threadInit() {
     numCores = std::thread::hardware_concurrency(); 
 //    printf("numCores = %u\n", numCores);
     workQueueLocks = new SpinLock[numCores];
-    taskBoxes = new TaskBox[numCores];
+
+    // Special magic to ensure aligned allocation of taskBoxes
+    int result = posix_memalign(reinterpret_cast<void**>(&taskBoxes),
+            CACHE_LINE_SIZE, sizeof(TaskBox) * numCores);
+    if (result != 0) {
+        fprintf(stderr, "posix_memalign returned %s", strerror(result));
+        exit(1);
+    }
+    assert((reinterpret_cast<uint64_t>(taskBoxes) & 0x3f) == 0);
+
     for (unsigned int i = 0; i < numCores; i++) {
         workQueues.push_back(std::deque<UserContext*>());
         sleepQueues.push_back(std::deque<UserContext*>());
