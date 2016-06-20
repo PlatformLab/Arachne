@@ -15,6 +15,7 @@ enum InitializationState {
 };
 
 void schedulerMainLoop();
+void createNewRunnableThread();
 
 
 InitializationState initializationState = NOT_INITIALIZED;
@@ -125,14 +126,12 @@ void threadMainFunction(int id) {
     // current implementation.
     oldContext = NULL;
     kernelThreadId = id;
-    auto stack = stackPool[kernelThreadId].front();
-    stackPool[kernelThreadId].pop_front();
-    running = new UserContext;
-    running->stack = stack;
-    running->sp = (char*) running->stack + stackSize - 64; 
-    asm("movq %0, %%rsp" :: "r" (running->sp));
 
-    schedulerMainLoop();
+    // This temporary context is used for bootstrapping the swap to a user stack.
+    UserContext tempContext;
+    running = &tempContext;
+
+    createNewRunnableThread();
 }
 
 /**
