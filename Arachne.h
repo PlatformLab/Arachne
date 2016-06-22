@@ -5,7 +5,7 @@
 #include <atomic>
 #include <assert.h>
 #include "SpinLock.h"
-#include "TimeTrace.h"
+//#include "TimeTrace.h"
 
 
 
@@ -72,26 +72,25 @@ template <typename F> struct Task : public TaskBase {
 // It is important for performance reasons that the two parts are in different
 // cache lines, since the flag will be polled on by a particular core, and set
 // only once loading is complete.
-struct alignas(64) TaskBox {
-   union {
+union alignas(64) TaskBox {
+    struct Data {
        std::atomic<TaskState> loadState{}; // Default initialized
-       char pad[CACHE_LINE_SIZE];
-   } state;
-
-   // This wrapper enables us to copy out the fixed length array by value, we
-   // can then use a reinterpret_cast to convert to a TaskBase* and invoke the
-   // actual function.
-   struct Task {
-       char taskBuf[CACHE_LINE_SIZE];
-   } task;
+       // This wrapper enables us to copy out the fixed length array by value, we
+       // can then use a reinterpret_cast to convert to a TaskBase* and invoke the
+       // actual function.
+       struct Task {
+          char taskBuf[CACHE_LINE_SIZE - sizeof(loadState)];
+       } task;
+   } data;
+   char pad[CACHE_LINE_SIZE];
 
    // This function is used in the second step of invoking a function scheduled by another core.
    // 0. Core polling loop detects that there is work enqueued.
    // 1. Caller copy out the function and arguments onto their local stack
    // 2. Callers free this structure by setting the loadState to EMPTY again.
    // 3. Caller invoke the function or yield, depending on priority.
-   Task getTask() {
-       return task;
+   Data::Task getTask() {
+       return data.task;
    }
 };
 
@@ -115,31 +114,29 @@ extern TaskBox* taskBoxes;
   */
 template<typename _Callable, typename... _Args>
     int createThread(int coreId, _Callable&& __f, _Args&&... __args) {
-    PerfUtils::TimeTrace::getGlobalInstance()->record("First line of createThread!");
+//    PerfUtils::TimeTrace::getGlobalInstance()->record("First line of createThread!");
     if (coreId == -1) coreId = kernelThreadId;
 
     auto task = std::bind(std::forward<_Callable>(__f), std::forward<_Args>(__args)...);
-    PerfUtils::TimeTrace::getGlobalInstance()->record("Finished wrapping in std::bind!");
+//    PerfUtils::TimeTrace::getGlobalInstance()->record("Finished wrapping in std::bind!");
 
     // Attempt to enqueue the task by first checking the status
     auto& taskBox = taskBoxes[coreId];
     auto expectedTaskState = EMPTY; // Because of compare_exchange_strong requires a reference
-    PerfUtils::TimeTrace::getGlobalInstance()->record("About to change state to FILLING!");
-    if (!taskBox.state.loadState.compare_exchange_strong(expectedTaskState, FILLING)) {
+//    PerfUtils::TimeTrace::getGlobalInstance()->record("About to change state to FILLING!");
+    if (!taskBox.data.loadState.compare_exchange_strong(expectedTaskState, FILLING)) {
         fprintf(stderr, "Fast path for thread creation was blocked, and slow " 
                 "path is not yet implemented. Exiting...\n");
         exit(0);
     }
-    PerfUtils::TimeTrace::getGlobalInstance()->record("Changed state to FILLING!");
+//    PerfUtils::TimeTrace::getGlobalInstance()->record("Changed state to FILLING!");
 
-    new (&taskBox.task) Arachne::Task<decltype(task)>(task);
-    PerfUtils::TimeTrace::getGlobalInstance()->record("Constructed TaskBox!");
+    new (&taskBox.data.task) Arachne::Task<decltype(task)>(task);
+//    PerfUtils::TimeTrace::getGlobalInstance()->record("Constructed TaskBox!");
 
     // Notify the target thread that the taskBox has been loaded
-//    assert(taskBox.state.loadState.load() == FILLING);
-//  "TaskBox is not in FILLING State after work has been " "placed. This is beyond expectation! Exiting....\n");
-    taskBox.state.loadState.store(FILLED);
-    PerfUtils::TimeTrace::getGlobalInstance()->record("Marked the TaskBox as FILLED!");
+    taskBox.data.loadState.store(FILLED);
+//    PerfUtils::TimeTrace::getGlobalInstance()->record("Marked the TaskBox as FILLED!");
 
     return 0;
 }

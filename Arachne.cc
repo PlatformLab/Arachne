@@ -232,13 +232,13 @@ void schedulerMainLoop() {
     while (true) {
         // Poll for work on my taskBox and take it off first so that we avoid
         // blocking other create requests onto our core.
-        if (taskBoxes[kernelThreadId].state.loadState.load() == FILLED) {
+        if (taskBoxes[kernelThreadId].data.loadState.load() == FILLED) {
 
             // Copy the task onto the local stack
             auto task = taskBoxes[kernelThreadId].getTask();
 
             auto expectedTaskState = FILLED; // Because of compare_exchange_strong requires a reference
-            taskBoxes[kernelThreadId].state.loadState.compare_exchange_strong(expectedTaskState, EMPTY);
+            taskBoxes[kernelThreadId].data.loadState.compare_exchange_strong(expectedTaskState, EMPTY);
             reinterpret_cast<TaskBase*>(&task)->runThread();
         }
         
@@ -282,7 +282,7 @@ void schedulerMainLoop() {
 void yield() {
 
     // Poll for incoming task.
-    if (taskBoxes[kernelThreadId].state.loadState.load() == FILLED) {
+    if (taskBoxes[kernelThreadId].data.loadState.load() == FILLED) {
         createNewRunnableThread();
     }
     checkSleepQueue();
@@ -341,7 +341,7 @@ void sleep(uint64_t ns) {
     }
 
     // Poll for incoming task.
-    if (taskBoxes[kernelThreadId].state.loadState.load() == FILLED) {
+    if (taskBoxes[kernelThreadId].data.loadState.load() == FILLED) {
         createNewRunnableThread();
     }
         
