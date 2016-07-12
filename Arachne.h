@@ -5,7 +5,6 @@
 #include <atomic>
 #include <assert.h>
 #include "SpinLock.h"
-//#include "TimeTrace.h"
 
 
 
@@ -114,29 +113,23 @@ extern TaskBox* taskBoxes;
   */
 template<typename _Callable, typename... _Args>
     int createThread(int coreId, _Callable&& __f, _Args&&... __args) {
-//    PerfUtils::TimeTrace::getGlobalInstance()->record("First line of createThread!");
     if (coreId == -1) coreId = kernelThreadId;
 
     auto task = std::bind(std::forward<_Callable>(__f), std::forward<_Args>(__args)...);
-//    PerfUtils::TimeTrace::getGlobalInstance()->record("Finished wrapping in std::bind!");
 
     // Attempt to enqueue the task by first checking the status
     auto& taskBox = taskBoxes[coreId];
     auto expectedTaskState = EMPTY; // Because of compare_exchange_strong requires a reference
-//    PerfUtils::TimeTrace::getGlobalInstance()->record("About to change state to FILLING!");
     if (!taskBox.data.loadState.compare_exchange_strong(expectedTaskState, FILLING)) {
         fprintf(stderr, "Fast path for thread creation was blocked, and slow " 
                 "path is not yet implemented. Exiting...\n");
         exit(0);
     }
-//    PerfUtils::TimeTrace::getGlobalInstance()->record("Changed state to FILLING!");
 
     new (&taskBox.data.task) Arachne::Task<decltype(task)>(task);
-//    PerfUtils::TimeTrace::getGlobalInstance()->record("Constructed TaskBox!");
 
     // Notify the target thread that the taskBox has been loaded
     taskBox.data.loadState.store(FILLED);
-//    PerfUtils::TimeTrace::getGlobalInstance()->record("Marked the TaskBox as FILLED!");
 
     return 0;
 }
