@@ -1,3 +1,6 @@
+#ifndef ARACHNE_H
+#define ARACHNE_H
+
 #include <functional>
 #include <vector>
 #include <mutex>
@@ -98,10 +101,15 @@ union alignas(64) TaskBox {
 const int stackSize = 1024 * 1024;
 const int stackPoolSize = 1000;
 
+/**
+  * The following data structures and functions are private to the thread library.
+  */
 void schedulerMainLoop();
 void  savecontext(void **target);
 void  swapcontext(void **saved, void **target);
+void createNewRunnableThread();
 extern thread_local int kernelThreadId;
+extern thread_local UserContext *running;
 extern SpinLock *workQueueLocks;
 extern std::vector<std::deque<void*> > stackPool;
 extern std::vector<std::deque<UserContext* > > workQueues;
@@ -150,3 +158,4 @@ void swapcontext(void **saved, void **target);
 void savecontext(void **target);
 void checkSleepQueue();
 }
+#endif

@@ -1,3 +1,5 @@
+#ifndef ARACHNE_SPINLOCK_H
+#define ARACHNE_SPINLOCK_H
 #include <atomic>
 
 namespace Arachne {
@@ -31,3 +33,4 @@ class SpinLock {
     char cachePad[CACHE_LINE_SIZE-sizeof(state)];
 } __attribute__ ((aligned(CACHE_LINE_SIZE)));
 } 
+#endif
