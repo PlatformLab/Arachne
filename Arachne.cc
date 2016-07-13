@@ -15,7 +15,6 @@ enum InitializationState {
 };
 
 void schedulerMainLoop();
-void createNewRunnableThread();
 
 
 InitializationState initializationState = NOT_INITIALIZED;

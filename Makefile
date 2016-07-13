@@ -4,10 +4,10 @@ DEBUG=-g
 
 LIBS=-I../Arachne  -L../Arachne -lArachne  -I../PerfUtils -L../PerfUtils -lPerfUtils
 
-libArachne.a: Arachne.o
-	ar rcs $@ $<
+libArachne.a: Arachne.o Condition.o
+	ar rcs $@ $^
 
-Arachne.o: SpinLock.h Arachne.h
+Arachne.o: SpinLock.h Arachne.h Condition.h
 
 %.o: %.cc
 	g++  -Wall -Werror  -O2 $(DEBUG) $(LIBS) -c -std=c++11  -o $@ $<
