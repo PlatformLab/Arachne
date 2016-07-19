@@ -3,10 +3,12 @@
 #include "string.h"
 #include "Arachne.h"
 #include "Cycles.h"
+#include "TimeTrace.h"
 
 namespace Arachne {
 
 using PerfUtils::Cycles;
+using PerfUtils::TimeTrace;
 
 enum InitializationState {
     NOT_INITIALIZED,
@@ -248,28 +250,24 @@ void schedulerMainLoop() {
             if (workQueues[kernelThreadId].empty()) continue;
             else { // Arrange for our stack to be deallocated, and swap out
                 // Only ever need to delete oldContext if we are about to overwrite it.
+                TimeTrace::record("Detected new runnable thread in scheduler main loop");
                 if (oldContext != NULL) {
                     stackPool[kernelThreadId].push_front(oldContext->stack);
                     delete oldContext;
                 }
+                TimeTrace::record("Deleted old context!");
                 oldContext = running;
                 running = workQueues[kernelThreadId].front();
                 workQueues[kernelThreadId].pop_front();
+                TimeTrace::record("Assigned oldContext and running");
                 // We expect this new thread to free our stack and also clean
                 // up our UserContext before any other thread can replace
                 // oldContext.
                 guard.~lock_guard<SpinLock>();
+                TimeTrace::record("Released workQueues Lock");
                 setcontext(&running->sp);
             }
         }
-
-//        // Resume right after here when user task finishes or yields
-//        // Check if the currently running user thread is finished and recycle
-//        // its stack if it is.
-//        if (running->finished) {
-//            stackPool[kernelThreadId].push_front(running->stack);
-//            delete running;
-//        }
     }
 }
 
