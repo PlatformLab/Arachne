@@ -7,9 +7,9 @@
 #include <deque>
 #include <atomic>
 #include <assert.h>
-#include "SpinLock.h"
 
 
+#include "Constants.h"
 
 namespace  Arachne {
 
@@ -25,6 +25,11 @@ enum TaskState {
     FILLED
 };
 
+enum UserThreadState {
+    RUNNABLE = 0,
+    BLOCKED = 1
+};
+
 /*
  * This base class for WorkUnit allows us to maintain pointers for WorkUnits
  * without knowing the templated type ahead of time.
@@ -37,6 +42,12 @@ struct UserContext {
     // whether this is new or old work, and also for making it easier to
     // recycle the stacks.
     void* stack;
+
+    // This flag records whether this thread is runnable in the global list of threads.
+    // It suffices for this to be volatile rather than atomic because we
+    // currently consider it safe for this state update to be re-ordered, since
+    // the Arachne poller will simply find the update on the next iteration.
+    volatile UserThreadState state;
 
     // When a thread enters the sleep queue, it will keep its wakup time
     // here.
@@ -110,9 +121,8 @@ void  swapcontext(void **saved, void **target);
 void createNewRunnableThread();
 extern thread_local int kernelThreadId;
 extern thread_local UserContext *running;
-extern SpinLock *workQueueLocks;
 extern std::vector<std::deque<void*> > stackPool;
-extern std::vector<std::deque<UserContext* > > workQueues;
+extern std::vector<std::vector<UserContext* > > possiblyRunnableThreads;
 extern TaskBox* taskBoxes;
 
 /**

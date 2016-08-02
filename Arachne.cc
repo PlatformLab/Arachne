@@ -25,7 +25,7 @@ unsigned numCores = 1;
 /**
  * Work to do on each thread. 
  * TODO(hq6): If vector is too slow, we may switch to a linked list.  */
-std::vector<std::deque<UserContext*> > workQueues;
+std::vector<std::vector<UserContext*> > possiblyRunnableThreads;
 
 
 /**
@@ -33,10 +33,6 @@ std::vector<std::deque<UserContext*> > workQueues;
  */
 static std::vector<std::deque<UserContext*> > sleepQueues;
 
-/**
- * Protect each work queue.
- */
-SpinLock *workQueueLocks;
 thread_local int kernelThreadId;
 std::vector<std::deque<void*> > stackPool;
 
@@ -81,7 +77,6 @@ void threadInit() {
     // hyperthreaded cores, rather than necessarily real CPU cores.
     numCores = std::thread::hardware_concurrency(); 
 //    printf("numCores = %u\n", numCores);
-    workQueueLocks = new SpinLock[numCores];
 
     // Special magic to ensure aligned allocation of taskBoxes
     int result = posix_memalign(reinterpret_cast<void**>(&taskBoxes),
@@ -93,7 +88,7 @@ void threadInit() {
     assert((reinterpret_cast<uint64_t>(taskBoxes) & 0x3f) == 0);
 
     for (unsigned int i = 0; i < numCores; i++) {
-        workQueues.push_back(std::deque<UserContext*>());
+        possiblyRunnableThreads.push_back(std::vector<UserContext*>());
         sleepQueues.push_back(std::deque<UserContext*>());
 
         // Initialize stack pool for each kernel thread
@@ -245,27 +240,29 @@ void schedulerMainLoop() {
         
         checkSleepQueue();
         {
-            // Determine whether we are the last runnable thread.
-            std::lock_guard<SpinLock> guard(workQueueLocks[kernelThreadId]);
-            if (workQueues[kernelThreadId].empty()) continue;
-            else { // Arrange for our stack to be deallocated, and swap out
-                // Only ever need to delete oldContext if we are about to overwrite it.
-                TimeTrace::record("Detected new runnable thread in scheduler main loop");
-                if (oldContext != NULL) {
-                    stackPool[kernelThreadId].push_front(oldContext->stack);
-                    delete oldContext;
+            // If we see no other runnable user threads, then we are the last
+            // runnable thread and should continue running.
+            auto& maybeRunnable = possiblyRunnableThreads[kernelThreadId];
+            for (size_t i = 0; i < maybeRunnable.size(); i++) {
+                if (maybeRunnable[i]->state == RUNNABLE) {
+                    TimeTrace::record("Detected new runnable thread in scheduler main loop");
+                    // Only ever need to delete oldContext if we are about to overwrite it.
+                    // TODO: Recycle this
+                    if (oldContext != NULL) {
+                        stackPool[kernelThreadId].push_front(oldContext->stack);
+                        delete oldContext;
+                    }
+                    TimeTrace::record("Deleted old context!");
+                    oldContext = running;
+                    running = maybeRunnable[i];
+                    maybeRunnable.erase(maybeRunnable.begin() + i);
+                    TimeTrace::record("Assigned oldContext and running");
+
+                    // We expect this new thread to free our stack and also clean
+                    // up our UserContext before any other thread can replace
+                    // oldContext.
+                    setcontext(&running->sp);
                 }
-                TimeTrace::record("Deleted old context!");
-                oldContext = running;
-                running = workQueues[kernelThreadId].front();
-                workQueues[kernelThreadId].pop_front();
-                TimeTrace::record("Assigned oldContext and running");
-                // We expect this new thread to free our stack and also clean
-                // up our UserContext before any other thread can replace
-                // oldContext.
-                guard.~lock_guard<SpinLock>();
-                TimeTrace::record("Released workQueues Lock");
-                setcontext(&running->sp);
             }
         }
     }
@@ -283,35 +280,34 @@ void yield() {
         createNewRunnableThread();
     }
     checkSleepQueue();
-    workQueueLocks[kernelThreadId].lock();
-    if (workQueues[kernelThreadId].empty()) {
-        workQueueLocks[kernelThreadId].unlock();
-        return; // Yield is noop if there is no longer work to be done.
+
+    auto& maybeRunnable = possiblyRunnableThreads[kernelThreadId];
+    for (size_t i = 0; i < maybeRunnable.size(); i++) {
+        if (maybeRunnable[i]->state == RUNNABLE) {
+            void** saved = &running->sp;
+
+            running->state = RUNNABLE;
+            maybeRunnable.push_back(running);
+            running = maybeRunnable[i];
+            maybeRunnable.erase(maybeRunnable.begin() + i);
+
+            // Loop until we find a thread to run, in case there are new threads that
+            // do not have a thread.
+            swapcontext(&running->sp, saved);
+            return;
+        }
     }
-
-    void** saved = &running->sp;
-
-    workQueues[kernelThreadId].push_back(running);
-    running = workQueues[kernelThreadId].front();
-    workQueues[kernelThreadId].pop_front();
-    workQueueLocks[kernelThreadId].unlock();
-
-    // Loop until we find a thread to run, in case there are new threads that
-    // do not have a thread.
-    swapcontext(&running->sp, saved);
 }
 void checkSleepQueue() {
     uint64_t currentCycles = Cycles::rdtsc();
     auto& sleepQueue = sleepQueues[kernelThreadId];
 
-    workQueueLocks[kernelThreadId].lock();
     // Assume sorted and move it off the list
     while (sleepQueue.size() > 0 && sleepQueue[0]->wakeUpTimeInCycles < currentCycles) {
         // Move onto the ready queue
-        workQueues[kernelThreadId].push_back(sleepQueue[0]);
+        possiblyRunnableThreads[kernelThreadId].push_back(sleepQueue[0]);
         sleepQueue.pop_front();  
     }
-    workQueueLocks[kernelThreadId].unlock();
 }
 
 // Sleep for at least the argument number of ns.
@@ -344,24 +340,26 @@ void sleep(uint64_t ns) {
         
     checkSleepQueue();
 
-    workQueueLocks[kernelThreadId].lock();
-    if (workQueues[kernelThreadId].empty()) {
-        workQueueLocks[kernelThreadId].unlock();
-        // Create an idle thread that runs the main scheduler loop and swap to it, so
-        // we're ready for new work with a new stack as soon as it becomes
-        // available.
-        createNewRunnableThread();
+    auto& maybeRunnable = possiblyRunnableThreads[kernelThreadId];
+    for (size_t i = 0; i < maybeRunnable.size(); i++) {
+        // There are other runnable threads, so we simply switch to the first one.
+        if (maybeRunnable[i]->state == RUNNABLE) {
+            void** saved = &running->sp;
 
-        // Return after swapcontext returns because that means we have awoken from our sleep
-        return;
+            running->state = RUNNABLE;
+            maybeRunnable.push_back(running);
+            running = maybeRunnable[i];
+            maybeRunnable.erase(maybeRunnable.begin() + i);
+
+            swapcontext(&running->sp, saved);
+            return;
+        }
     }
 
-    // There are other runnable threads, so we simply switch to the first one.
-    void** saved = &running->sp;
-    running = workQueues[kernelThreadId].front();
-    workQueues[kernelThreadId].pop_front();
-    workQueueLocks[kernelThreadId].unlock();
-    swapcontext(&running->sp, saved);
+    // Create an idle thread that runs the main scheduler loop and swap to it, so
+    // we're ready for new work with a new stack as soon as it becomes
+    // available.
+    createNewRunnableThread();
 }
 
 
