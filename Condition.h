@@ -26,7 +26,6 @@ class condition_variable {
     private:
         // TODO: This may become core-specific.
         std::deque<UserContext*> blockedThreads;
-        std::deque<int> blockedCoreIds;
 };
 
 }

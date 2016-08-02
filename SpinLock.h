@@ -1,10 +1,10 @@
 #ifndef ARACHNE_SPINLOCK_H
 #define ARACHNE_SPINLOCK_H
 #include <atomic>
+#include "Constants.h"
 
 namespace Arachne {
 
-const int CACHE_LINE_SIZE = 64;
 /**
  * A simple SpinLock without any statistics.
  */
