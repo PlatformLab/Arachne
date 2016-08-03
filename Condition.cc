@@ -31,21 +31,21 @@ void condition_variable::wait(SpinLock& lock) {
 
     lock.unlock();
 
+    auto& maybeRunnable = possiblyRunnableThreads[kernelThreadId];
     // Poll for incoming task.
     // TODO(hq6): Decide whether this function should actually yield immediately.
     if (taskBoxes[kernelThreadId].data.loadState.load() == FILLED) {
+        maybeRunnable.push_back(running);
         createNewRunnableThread();
         lock.lock();
         return;
     }
     TimeTrace::record("Finished checking for new threads on core %d", kernelThreadId);
     // Find a thread to switch to
-    auto& maybeRunnable = possiblyRunnableThreads[kernelThreadId];
     for (size_t i = 0; i < maybeRunnable.size(); i++) {
         if (maybeRunnable[i]->state == RUNNABLE) {
             void** saved = &running->sp;
 
-            running->state = RUNNABLE;
             maybeRunnable.push_back(running);
             running = maybeRunnable[i];
             maybeRunnable.erase(maybeRunnable.begin() + i);
@@ -59,6 +59,7 @@ void condition_variable::wait(SpinLock& lock) {
     // Create an idle thread that runs the main scheduler loop and swap to it, so
     // we're ready for new work with a new stack as soon as it becomes
     // available.
+    maybeRunnable.push_back(running);
     createNewRunnableThread();
     lock.lock();
 }

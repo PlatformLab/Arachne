@@ -305,6 +305,7 @@ void checkSleepQueue() {
     // Assume sorted and move it off the list
     while (sleepQueue.size() > 0 && sleepQueue[0]->wakeUpTimeInCycles < currentCycles) {
         // Move onto the ready queue
+        sleepQueue[0]->state = RUNNABLE;
         possiblyRunnableThreads[kernelThreadId].push_back(sleepQueue[0]);
         sleepQueue.pop_front();  
     }
@@ -319,7 +320,10 @@ void sleep(uint64_t ns) {
 
     auto& sleepQueue = sleepQueues[kernelThreadId];
     // TODO(hq6): Sort this by wake-up time using possibly binary search
-    if (sleepQueue.size() == 0) sleepQueue.push_back(running);
+    if (sleepQueue.size() == 0) {
+        running->state = BLOCKED;
+        sleepQueue.push_back(running);
+    }
     else {
         auto it = sleepQueue.begin();
         for (; it != sleepQueue.end() ; it++)
@@ -329,6 +333,7 @@ void sleep(uint64_t ns) {
             }
         // Insert now
         if (it == sleepQueue.end()) {
+            running->state = BLOCKED;
             sleepQueue.push_back(running);
         }
     }
@@ -345,9 +350,6 @@ void sleep(uint64_t ns) {
         // There are other runnable threads, so we simply switch to the first one.
         if (maybeRunnable[i]->state == RUNNABLE) {
             void** saved = &running->sp;
-
-            running->state = RUNNABLE;
-            maybeRunnable.push_back(running);
             running = maybeRunnable[i];
             maybeRunnable.erase(maybeRunnable.begin() + i);
 
