@@ -305,7 +305,6 @@ void checkSleepQueue() {
     // Assume sorted and move it off the list
     while (sleepQueue.size() > 0 && sleepQueue[0]->wakeUpTimeInCycles < currentCycles) {
         // Move onto the ready queue
-        sleepQueue[0]->state = RUNNABLE;
         possiblyRunnableThreads[kernelThreadId].push_back(sleepQueue[0]);
         sleepQueue.pop_front();  
     }
@@ -317,11 +316,10 @@ void checkSleepQueue() {
 // passed.
 void sleep(uint64_t ns) {
     running->wakeUpTimeInCycles = Cycles::rdtsc() + Cycles::fromNanoseconds(ns);
+    running->state = RUNNABLE; // When this thread wakes up, it will be RUNNABLE
 
     auto& sleepQueue = sleepQueues[kernelThreadId];
-    // TODO(hq6): Sort this by wake-up time using possibly binary search
     if (sleepQueue.size() == 0) {
-        running->state = BLOCKED;
         sleepQueue.push_back(running);
     }
     else {
@@ -333,7 +331,6 @@ void sleep(uint64_t ns) {
             }
         // Insert now
         if (it == sleepQueue.end()) {
-            running->state = BLOCKED;
             sleepQueue.push_back(running);
         }
     }
