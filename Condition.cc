@@ -13,9 +13,7 @@ condition_variable::notify_one() {
     if (blockedThreads.empty()) return;
     UserContext *awakenedThread = blockedThreads.front();
     blockedThreads.pop_front();
-    TimeTrace::record("Retrieved UserContext!");
     awakenedThread->state = RUNNABLE;
-    TimeTrace::record("Added thread pointer to ready queue!");
 }
 
 void condition_variable::notify_all() {
