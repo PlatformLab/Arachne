@@ -57,6 +57,8 @@ thread_local UserContext* oldContext;
   */
 TaskBox* taskBoxes;
 
+thread_local std::vector<UserContext* > recycledUserContexts;
+
 
 /**
  * This function will allocate stacks and create kernel threads pinned to particular cores.
@@ -140,7 +142,12 @@ void createNewRunnableThread() {
     auto stack = stackPool[kernelThreadId].front();
     stackPool[kernelThreadId].pop_front();
 
-    running = new UserContext;
+    if (!recycledUserContexts.empty()) {
+        running = recycledUserContexts.back();
+        recycledUserContexts.pop_back();
+    } else {
+        running = new UserContext;
+    }
     running->stack = stack;
 
     // Set up the stack to return to the main thread function.
@@ -246,17 +253,17 @@ void schedulerMainLoop() {
             for (size_t i = 0; i < maybeRunnable.size(); i++) {
                 if (maybeRunnable[i]->state == RUNNABLE) {
                     TimeTrace::record("Detected new runnable thread in scheduler main loop");
-                    // Only ever need to delete oldContext if we are about to overwrite it.
-                    // TODO: Recycle this
+                    // Only ever need to recycle oldContext if we are about to
+                    // overwrite it.
                     if (oldContext != NULL) {
                         stackPool[kernelThreadId].push_front(oldContext->stack);
-                        delete oldContext;
+                        recycledUserContexts.push_back(oldContext);
                     }
-                    TimeTrace::record("Deleted old context!");
                     oldContext = running;
+                    TimeTrace::record("Recycled and reassigned oldContext");
                     running = maybeRunnable[i];
                     maybeRunnable.erase(maybeRunnable.begin() + i);
-                    TimeTrace::record("Assigned oldContext and running");
+                    TimeTrace::record("Assigned running and erased from per-core list.");
 
                     // We expect this new thread to free our stack and also clean
                     // up our UserContext before any other thread can replace
