@@ -1,7 +1,7 @@
 #ifndef ARACHNE_SPINLOCK_H
 #define ARACHNE_SPINLOCK_H
 #include <atomic>
-#include "Constants.h"
+#include "Common.h"
 
 namespace Arachne {
 
