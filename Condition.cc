@@ -35,6 +35,7 @@ void condition_variable::wait(SpinLock& lock) {
     if (taskBoxes[kernelThreadId].data.loadState.load() == FILLED) {
         maybeRunnable.push_back(running);
         createNewRunnableThread();
+        TimeTrace::record("About to acquire lock after waking up");
         lock.lock();
         return;
     }
@@ -49,6 +50,7 @@ void condition_variable::wait(SpinLock& lock) {
             maybeRunnable.erase(maybeRunnable.begin() + i);
 
             swapcontext(&running->sp, saved);
+            TimeTrace::record("About to acquire lock after waking up");
             lock.lock();
             return;
         }
@@ -59,6 +61,7 @@ void condition_variable::wait(SpinLock& lock) {
     // available.
     maybeRunnable.push_back(running);
     createNewRunnableThread();
+    TimeTrace::record("About to acquire lock after waking up");
     lock.lock();
 }
 
