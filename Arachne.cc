@@ -368,6 +368,60 @@ void sleep(uint64_t ns) {
     createNewRunnableThread();
 }
 
+/**
+  * Returns a thread handle to the application, which can be passed into the signal function.
+  */
+ThreadId getThreadId() {
+    return running;
+}
+
+/**
+  * Deschedule the current thread until the application signals using the a
+  * ThreadId.
+  */
+void block() {
+    auto& maybeRunnable = possiblyRunnableThreads[kernelThreadId];
+
+    // Poll for incoming task.
+    if (taskBoxes[kernelThreadId].data.loadState.load() == FILLED) {
+        maybeRunnable.push_back(running);
+        createNewRunnableThread();
+        return;
+    }
+
+    // Find a thread to switch to
+    for (size_t i = 0; i < maybeRunnable.size(); i++) {
+        if (maybeRunnable[i]->state == RUNNABLE) {
+            void** saved = &running->sp;
+
+            maybeRunnable.push_back(running);
+            running = maybeRunnable[i];
+            maybeRunnable.erase(maybeRunnable.begin() + i);
+
+            swapcontext(&running->sp, saved);
+            return;
+        }
+    }
+
+    // Create an idle thread that runs the main scheduler loop and swap to it, so
+    // we're ready for new work with a new stack as soon as it becomes
+    // available.
+    maybeRunnable.push_back(running);
+    createNewRunnableThread();
+}
+
+/* Make the thread referred to by ThreadId runnable once again. */
+void signal(ThreadId id) {
+    id->state = RUNNABLE;
+}
+
+/**
+  * This function should be invoked before setting up the state to enable a signal().
+  * It must be invoked before calling block().
+  */
+void setBlockingState() {
+    running->state = BLOCKED;
+}
 
 
 /**
