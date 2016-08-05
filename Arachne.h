@@ -107,7 +107,7 @@ union alignas(64) TaskBox {
    }
 };
 
-
+typedef UserContext* ThreadId;
 
 const int stackSize = 1024 * 1024;
 const int stackPoolSize = 1000;
@@ -158,6 +158,10 @@ void threadInit();
 void mainThreadJoinPool();
 void yield();
 void sleep(uint64_t ns);
+ThreadId getThreadId();
+void block();
+void signal(ThreadId id);
+void setBlockingState();
 
 
 // The following data structures and functions are  technically part of the
