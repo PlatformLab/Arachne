@@ -283,17 +283,17 @@ void schedulerMainLoop() {
 void yield() {
 
     // Poll for incoming task.
+    auto& maybeRunnable = possiblyRunnableThreads[kernelThreadId];
     if (taskBoxes[kernelThreadId].data.loadState.load() == FILLED) {
+        maybeRunnable.push_back(running);
         createNewRunnableThread();
     }
     checkSleepQueue();
 
-    auto& maybeRunnable = possiblyRunnableThreads[kernelThreadId];
     for (size_t i = 0; i < maybeRunnable.size(); i++) {
         if (maybeRunnable[i]->state == RUNNABLE) {
             void** saved = &running->sp;
 
-            running->state = RUNNABLE;
             maybeRunnable.push_back(running);
             running = maybeRunnable[i];
             maybeRunnable.erase(maybeRunnable.begin() + i);
