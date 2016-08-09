@@ -28,11 +28,9 @@ void condition_variable::wait(SpinLock& lock) {
 
     lock.unlock();
 
-    auto& maybeRunnable = possiblyRunnableThreads[kernelThreadId];
     // Poll for incoming task.
     // TODO(hq6): Decide whether this function should actually yield immediately.
     if (taskBoxes[kernelThreadId].data.loadState.load() == FILLED) {
-        maybeRunnable.push_back(running);
         createNewRunnableThread();
         TimeTrace::record("About to acquire lock after waking up");
         lock.lock();

@@ -4,6 +4,7 @@
 #include "Arachne.h"
 #include "Cycles.h"
 #include "TimeTrace.h"
+#include "Util.h"
 
 namespace Arachne {
 
@@ -25,7 +26,7 @@ unsigned numCores = 1;
 /**
  * Work to do on each thread. 
  * TODO(hq6): If vector is too slow, we may switch to a linked list.  */
-std::vector<std::vector<UserContext*> > possiblyRunnableThreads;
+thread_local std::vector<UserContext*> maybeRunnable;
 
 
 /**
@@ -81,7 +82,6 @@ void threadInit() {
     assert((reinterpret_cast<uint64_t>(taskBoxes) & 0x3f) == 0);
 
     for (unsigned int i = 0; i < numCores; i++) {
-        possiblyRunnableThreads.push_back(std::vector<UserContext*>());
         sleepQueues.push_back(std::deque<UserContext*>());
 
         // Initialize stack pool for each kernel thread
@@ -115,6 +115,8 @@ void threadMainFunction(int id) {
     // current implementation.
     kernelThreadId = id;
 
+    PerfUtils::Util::pinThreadToCore(id);
+
     // This temporary context is used for bootstrapping the swap to a user stack.
     UserContext tempContext;
     running = &tempContext;
@@ -130,7 +132,6 @@ void threadMainFunction(int id) {
 void createNewRunnableThread() {
     // First see if there is already an empty context among the current set of contexts.
     void** saved = &running->sp;
-    auto& maybeRunnable = possiblyRunnableThreads[kernelThreadId];
     for (size_t i = 0; i < maybeRunnable.size(); i++)
         if (!maybeRunnable[i]->occupied) {
             running = maybeRunnable[i];
@@ -253,7 +254,6 @@ void schedulerMainLoop() {
         {
             // If we see no other runnable user threads, then we are the last
             // runnable thread and should continue running.
-            auto& maybeRunnable = possiblyRunnableThreads[kernelThreadId];
             for (size_t i = 0; i < maybeRunnable.size(); i++) {
                 if (maybeRunnable[i]->wakeup) {
                     TimeTrace::record("Detected new runnable thread in scheduler main loop");
@@ -288,7 +288,6 @@ void schedulerMainLoop() {
 void yield() {
 
     // Poll for incoming task.
-    auto& maybeRunnable = possiblyRunnableThreads[kernelThreadId];
     if (taskBoxes[kernelThreadId].data.loadState.load() == FILLED) {
         maybeRunnable.push_back(running);
         createNewRunnableThread();
@@ -352,7 +351,6 @@ void sleep(uint64_t ns) {
     // TODO: Decide if this is necessary here.
     checkSleepQueue();
 
-    auto& maybeRunnable = possiblyRunnableThreads[kernelThreadId];
     for (size_t i = 0; i < maybeRunnable.size(); i++) {
         // There are other runnable threads, so we simply switch to the first one.
         if (maybeRunnable[i]->wakeup) {
@@ -381,8 +379,6 @@ ThreadId getThreadId() {
   * ThreadId.
   */
 void block() {
-    auto& maybeRunnable = possiblyRunnableThreads[kernelThreadId];
-
     // Poll for incoming task.
     if (taskBoxes[kernelThreadId].data.loadState.load() == FILLED) {
         maybeRunnable.push_back(running);
