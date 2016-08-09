@@ -25,14 +25,8 @@ enum TaskState {
     FILLED
 };
 
-enum UserThreadState {
-    RUNNABLE = 0,
-    BLOCKED = 1
-};
-
 /*
- * This base class for WorkUnit allows us to maintain pointers for WorkUnits
- * without knowing the templated type ahead of time.
+ * This class holds all the state for a running user thread.
  */
 struct UserContext {
     // This is a pointer to the lowest valid memory address in the user thread stack.
@@ -43,11 +37,18 @@ struct UserContext {
     // recycle the stacks.
     void* stack;
 
-    // This flag records whether this thread is runnable in the global list of threads.
-    // It suffices for this to be volatile rather than atomic because we
-    // currently consider it safe for this state update to be re-ordered, since
-    // the Arachne poller will simply find the update on the next iteration.
-    volatile UserThreadState state;
+    // This flag records whether this thread context is currently hosting a
+    // user thread or not.
+    // This allows us to differentiate between running in the context of a
+    // blocked thread and running in the context of a new thread in the Arachne
+    // main loop.
+    volatile bool occupied;
+
+    // This flag is a signal that this thread should run at the next opportunity.
+    // It should be cleared immediately before a thread begins to run and
+    // should be set by either remote cores as a signal or when a thread
+    // yields.
+    volatile bool wakeup;
 
     // When a thread enters the sleep queue, it will keep its wakup time
     // here.
@@ -124,7 +125,6 @@ extern thread_local UserContext *running;
 extern std::vector<std::deque<void*> > stackPool;
 extern std::vector<std::vector<UserContext* > > possiblyRunnableThreads;
 extern TaskBox* taskBoxes;
-extern thread_local std::vector<UserContext* > recycledUserContexts;
 
 /**
   * Create a user thread to run the function f with the given args on the provided core.

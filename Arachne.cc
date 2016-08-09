@@ -37,17 +37,9 @@ thread_local int kernelThreadId;
 std::vector<std::deque<void*> > stackPool;
 
 /**
- * These two values store the place in the kernel thread to return to when a
- * user task either yields or completes.
+  * This is the context that a given core is currently executing in.
  */
-thread_local void* libraryStackPointer;
 thread_local UserContext *running;
-
-/**
- * When a user thread finishes and it is not the last runnable thread, it sets
- * this pointer to indicate that the structure must be cleaned up.
- */
-thread_local UserContext* oldContext;
 
 /**
   * This structure holds the flags, functions, and arguments for the main functions of user threads passed across cores.
@@ -57,7 +49,6 @@ thread_local UserContext* oldContext;
   */
 TaskBox* taskBoxes;
 
-thread_local std::vector<UserContext* > recycledUserContexts;
 
 
 /**
@@ -122,7 +113,6 @@ void threadMainFunction(int id) {
     // function), the next time Arachne gets control.
     // The original thread given by the kernel is simply discarded in the
     // current implementation.
-    oldContext = NULL;
     kernelThreadId = id;
 
     // This temporary context is used for bootstrapping the swap to a user stack.
@@ -138,17 +128,28 @@ void threadMainFunction(int id) {
  * invoked to allocate a new stack and switch to it on the current core.
  */
 void createNewRunnableThread() {
+    // First see if there is already an empty context among the current set of contexts.
     void** saved = &running->sp;
+    auto& maybeRunnable = possiblyRunnableThreads[kernelThreadId];
+    for (size_t i = 0; i < maybeRunnable.size(); i++)
+        if (!maybeRunnable[i]->occupied) {
+            running = maybeRunnable[i];
+            running->wakeup = false;
+            swapcontext(&running->sp, saved);
+            return;
+        }
+
+    // Create a new context if there is not one available
     auto stack = stackPool[kernelThreadId].front();
     stackPool[kernelThreadId].pop_front();
 
-    if (!recycledUserContexts.empty()) {
-        running = recycledUserContexts.back();
-        recycledUserContexts.pop_back();
-    } else {
-        running = new UserContext;
-    }
+    running = new UserContext;
+    maybeRunnable.push_back(running);
+
     running->stack = stack;
+    running->occupied = false;
+    running->wakeup = false;
+
 
     // Set up the stack to return to the main thread function.
     running->sp = (char*) running->stack + stackSize - 64; 
@@ -222,11 +223,8 @@ void  __attribute__ ((noinline))  swapcontext(void **saved, void **target) {
 }
 
 /**
-  * This function runs the scheduler on a fresh stack when there are no
-  * runnable threads on our core.
-  * If other threads become runnable during this call, then this loop will exit
-  * by arranging for the destruction of the current thread and switching to one
-  * of the other runnable threads.
+  * This function runs the scheduler in the context of the most recently run
+  * thread, unless there is already a new thread creation request on this core.
   */
 void schedulerMainLoop() {
     // At most one user thread on each core should be going through this loop
@@ -236,13 +234,19 @@ void schedulerMainLoop() {
         // Poll for work on my taskBox and take it off first so that we avoid
         // blocking other create requests onto our core.
         if (taskBoxes[kernelThreadId].data.loadState.load() == FILLED) {
+            // Take on a new task directly if this is an empty context.
+            if (!running->occupied) {
+                // Copy the task onto the local stack
+                auto task = taskBoxes[kernelThreadId].getTask();
 
-            // Copy the task onto the local stack
-            auto task = taskBoxes[kernelThreadId].getTask();
-
-            auto expectedTaskState = FILLED; // Because of compare_exchange_strong requires a reference
-            taskBoxes[kernelThreadId].data.loadState.compare_exchange_strong(expectedTaskState, EMPTY);
-            reinterpret_cast<TaskBase*>(&task)->runThread();
+                auto expectedTaskState = FILLED; // Because of compare_exchange_strong requires a reference
+                taskBoxes[kernelThreadId].data.loadState.compare_exchange_strong(expectedTaskState, EMPTY);
+                running->occupied = true;
+                reinterpret_cast<TaskBase*>(&task)->runThread();
+                running->occupied = false;
+            } else { // Create a new context since this is a blocked context.
+                createNewRunnableThread();
+            }
         }
         
         checkSleepQueue();
@@ -251,24 +255,22 @@ void schedulerMainLoop() {
             // runnable thread and should continue running.
             auto& maybeRunnable = possiblyRunnableThreads[kernelThreadId];
             for (size_t i = 0; i < maybeRunnable.size(); i++) {
-                if (maybeRunnable[i]->state == RUNNABLE) {
+                if (maybeRunnable[i]->wakeup) {
                     TimeTrace::record("Detected new runnable thread in scheduler main loop");
-                    // Only ever need to recycle oldContext if we are about to
-                    // overwrite it.
-                    if (oldContext != NULL) {
-                        stackPool[kernelThreadId].push_front(oldContext->stack);
-                        recycledUserContexts.push_back(oldContext);
+                    // If the blocked context is our own, we can simply return after clearing our own wake-up flag.
+                    if (maybeRunnable[i] == running) {
+                        TimeTrace::record("About to set wakeup flag and return immediately");
+                        running->wakeup = false;
+                        return;
                     }
-                    oldContext = running;
-                    TimeTrace::record("Recycled and reassigned oldContext");
+                    // It is assumed that an empty context will not have the
+                    // wakeup flag set, so this must be a valid thread to
+                    // switch to.
+                    void** saved = &running->sp;
                     running = maybeRunnable[i];
-                    maybeRunnable.erase(maybeRunnable.begin() + i);
-                    TimeTrace::record("Assigned running and erased from per-core list.");
+                    TimeTrace::record("Assigned running.");
 
-                    // We expect this new thread to free our stack and also clean
-                    // up our UserContext before any other thread can replace
-                    // oldContext.
-                    setcontext(&running->sp);
+                    swapcontext(&running->sp, saved);
                 }
             }
         }
@@ -279,6 +281,9 @@ void schedulerMainLoop() {
  * Restore control back to the thread library.
  * Assume we are the running process in the current kernel thread if we are calling
  * yield.
+ *
+ * TODO: Start from a different point in the list every time to avoid two
+ * runnable threads from starving all later ones on the list.
  */
 void yield() {
 
@@ -291,15 +296,13 @@ void yield() {
     checkSleepQueue();
 
     for (size_t i = 0; i < maybeRunnable.size(); i++) {
-        if (maybeRunnable[i]->state == RUNNABLE) {
+        if (maybeRunnable[i]->wakeup && maybeRunnable[i] != running) {
             void** saved = &running->sp;
 
-            maybeRunnable.push_back(running);
+            // This thread is still runnable since it is merely yielding.
+            running->wakeup = true; 
             running = maybeRunnable[i];
-            maybeRunnable.erase(maybeRunnable.begin() + i);
-
-            // Loop until we find a thread to run, in case there are new threads that
-            // do not have a thread.
+            running->wakeup = false;
             swapcontext(&running->sp, saved);
             return;
         }
@@ -312,7 +315,7 @@ void checkSleepQueue() {
     // Assume sorted and move it off the list
     while (sleepQueue.size() > 0 && sleepQueue[0]->wakeUpTimeInCycles < currentCycles) {
         // Move onto the ready queue
-        possiblyRunnableThreads[kernelThreadId].push_back(sleepQueue[0]);
+        sleepQueue[0]->wakeup = true;
         sleepQueue.pop_front();  
     }
 }
@@ -323,7 +326,6 @@ void checkSleepQueue() {
 // passed.
 void sleep(uint64_t ns) {
     running->wakeUpTimeInCycles = Cycles::rdtsc() + Cycles::fromNanoseconds(ns);
-    running->state = RUNNABLE; // When this thread wakes up, it will be RUNNABLE
 
     auto& sleepQueue = sleepQueues[kernelThreadId];
     if (sleepQueue.size() == 0) {
@@ -347,25 +349,24 @@ void sleep(uint64_t ns) {
         createNewRunnableThread();
     }
         
+    // TODO: Decide if this is necessary here.
     checkSleepQueue();
 
     auto& maybeRunnable = possiblyRunnableThreads[kernelThreadId];
     for (size_t i = 0; i < maybeRunnable.size(); i++) {
         // There are other runnable threads, so we simply switch to the first one.
-        if (maybeRunnable[i]->state == RUNNABLE) {
+        if (maybeRunnable[i]->wakeup) {
             void** saved = &running->sp;
             running = maybeRunnable[i];
-            maybeRunnable.erase(maybeRunnable.begin() + i);
-
+            maybeRunnable[i]->wakeup = false;
             swapcontext(&running->sp, saved);
             return;
         }
     }
 
-    // Create an idle thread that runs the main scheduler loop and swap to it, so
-    // we're ready for new work with a new stack as soon as it becomes
-    // available.
-    createNewRunnableThread();
+    // Run the main scheduler loop in the context of this thread, since this is
+    // the last thread that was runnable.
+    schedulerMainLoop();
 }
 
 /**
@@ -391,36 +392,23 @@ void block() {
 
     // Find a thread to switch to
     for (size_t i = 0; i < maybeRunnable.size(); i++) {
-        if (maybeRunnable[i]->state == RUNNABLE) {
+        if (maybeRunnable[i]->wakeup) {
             void** saved = &running->sp;
-
-            maybeRunnable.push_back(running);
             running = maybeRunnable[i];
-            maybeRunnable.erase(maybeRunnable.begin() + i);
-
+            running->wakeup = false;
             swapcontext(&running->sp, saved);
             return;
         }
     }
 
-    // Create an idle thread that runs the main scheduler loop and swap to it, so
-    // we're ready for new work with a new stack as soon as it becomes
-    // available.
-    maybeRunnable.push_back(running);
-    createNewRunnableThread();
+    // Run the main scheduler loop in the context of this thread, since this is
+    // the last thread that was runnable.
+    schedulerMainLoop();
 }
 
 /* Make the thread referred to by ThreadId runnable once again. */
 void signal(ThreadId id) {
-    id->state = RUNNABLE;
-}
-
-/**
-  * This function should be invoked before setting up the state to enable a signal().
-  * It must be invoked before calling block().
-  */
-void setBlockingState() {
-    running->state = BLOCKED;
+    id->wakeup = true;
 }
 
 
