@@ -13,7 +13,7 @@ condition_variable::notify_one() {
     if (blockedThreads.empty()) return;
     UserContext *awakenedThread = blockedThreads.front();
     blockedThreads.pop_front();
-    awakenedThread->state = RUNNABLE;
+    awakenedThread->wakeup = true;
 }
 
 void condition_variable::notify_all() {
@@ -24,7 +24,6 @@ void condition_variable::notify_all() {
 void condition_variable::wait(SpinLock& lock) {
     TimeTrace::record("Wait on Core %d", kernelThreadId);
     // Put my thread on the queue.
-    running->state = BLOCKED;
     blockedThreads.push_back(running);
 
     lock.unlock();
@@ -42,12 +41,17 @@ void condition_variable::wait(SpinLock& lock) {
     TimeTrace::record("Finished checking for new threads on core %d", kernelThreadId);
     // Find a thread to switch to
     for (size_t i = 0; i < maybeRunnable.size(); i++) {
-        if (maybeRunnable[i]->state == RUNNABLE) {
+        if (maybeRunnable[i]->wakeup) {
+            // If the blocked context is our own, we can simply return.
+            if (maybeRunnable[i] == running) {
+                maybeRunnable[i]->wakeup = false;
+                TimeTrace::record("About to acquire lock after waking up");
+                lock.lock();
+                return;
+            }
             void** saved = &running->sp;
 
-            maybeRunnable.push_back(running);
             running = maybeRunnable[i];
-            maybeRunnable.erase(maybeRunnable.begin() + i);
 
             swapcontext(&running->sp, saved);
             TimeTrace::record("About to acquire lock after waking up");
@@ -56,11 +60,9 @@ void condition_variable::wait(SpinLock& lock) {
         }
     }
 
-    // Create an idle thread that runs the main scheduler loop and swap to it, so
-    // we're ready for new work with a new stack as soon as it becomes
-    // available.
-    maybeRunnable.push_back(running);
-    createNewRunnableThread();
+    // Run the main scheduler loop in the context of this thread, since this is
+    // the last thread that was runnable.
+    schedulerMainLoop();
     TimeTrace::record("About to acquire lock after waking up");
     lock.lock();
 }
