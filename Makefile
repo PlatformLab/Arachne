@@ -10,7 +10,7 @@ libArachne.a: Arachne.o Condition.o
 Arachne.o: SpinLock.h Arachne.h Condition.h
 
 %.o: %.cc
-	g++  -Wall -Werror  -O2 $(DEBUG) $(LIBS) -c -std=c++11  -o $@ $<
+	g++  -Wall -Werror  -O3 $(DEBUG) $(LIBS) -c -std=c++11  -o $@ $<
 
 clean:
 	rm -f *.o *.a

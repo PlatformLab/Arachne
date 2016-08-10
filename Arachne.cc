@@ -135,7 +135,6 @@ void createNewRunnableThread() {
     for (size_t i = 0; i < maybeRunnable.size(); i++)
         if (!maybeRunnable[i]->occupied) {
             running = maybeRunnable[i];
-            running->wakeup = false;
             swapcontext(&running->sp, saved);
             return;
         }
@@ -245,6 +244,7 @@ void schedulerMainLoop() {
                 running->occupied = true;
                 reinterpret_cast<TaskBase*>(&task)->runThread();
                 running->occupied = false;
+                running->wakeup = false;
             } else { // Create a new context since this is a blocked context.
                 createNewRunnableThread();
             }
@@ -259,7 +259,6 @@ void schedulerMainLoop() {
                     TimeTrace::record("Detected new runnable thread in scheduler main loop");
                     // If the blocked context is our own, we can simply return after clearing our own wake-up flag.
                     if (maybeRunnable[i] == running) {
-                        TimeTrace::record("About to set wakeup flag and return immediately");
                         running->wakeup = false;
                         return;
                     }
@@ -269,7 +268,6 @@ void schedulerMainLoop() {
                     void** saved = &running->sp;
                     running = maybeRunnable[i];
                     TimeTrace::record("Assigned running.");
-
                     swapcontext(&running->sp, saved);
                 }
             }
@@ -286,23 +284,23 @@ void schedulerMainLoop() {
  * runnable threads from starving all later ones on the list.
  */
 void yield() {
-
+//    TimeTrace::record("The start of yielding");
     // Poll for incoming task.
     if (taskBoxes[kernelThreadId].data.loadState.load() == FILLED) {
-        maybeRunnable.push_back(running);
         createNewRunnableThread();
     }
     checkSleepQueue();
 
     for (size_t i = 0; i < maybeRunnable.size(); i++) {
         if (maybeRunnable[i]->wakeup && maybeRunnable[i] != running) {
+            TimeTrace::record("Detected runnable thread inside yield");
             void** saved = &running->sp;
 
             // This thread is still runnable since it is merely yielding.
             running->wakeup = true; 
             running = maybeRunnable[i];
-            running->wakeup = false;
             swapcontext(&running->sp, saved);
+            running->wakeup = false;
             return;
         }
     }
@@ -356,7 +354,6 @@ void sleep(uint64_t ns) {
         if (maybeRunnable[i]->wakeup) {
             void** saved = &running->sp;
             running = maybeRunnable[i];
-            maybeRunnable[i]->wakeup = false;
             swapcontext(&running->sp, saved);
             return;
         }
@@ -381,18 +378,22 @@ ThreadId getThreadId() {
 void block() {
     // Poll for incoming task.
     if (taskBoxes[kernelThreadId].data.loadState.load() == FILLED) {
-        maybeRunnable.push_back(running);
         createNewRunnableThread();
         return;
     }
 
     // Find a thread to switch to
     for (size_t i = 0; i < maybeRunnable.size(); i++) {
+        // TODO: Check for self and consider this race.
         if (maybeRunnable[i]->wakeup) {
+            if (maybeRunnable[i] == running) {
+                running->wakeup = false;
+                return;
+            }
             void** saved = &running->sp;
             running = maybeRunnable[i];
-            running->wakeup = false;
             swapcontext(&running->sp, saved);
+            running->wakeup = false;
             return;
         }
     }
