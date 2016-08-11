@@ -260,15 +260,22 @@ void schedulerMainLoop() {
             // runnable thread and should continue running.
             for (size_t i = 0; i < maybeRunnable.size(); i++) {
                 if (maybeRunnable[i]->wakeup) {
+                    // Ensure that an empty context does not have the wakeup
+                    // flag set, so this must be a valid thread to switch to.
+                    // This may happen if one user thread's signal races with a
+                    // target thread's exit.
+                    // Since the occupied flag is not set by any API call, this
+                    // is a good insurance against the race.
+                    if (!running->occupied) {
+                        running->wakeup = false;
+                        continue;
+                    }
 //                    TimeTrace::record("Detected new runnable thread in scheduler main loop");
                     // If the blocked context is our own, we can simply return after clearing our own wake-up flag.
                     if (maybeRunnable[i] == running) {
                         running->wakeup = false;
                         return;
                     }
-                    // It is assumed that an empty context will not have the
-                    // wakeup flag set, so this must be a valid thread to
-                    // switch to.
                     void** saved = &running->sp;
                     running = maybeRunnable[i];
                     swapcontext(&running->sp, saved);
