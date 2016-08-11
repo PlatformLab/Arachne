@@ -49,6 +49,7 @@ thread_local UserContext *running;
   * them.
   */
 TaskBox* taskBoxes;
+thread_local TaskBox* taskBox;
 
 
 
@@ -114,6 +115,7 @@ void threadMainFunction(int id) {
     // The original thread given by the kernel is simply discarded in the
     // current implementation.
     kernelThreadId = id;
+    taskBox = &taskBoxes[kernelThreadId];
 
     PerfUtils::Util::pinThreadToCore(id);
 
@@ -233,18 +235,20 @@ void schedulerMainLoop() {
     while (true) {
         // Poll for work on my taskBox and take it off first so that we avoid
         // blocking other create requests onto our core.
-        if (taskBoxes[kernelThreadId].data.loadState.load() == FILLED) {
+        if (taskBox->data.loadState == FILLED) {
             // Take on a new task directly if this is an empty context.
             if (!running->occupied) {
                 // Copy the task onto the local stack
-                auto task = taskBoxes[kernelThreadId].getTask();
+                auto task = taskBox->getTask();
 
+
+                // TODO: Decide whether this CAS can be changed into a simply store operation
                 auto expectedTaskState = FILLED; // Because of compare_exchange_strong requires a reference
-                taskBoxes[kernelThreadId].data.loadState.compare_exchange_strong(expectedTaskState, EMPTY);
+                taskBox->data.loadState.compare_exchange_strong(expectedTaskState, EMPTY);
                 running->occupied = true;
+                running->wakeup = false;
                 reinterpret_cast<TaskBase*>(&task)->runThread();
                 running->occupied = false;
-                running->wakeup = false;
             } else { // Create a new context since this is a blocked context.
                 createNewRunnableThread();
             }
@@ -256,7 +260,7 @@ void schedulerMainLoop() {
             // runnable thread and should continue running.
             for (size_t i = 0; i < maybeRunnable.size(); i++) {
                 if (maybeRunnable[i]->wakeup) {
-                    TimeTrace::record("Detected new runnable thread in scheduler main loop");
+//                    TimeTrace::record("Detected new runnable thread in scheduler main loop");
                     // If the blocked context is our own, we can simply return after clearing our own wake-up flag.
                     if (maybeRunnable[i] == running) {
                         running->wakeup = false;
@@ -267,7 +271,6 @@ void schedulerMainLoop() {
                     // switch to.
                     void** saved = &running->sp;
                     running = maybeRunnable[i];
-                    TimeTrace::record("Assigned running.");
                     swapcontext(&running->sp, saved);
                 }
             }
@@ -276,7 +279,7 @@ void schedulerMainLoop() {
 }
 
 /**
- * Restore control back to the thread library.
+ * Return control back to the thread library.
  * Assume we are the running process in the current kernel thread if we are calling
  * yield.
  *
@@ -286,14 +289,14 @@ void schedulerMainLoop() {
 void yield() {
 //    TimeTrace::record("The start of yielding");
     // Poll for incoming task.
-    if (taskBoxes[kernelThreadId].data.loadState.load() == FILLED) {
+    if (taskBox->data.loadState == FILLED) {
         createNewRunnableThread();
     }
     checkSleepQueue();
 
     for (size_t i = 0; i < maybeRunnable.size(); i++) {
         if (maybeRunnable[i]->wakeup && maybeRunnable[i] != running) {
-            TimeTrace::record("Detected runnable thread inside yield");
+//            TimeTrace::record("Detected runnable thread inside yield");
             void** saved = &running->sp;
 
             // This thread is still runnable since it is merely yielding.
@@ -330,19 +333,23 @@ void sleep(uint64_t ns) {
     }
     else {
         auto it = sleepQueue.begin();
+        printf("sleepQueueSize = %zu\n", sleepQueue.size());
         for (; it != sleepQueue.end() ; it++)
             if ((*it)->wakeUpTimeInCycles > running->wakeUpTimeInCycles) {
                 sleepQueue.insert(it, running);
                 break;
             }
+
+        printf("sleepQueueSize = %zu\n", sleepQueue.size());
         // Insert now
         if (it == sleepQueue.end()) {
             sleepQueue.push_back(running);
         }
+        printf("sleepQueueSize = %zu\n", sleepQueue.size());
     }
 
     // Poll for incoming task.
-    if (taskBoxes[kernelThreadId].data.loadState.load() == FILLED) {
+    if (taskBox->data.loadState == FILLED) {
         createNewRunnableThread();
     }
         
@@ -351,7 +358,12 @@ void sleep(uint64_t ns) {
 
     for (size_t i = 0; i < maybeRunnable.size(); i++) {
         // There are other runnable threads, so we simply switch to the first one.
+        // TODO: Check for when it is yourself, because we need to clear the wakeup flag. Otherwise swapcontext to another
         if (maybeRunnable[i]->wakeup) {
+            if (maybeRunnable[i] == running) {
+                running->wakeup = false;
+                return;
+            }
             void** saved = &running->sp;
             running = maybeRunnable[i];
             swapcontext(&running->sp, saved);
@@ -377,7 +389,7 @@ ThreadId getThreadId() {
   */
 void block() {
     // Poll for incoming task.
-    if (taskBoxes[kernelThreadId].data.loadState.load() == FILLED) {
+    if (taskBox->data.loadState == FILLED) {
         createNewRunnableThread();
         return;
     }
