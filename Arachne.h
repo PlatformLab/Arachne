@@ -89,6 +89,7 @@ template <typename F> struct Task : public TaskBase {
 union alignas(64) TaskBox {
     struct Data {
        std::atomic<TaskState> loadState{}; // Default initialized
+
        // This wrapper enables us to copy out the fixed length array by value, we
        // can then use a reinterpret_cast to convert to a TaskBase* and invoke the
        // actual function.

@@ -34,6 +34,7 @@ void condition_variable::wait(SpinLock& lock) {
         createNewRunnableThread();
         TimeTrace::record("About to acquire lock after waking up");
         lock.lock();
+        running->wakeup = false;
         return;
     }
     TimeTrace::record("Finished checking for new threads on core %d", kernelThreadId);
@@ -42,9 +43,9 @@ void condition_variable::wait(SpinLock& lock) {
         if (maybeRunnable[i]->wakeup) {
             // If the blocked context is our own, we can simply return.
             if (maybeRunnable[i] == running) {
-                maybeRunnable[i]->wakeup = false;
                 TimeTrace::record("About to acquire lock after waking up");
                 lock.lock();
+                running->wakeup = false;
                 return;
             }
             void** saved = &running->sp;
@@ -54,6 +55,7 @@ void condition_variable::wait(SpinLock& lock) {
             swapcontext(&running->sp, saved);
             TimeTrace::record("About to acquire lock after waking up");
             lock.lock();
+            running->wakeup = false;
             return;
         }
     }
