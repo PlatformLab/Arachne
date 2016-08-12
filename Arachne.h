@@ -126,6 +126,7 @@ extern thread_local UserContext *running;
 extern std::vector<std::deque<void*> > stackPool;
 extern thread_local std::vector<UserContext*> maybeRunnable;
 extern TaskBox* taskBoxes;
+extern thread_local TaskBox* taskBox;
 
 /**
   * Create a user thread to run the function f with the given args on the provided core.
