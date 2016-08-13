@@ -49,9 +49,13 @@ thread_local UserContext *running;
   * them.
   */
 TaskBox* taskBoxes;
+
+/**
+  * For reasons that are less than clear, using this thread-local pointer saves
+  * us 60 ns over accessing the local taskBox using taskBoxes[kernelThreadId],
+  * which is a thread-local offset from a global variable.
+  */
 thread_local TaskBox* taskBox;
-
-
 
 /**
  * This function will allocate stacks and create kernel threads pinned to particular cores.
