@@ -396,7 +396,9 @@ ThreadId getThreadId() {
 
 /**
   * Deschedule the current thread until the application signals using the a
-  * ThreadId.
+  * ThreadId. The caller of this function must ensure that spurious wakeups are
+  * safe, in the same manner as a caller of a condition variable's wait()
+  * function.
   */
 void block() {
     // Poll for incoming task.
@@ -426,7 +428,11 @@ void block() {
     schedulerMainLoop();
 }
 
-/* Make the thread referred to by ThreadId runnable once again. */
+/* 
+ * Make the thread referred to by ThreadId runnable once again. 
+ * It is safe to call this function without knowing whether the target thread
+ * has already exited.
+ */
 void signal(ThreadId id) {
     id->wakeup = true;
 }
