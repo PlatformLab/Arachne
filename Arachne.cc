@@ -270,8 +270,8 @@ void schedulerMainLoop() {
                     // target thread's exit.
                     // Since the occupied flag is not set by any API call, this
                     // is a good insurance against the race.
-                    if (!running->occupied) {
-                        running->wakeup = false;
+                    if (!maybeRunnable[i]->occupied) {
+                        maybeRunnable[i]->wakeup = false;
                         continue;
                     }
 //                    TimeTrace::record("Detected new runnable thread in scheduler main loop");
