@@ -13,16 +13,16 @@ class SpinLock {
     SpinLock() : state(false) {}
     ~SpinLock(){}
     void lock() {
-       while(state.exchange(true) != false);
+       while(state.exchange(true, std::memory_order_acquire) != false);
     }
     
     // If the original value was false, then we successfully acquired the lock.
     // Otherwise we failed.
     bool try_lock() {
-         return !state.exchange(true);
+         return !state.exchange(true, std::memory_order_acquire);
     }
     void unlock() {
-        state.store(false);
+        state.store(false, std::memory_order_release);
     }
 
   private:
