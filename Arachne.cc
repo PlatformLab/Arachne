@@ -36,7 +36,6 @@ std::vector<std::vector<UserContext*> > activeLists;
 static std::vector<std::deque<UserContext*> > sleepQueues;
 
 thread_local int kernelThreadId;
-std::vector<std::deque<void*> > stackPool;
 
 /**
   * This is the context that a given core is currently executing in.
@@ -92,21 +91,11 @@ void threadInit() {
         sleepQueues.push_back(std::deque<UserContext*>());
         activeLists.push_back(std::vector<UserContext*>());
 
-        // Initialize stack pool for each kernel thread
-        stackPool.push_back(std::deque<void*>());
-        for (int j = 0; j < stackPoolSize; j++)
-            stackPool[i].push_back(malloc(stackSize));
-
-        PerfUtils::Util::serialize();
-
         // Here we will create all the user contexts and user stacks
         for (int k = 0; k < maxThreadsPerCore; k++) {
             UserContext *freshContext = new UserContext;
 
-            auto stack = stackPool[i].front();
-            stackPool[i].pop_front();
-
-            freshContext->stack = stack;
+            freshContext->stack = malloc(stackSize);
             freshContext->index = k;
             freshContext->wakeup = false;
 
