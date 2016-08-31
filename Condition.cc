@@ -28,31 +28,6 @@ void condition_variable::wait(SpinLock& lock) {
 
     lock.unlock();
 
-    TimeTrace::record("Finished checking for new threads on core %d", kernelThreadId);
-
-    // Find a thread to switch to
-    auto& activeList = *maybeRunnable;
-    for (size_t i = 0; i < activeList.size(); i++) {
-        if (activeList[i]->wakeup) {
-            // If the blocked context is our own, we can simply return.
-            if (activeList[i] == running) {
-                TimeTrace::record("About to acquire lock after waking up");
-                lock.lock();
-                running->wakeup = false;
-                return;
-            }
-            void** saved = &running->sp;
-
-            running = activeList[i];
-
-            swapcontext(&running->sp, saved);
-            TimeTrace::record("About to acquire lock after waking up");
-            lock.lock();
-            running->wakeup = false;
-            return;
-        }
-    }
-
     // Run the main scheduler loop in the context of this thread, since this is
     // the last thread that was runnable.
     block();

@@ -239,56 +239,6 @@ void schedulerMainLoop() {
 		running->wakeup = false;
     }
 
-//        // Poll for work on my taskBox and take it off first so that we avoid
-//        // blocking other create requests onto our core.
-//        if (taskBox->data.loadState == FILLED) {
-//            // Take on a new task directly if this is an empty context.
-//            if (!running->occupied) {
-//                // Copy the task onto the local stack
-//                auto task = taskBox->getTask();
-//
-//
-//                // TODO: Decide whether this CAS can be changed into a simply store operation
-//                auto expectedTaskState = FILLED; // Because of compare_exchange_strong requires a reference
-//                taskBox->data.loadState.compare_exchange_strong(expectedTaskState, EMPTY);
-//                running->occupied = true;
-//                running->wakeup = false;
-//                reinterpret_cast<TaskBase*>(&task)->runThread();
-//                running->occupied = false;
-//            } else { // Create a new context since this is a blocked context.
-//                createNewRunnableThread();
-//            }
-//        }
-//        
-//        checkSleepQueue();
-//        {
-//            // If we see no other runnable user threads, then we are the last
-//            // runnable thread and should continue running.
-//            for (size_t i = 0; i < maybeRunnable.size(); i++) {
-//                if (maybeRunnable[i]->wakeup) {
-//                    // Ensure that an empty context does not have the wakeup
-//                    // flag set, so this must be a valid thread to switch to.
-//                    // This may happen if one user thread's signal races with a
-//                    // target thread's exit.
-//                    // Since the occupied flag is not set by any API call, this
-//                    // is a good insurance against the race.
-//                    if (!maybeRunnable[i]->occupied) {
-//                        maybeRunnable[i]->wakeup = false;
-//                        continue;
-//                    }
-////                    TimeTrace::record("Detected new runnable thread in scheduler main loop");
-//                    // If the blocked context is our own, we can simply return after clearing our own wake-up flag.
-//                    if (maybeRunnable[i] == running) {
-//                        running->wakeup = false;
-//                        return;
-//                    }
-//                    void** saved = &running->sp;
-//                    running = maybeRunnable[i];
-//                    swapcontext(&running->sp, saved);
-//                }
-//            }
-//        }
-//    }
 }
 
 /**
@@ -356,25 +306,6 @@ void sleep(uint64_t ns) {
             sleepQueue.push_back(running);
         }
         printf("sleepQueueSize = %zu\n", sleepQueue.size());
-    }
-
-    // TODO: Decide if this is necessary here.
-    checkSleepQueue();
-
-    auto& activeList = *maybeRunnable;
-    for (size_t i = 0; i < activeList.size(); i++) {
-        // There are other runnable threads, so we simply switch to the first one.
-        // TODO: Check for when it is yourself, because we need to clear the wakeup flag. Otherwise swapcontext to another
-        if (activeList[i]->wakeup) {
-            if (activeList[i] == running) {
-                running->wakeup = false;
-                return;
-            }
-            void** saved = &running->sp;
-            running = activeList[i];
-            swapcontext(&running->sp, saved);
-            return;
-        }
     }
 
     block();
