@@ -26,7 +26,8 @@ unsigned numCores = 1;
 /**
  * Work to do on each thread. 
  * TODO(hq6): If vector is too slow, we may switch to a linked list.  */
-thread_local std::vector<UserContext*> maybeRunnable;
+thread_local std::vector<UserContext*> *maybeRunnable;
+std::vector<std::vector<UserContext*> > activeLists;
 
 
 /**
@@ -41,21 +42,8 @@ std::vector<std::deque<void*> > stackPool;
   * This is the context that a given core is currently executing in.
  */
 thread_local UserContext *running;
-
-/**
-  * This structure holds the flags, functions, and arguments for the main functions of user threads passed across cores.
-  * TODO: In a NUMA world, it may make more sense if this is TaskBox** to allow
-  * cores on different NUMA nodes to allocate from the memory that is closer to
-  * them.
-  */
-TaskBox* taskBoxes;
-
-/**
-  * For reasons that are less than clear, using this thread-local pointer saves
-  * us 60 ns over accessing the local taskBox using taskBoxes[kernelThreadId],
-  * which is a thread-local offset from a global variable.
-  */
-thread_local TaskBox* taskBox;
+std::atomic<MaskAndCount>  *occupiedAndCount;
+thread_local std::atomic<MaskAndCount>  *localOccupiedAndCount;
 
 /**
  * This function will allocate stacks and create kernel threads pinned to particular cores.
@@ -75,30 +63,55 @@ void threadInit() {
     // Allocate stacks. Note that number of cores is actually number of
     // hyperthreaded cores, rather than necessarily real CPU cores.
     numCores = std::thread::hardware_concurrency(); 
-//    printf("numCores = %u\n", numCores);
+    printf("numCores = %u\n", numCores);
 
     // Special magic to ensure aligned allocation of taskBoxes
-    int result = posix_memalign(reinterpret_cast<void**>(&taskBoxes),
-            CACHE_LINE_SIZE, sizeof(TaskBox) * numCores);
+    int result = posix_memalign(reinterpret_cast<void**>(&occupiedAndCount),
+            CACHE_LINE_SIZE, sizeof(MaskAndCount) * numCores);
     if (result != 0) {
         fprintf(stderr, "posix_memalign returned %s", strerror(result));
         exit(1);
     }
-    assert((reinterpret_cast<uint64_t>(taskBoxes) & 0x3f) == 0);
+    assert((reinterpret_cast<uint64_t>(occupiedAndCount) & 0x3f) == 0);
 
     for (unsigned int i = 0; i < numCores; i++) {
         sleepQueues.push_back(std::deque<UserContext*>());
+        activeLists.push_back(std::vector<UserContext*>());
 
         // Initialize stack pool for each kernel thread
         stackPool.push_back(std::deque<void*>());
         for (int j = 0; j < stackPoolSize; j++)
             stackPool[i].push_back(malloc(stackSize));
 
-        // Leave one thread for the main thread
-        if (i != numCores - 1) {
-            std::thread(threadMainFunction, i).detach();
+        PerfUtils::Util::serialize();
+
+        // Here we will create all the user contexts and user stacks
+        for (int k = 0; k < maxThreadsPerCore; k++) {
+            UserContext *freshContext = new UserContext;
+
+            auto stack = stackPool[i].front();
+            stackPool[i].pop_front();
+
+            freshContext->stack = stack;
+            freshContext->index = k;
+            freshContext->wakeup = false;
+
+            // Set up the stack to return to the main thread function.
+            freshContext->sp = (char*) freshContext->stack + stackSize - 64; 
+            *(void**) freshContext->sp = (void*) schedulerMainLoop;
+            savecontext(&freshContext->sp);
+            activeLists[i].push_back(freshContext);
         }
 
+
+    }
+    // Ensure that data structure and stack allocation completes before we
+    // begin to use it in a new thread.
+    PerfUtils::Util::serialize();
+
+    // Leave one thread for the main thread
+    for (unsigned int i = 0; i < numCores - 1; i++) {
+        std::thread(threadMainFunction, i).detach();
     }
 
     // Set the kernelThreadId for the main thread
@@ -119,51 +132,17 @@ void threadMainFunction(int id) {
     // The original thread given by the kernel is simply discarded in the
     // current implementation.
     kernelThreadId = id;
-    taskBox = &taskBoxes[kernelThreadId];
+    localOccupiedAndCount = &occupiedAndCount[kernelThreadId];
+    *localOccupiedAndCount = MaskAndCount {0,0};
+    maybeRunnable = &activeLists[kernelThreadId];
 
     PerfUtils::Util::pinThreadToCore(id);
 
-    // This temporary context is used for bootstrapping the swap to a user stack.
-    UserContext tempContext;
-    running = &tempContext;
+    running = (*maybeRunnable)[0];
+    setcontext(&running->sp);
 
-    createNewRunnableThread();
-}
-
-/**
- * When there is a need for a new runnable thread, either because there are
- * none, or because there are more tasks than current threads, this function is
- * invoked to allocate a new stack and switch to it on the current core.
- */
-void createNewRunnableThread() {
-    // First see if there is already an empty context among the current set of contexts.
-    void** saved = &running->sp;
-    for (size_t i = 0; i < maybeRunnable.size(); i++)
-        if (!maybeRunnable[i]->occupied) {
-            running = maybeRunnable[i];
-            swapcontext(&running->sp, saved);
-            return;
-        }
-
-    // Create a new context if there is not one available
-    auto stack = stackPool[kernelThreadId].front();
-    stackPool[kernelThreadId].pop_front();
-
-    running = new UserContext;
-    maybeRunnable.push_back(running);
-
-    running->stack = stack;
-    running->occupied = false;
-    running->wakeup = false;
-
-
-    // Set up the stack to return to the main thread function.
-    running->sp = (char*) running->stack + stackSize - 64; 
-    *(void**) running->sp = (void*) schedulerMainLoop;
-    savecontext(&running->sp);
-
-    // Switch to the new thread and start polling for work there.
-    swapcontext(&running->sp, saved);
+    // TODO: Delete the function below and restructure
+    // block vs ArachneMainLoop.
 }
 
 /**
@@ -179,7 +158,8 @@ void  __attribute__ ((noinline))  setcontext(void **saved) {
         "popq %r15\n\t"
         "popq %r14\n\t"
         "popq %r13\n\t"
-        "popq %r12");
+        "popq %r12\n\t"
+        );
 }
 
 /**
@@ -207,6 +187,7 @@ void  __attribute__ ((noinline))  savecontext(void **target) {
  *
  * Load from saved and store into target.
  */
+
 void  __attribute__ ((noinline))  swapcontext(void **saved, void **target) {
 
     // Save the registers and store the stack pointer
@@ -237,56 +218,77 @@ void schedulerMainLoop() {
     // at any given time.  Most threads should be inside runThread, and only
     // re-enter the thread library by making an API call into Arachne.
     while (true) {
-        // Poll for work on my taskBox and take it off first so that we avoid
-        // blocking other create requests onto our core.
-        if (taskBox->data.loadState == FILLED) {
-            // Take on a new task directly if this is an empty context.
-            if (!running->occupied) {
-                // Copy the task onto the local stack
-                auto task = taskBox->getTask();
+        // Clear the occupied flag
+        bool success;
+        do {
+            MaskAndCount slotMap = *localOccupiedAndCount;
+            MaskAndCount oldSlotMap = slotMap;
 
+            // Decrement count only if the flag was originally set
+            if (slotMap.occupied & (1 << running->index))
+                slotMap.count--;
 
-                // TODO: Decide whether this CAS can be changed into a simply store operation
-                auto expectedTaskState = FILLED; // Because of compare_exchange_strong requires a reference
-                taskBox->data.loadState.compare_exchange_strong(expectedTaskState, EMPTY);
-                running->occupied = true;
-                running->wakeup = false;
-                reinterpret_cast<TaskBase*>(&task)->runThread();
-                running->occupied = false;
-            } else { // Create a new context since this is a blocked context.
-                createNewRunnableThread();
-            }
-        }
-        
-        checkSleepQueue();
-        {
-            // If we see no other runnable user threads, then we are the last
-            // runnable thread and should continue running.
-            for (size_t i = 0; i < maybeRunnable.size(); i++) {
-                if (maybeRunnable[i]->wakeup) {
-                    // Ensure that an empty context does not have the wakeup
-                    // flag set, so this must be a valid thread to switch to.
-                    // This may happen if one user thread's signal races with a
-                    // target thread's exit.
-                    // Since the occupied flag is not set by any API call, this
-                    // is a good insurance against the race.
-                    if (!maybeRunnable[i]->occupied) {
-                        maybeRunnable[i]->wakeup = false;
-                        continue;
-                    }
-//                    TimeTrace::record("Detected new runnable thread in scheduler main loop");
-                    // If the blocked context is our own, we can simply return after clearing our own wake-up flag.
-                    if (maybeRunnable[i] == running) {
-                        running->wakeup = false;
-                        return;
-                    }
-                    void** saved = &running->sp;
-                    running = maybeRunnable[i];
-                    swapcontext(&running->sp, saved);
-                }
-            }
-        }
+            slotMap.occupied &= ~(1 << running->index);
+            success = localOccupiedAndCount->compare_exchange_strong(
+                    oldSlotMap,
+                    slotMap);
+        } while (!success);
+
+        block();
+        reinterpret_cast<TaskBase*>(&running->taskBox.task)->runThread();
+		running->wakeup = false;
     }
+
+//        // Poll for work on my taskBox and take it off first so that we avoid
+//        // blocking other create requests onto our core.
+//        if (taskBox->data.loadState == FILLED) {
+//            // Take on a new task directly if this is an empty context.
+//            if (!running->occupied) {
+//                // Copy the task onto the local stack
+//                auto task = taskBox->getTask();
+//
+//
+//                // TODO: Decide whether this CAS can be changed into a simply store operation
+//                auto expectedTaskState = FILLED; // Because of compare_exchange_strong requires a reference
+//                taskBox->data.loadState.compare_exchange_strong(expectedTaskState, EMPTY);
+//                running->occupied = true;
+//                running->wakeup = false;
+//                reinterpret_cast<TaskBase*>(&task)->runThread();
+//                running->occupied = false;
+//            } else { // Create a new context since this is a blocked context.
+//                createNewRunnableThread();
+//            }
+//        }
+//        
+//        checkSleepQueue();
+//        {
+//            // If we see no other runnable user threads, then we are the last
+//            // runnable thread and should continue running.
+//            for (size_t i = 0; i < maybeRunnable.size(); i++) {
+//                if (maybeRunnable[i]->wakeup) {
+//                    // Ensure that an empty context does not have the wakeup
+//                    // flag set, so this must be a valid thread to switch to.
+//                    // This may happen if one user thread's signal races with a
+//                    // target thread's exit.
+//                    // Since the occupied flag is not set by any API call, this
+//                    // is a good insurance against the race.
+//                    if (!maybeRunnable[i]->occupied) {
+//                        maybeRunnable[i]->wakeup = false;
+//                        continue;
+//                    }
+////                    TimeTrace::record("Detected new runnable thread in scheduler main loop");
+//                    // If the blocked context is our own, we can simply return after clearing our own wake-up flag.
+//                    if (maybeRunnable[i] == running) {
+//                        running->wakeup = false;
+//                        return;
+//                    }
+//                    void** saved = &running->sp;
+//                    running = maybeRunnable[i];
+//                    swapcontext(&running->sp, saved);
+//                }
+//            }
+//        }
+//    }
 }
 
 /**
@@ -298,21 +300,18 @@ void schedulerMainLoop() {
  * runnable threads from starving all later ones on the list.
  */
 void yield() {
-//    TimeTrace::record("The start of yielding");
-    // Poll for incoming task.
-    if (taskBox->data.loadState == FILLED) {
-        createNewRunnableThread();
-    }
     checkSleepQueue();
 
-    for (size_t i = 0; i < maybeRunnable.size(); i++) {
-        if (maybeRunnable[i]->wakeup && maybeRunnable[i] != running) {
+    // This thread is still runnable since it is merely yielding.
+    running->wakeup = true; 
+
+    auto& activeList = *maybeRunnable;
+    for (size_t i = 0; i < activeList.size(); i++) {
+        if (activeList[i]->wakeup && activeList[i] != running) {
 //            TimeTrace::record("Detected runnable thread inside yield");
             void** saved = &running->sp;
 
-            // This thread is still runnable since it is merely yielding.
-            running->wakeup = true; 
-            running = maybeRunnable[i];
+            running = activeList[i];
             swapcontext(&running->sp, saved);
             running->wakeup = false;
             return;
@@ -359,32 +358,26 @@ void sleep(uint64_t ns) {
         printf("sleepQueueSize = %zu\n", sleepQueue.size());
     }
 
-    // Poll for incoming task.
-    if (taskBox->data.loadState == FILLED) {
-        createNewRunnableThread();
-    }
-        
     // TODO: Decide if this is necessary here.
     checkSleepQueue();
 
-    for (size_t i = 0; i < maybeRunnable.size(); i++) {
+    auto& activeList = *maybeRunnable;
+    for (size_t i = 0; i < activeList.size(); i++) {
         // There are other runnable threads, so we simply switch to the first one.
         // TODO: Check for when it is yourself, because we need to clear the wakeup flag. Otherwise swapcontext to another
-        if (maybeRunnable[i]->wakeup) {
-            if (maybeRunnable[i] == running) {
+        if (activeList[i]->wakeup) {
+            if (activeList[i] == running) {
                 running->wakeup = false;
                 return;
             }
             void** saved = &running->sp;
-            running = maybeRunnable[i];
+            running = activeList[i];
             swapcontext(&running->sp, saved);
             return;
         }
     }
 
-    // Run the main scheduler loop in the context of this thread, since this is
-    // the last thread that was runnable.
-    schedulerMainLoop();
+    block();
 }
 
 /**
@@ -401,31 +394,26 @@ ThreadId getThreadId() {
   * function.
   */
 void block() {
-    // Poll for incoming task.
-    if (taskBox->data.loadState == FILLED) {
-        createNewRunnableThread();
-        return;
-    }
+    while (1) {
+        // Check the sleep queue
+        checkSleepQueue();
 
-    // Find a thread to switch to
-    for (size_t i = 0; i < maybeRunnable.size(); i++) {
-        // TODO: Check for self and consider this race.
-        if (maybeRunnable[i]->wakeup) {
-            if (maybeRunnable[i] == running) {
+        // Find a thread to switch to
+        auto& activeList = *maybeRunnable;
+        for (size_t i = 0; i < activeList.size(); i++) {
+            if (activeList[i]->wakeup) {
+                if (activeList[i] == running) {
+                    running->wakeup = false;
+                    return;
+                }
+                void** saved = &running->sp;
+                running = activeList[i];
+                swapcontext(&running->sp, saved);
                 running->wakeup = false;
                 return;
             }
-            void** saved = &running->sp;
-            running = maybeRunnable[i];
-            swapcontext(&running->sp, saved);
-            running->wakeup = false;
-            return;
         }
     }
-
-    // Run the main scheduler loop in the context of this thread, since this is
-    // the last thread that was runnable.
-    schedulerMainLoop();
 }
 
 /* 

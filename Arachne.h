@@ -13,48 +13,6 @@
 
 namespace  Arachne {
 
-/*
- * This enum represents the state of a Task object.
- * EMPTY => This slot is available for enqueing.
- * FILLING => This slot is currently being filled.
- * FILLED => This slot is available for reading.
- */
-enum TaskState {
-    EMPTY = 0,
-    FILLING,
-    FILLED
-};
-
-/*
- * This class holds all the state for a running user thread.
- */
-struct UserContext {
-    // This is a pointer to the lowest valid memory address in the user thread stack.
-    void* sp;
-    
-    // The top of the stack of the current workunit, used for both indicating
-    // whether this is new or old work, and also for making it easier to
-    // recycle the stacks.
-    void* stack;
-
-    // This flag records whether this thread context is currently hosting a
-    // user thread or not.
-    // This allows us to differentiate between running in the context of a
-    // blocked thread and running in the context of a new thread in the Arachne
-    // main loop.
-    volatile bool occupied;
-
-    // This flag is a signal that this thread should run at the next opportunity.
-    // It should be cleared immediately before a thread begins to run and
-    // should be set by either remote cores as a signal or when a thread
-    // yields.
-    volatile bool wakeup;
-
-    // When a thread enters the sleep queue, it will keep its wakup time
-    // here.
-    uint64_t wakeUpTimeInCycles;
-};
-
 // This class allows us to invoke a function produced by std::bind after it has
 // been copied to a fixed-size object, by using indirection through virtual
 // dispatch.
@@ -87,32 +45,60 @@ template <typename F> struct Task : public TaskBase {
 // cache lines, since the flag will be polled on by a particular core, and set
 // only once loading is complete.
 union alignas(64) TaskBox {
-    struct Data {
-       std::atomic<TaskState> loadState{}; // Default initialized
+    // This wrapper enables us to copy out the fixed length array by value, we
+    // can then use a reinterpret_cast to convert to a TaskBase* and invoke the
+    // actual function.
+    struct Task {
+        char taskBuf[CACHE_LINE_SIZE];
+    } task;
 
-       // This wrapper enables us to copy out the fixed length array by value, we
-       // can then use a reinterpret_cast to convert to a TaskBase* and invoke the
-       // actual function.
-       struct Task {
-          char taskBuf[CACHE_LINE_SIZE - sizeof(loadState)];
-       } task;
-   } data;
-   char pad[CACHE_LINE_SIZE];
-
-   // This function is used in the second step of invoking a function scheduled by another core.
+   // This function is used in the second step of invoking a function scheduled
+   // by another core.
    // 0. Core polling loop detects that there is work enqueued.
    // 1. Caller copy out the function and arguments onto their local stack
    // 2. Callers free this structure by setting the loadState to EMPTY again.
    // 3. Caller invoke the function or yield, depending on priority.
-   Data::Task getTask() {
-       return data.task;
+   Task getTask() {
+       return task;
    }
+};
+
+/*
+ * This class holds all the state for a running user thread.
+ */
+struct UserContext {
+    // This is a pointer to the lowest valid memory address in the user thread stack.
+    void* sp;
+    
+    // The top of the stack of the current workunit, used for both indicating
+    // whether this is new or old work, and also for making it easier to
+    // recycle the stacks.
+    void* stack;
+
+
+    // This flag is a signal that this thread should run at the next opportunity.
+    // It should be cleared immediately before a thread begins to run and
+    // should be set by either remote cores as a signal or when a thread
+    // yields.
+    volatile bool wakeup;
+
+    // Index of this UserContext in the vector of UserContexts for this core.
+    // This gives us the correct bit to clear in the bit vector when we
+    // complete a task.
+    uint8_t index;
+
+    // When a thread enters the sleep queue, it will keep its wakup time
+    // here.
+    uint64_t wakeUpTimeInCycles;
+
+    TaskBox taskBox;
 };
 
 typedef UserContext* ThreadId;
 
 const int stackSize = 1024 * 1024;
 const int stackPoolSize = 1000;
+const int maxThreadsPerCore = 56;
 
 /**
   * The following data structures and functions are private to the thread library.
@@ -124,9 +110,16 @@ void createNewRunnableThread();
 extern thread_local int kernelThreadId;
 extern thread_local UserContext *running;
 extern std::vector<std::deque<void*> > stackPool;
-extern thread_local std::vector<UserContext*> maybeRunnable;
-extern TaskBox* taskBoxes;
-extern thread_local TaskBox* taskBox;
+extern thread_local std::vector<UserContext*> *maybeRunnable;
+extern std::vector<std::vector<UserContext*> > activeLists;
+
+// This structure holds a bitmask of occupied flags and a count of busy slots.
+struct MaskAndCount{
+    unsigned long int occupied : 56;
+    uint8_t count : 8;
+};
+extern std::atomic<MaskAndCount>  *occupiedAndCount;
+extern thread_local std::atomic<MaskAndCount>  *localOccupiedAndCount;
 
 /**
   * Create a user thread to run the function f with the given args on the provided core.
@@ -138,19 +131,38 @@ template<typename _Callable, typename... _Args>
 
     auto task = std::bind(std::forward<_Callable>(__f), std::forward<_Args>(__args)...);
 
-    // Attempt to enqueue the task by first checking the status
-    auto& taskBox = taskBoxes[coreId];
-    auto expectedTaskState = EMPTY; // Because of compare_exchange_strong requires a reference
-    if (!taskBox.data.loadState.compare_exchange_strong(expectedTaskState, FILLING)) {
-        fprintf(stderr, "Fast path for thread creation was blocked, and slow " 
-                "path is not yet implemented. Exiting...\n");
-        exit(0);
-    }
+    bool success;
+    int index;
+    do {
+        // Attempt to enqueue the task to the specific core in this case.
+        MaskAndCount slotMap = occupiedAndCount[coreId];
+        MaskAndCount oldSlotMap = slotMap;
 
-    new (&taskBox.data.task) Arachne::Task<decltype(task)>(task);
+        // Search for a non-occupied slot and attempt to reserve the slot
+        // TODO: Try variations on this and see if we can make it faster if we
+        // measure it to be too slow.
+        index = 0;
+        while (slotMap.occupied & (1 << index))
+            index++;
+        
+        if (index > 55) {
+            printf("Reached maximum thread capacity for this core, should throttle but aborting for now");
+            exit(1);
+        }
 
-    // Notify the target thread that the taskBox has been loaded
-    taskBox.data.loadState.store(FILLED);
+        slotMap.occupied |= (1 << index);
+        slotMap.count++;
+
+        success = occupiedAndCount[coreId].compare_exchange_strong(oldSlotMap,
+                slotMap);
+
+    } while (!success);
+
+    // Copy in the data
+    new (&activeLists[coreId][index]->taskBox.task) Arachne::Task<decltype(task)>(task);
+
+    // Set wakeup flag
+    activeLists[coreId][index]->wakeup = true;
 
     return 0;
 }
