@@ -109,7 +109,6 @@ void  swapcontext(void **saved, void **target);
 void createNewRunnableThread();
 extern thread_local int kernelThreadId;
 extern thread_local UserContext *running;
-extern std::vector<std::deque<void*> > stackPool;
 extern thread_local std::vector<UserContext*> *maybeRunnable;
 extern std::vector<std::vector<UserContext*> > activeLists;
 
