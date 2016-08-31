@@ -40,10 +40,24 @@ std::vector<std::deque<void*> > stackPool;
 
 /**
   * This is the context that a given core is currently executing in.
- */
+  */
 thread_local UserContext *running;
+
+/**
+  * This variable holds the array of flags indicating occupancy and the current
+  * number of slots in the core.
+  */
 std::atomic<MaskAndCount>  *occupiedAndCount;
 thread_local std::atomic<MaskAndCount>  *localOccupiedAndCount;
+
+
+/**
+  * This variable holds the most recent index into the active threads array for
+  * the current core. By maintaining this index, we can avoid starvation of
+  * runnable threads later on in the list by runnable threads earlier in the
+  * list.
+  */
+thread_local size_t currentIndex = 0;
 
 /**
  * This function will allocate stacks and create kernel threads pinned to particular cores.
@@ -256,11 +270,24 @@ void yield() {
     running->wakeup = true; 
 
     auto& activeList = *maybeRunnable;
-    for (size_t i = 0; i < activeList.size(); i++) {
-        if (activeList[i]->wakeup && activeList[i] != running) {
-//            TimeTrace::record("Detected runnable thread inside yield");
-            void** saved = &running->sp;
+    size_t size = maxThreadsPerCore;
 
+    currentIndex++;
+    if (currentIndex == size) currentIndex = 0;
+
+    // Splitting into two loops instead of a combined loop with an extra conditional save us 8 ns on average.
+    for (size_t i = currentIndex; i < size; i++) {
+        if (activeList[i]->wakeup && activeList[i] != running) {
+            void** saved = &running->sp;
+            running = activeList[i];
+            swapcontext(&running->sp, saved);
+            running->wakeup = false;
+            return;
+        }
+    }
+    for (size_t i = 0; i < currentIndex; i++) {
+        if (activeList[i]->wakeup && activeList[i] != running) {
+            void** saved = &running->sp;
             running = activeList[i];
             swapcontext(&running->sp, saved);
             running->wakeup = false;
@@ -331,8 +358,29 @@ void block() {
 
         // Find a thread to switch to
         auto& activeList = *maybeRunnable;
-        for (size_t i = 0; i < activeList.size(); i++) {
+        size_t size= activeList.size();
+
+        for (size_t i = currentIndex; i < size; i++) {
             if (activeList[i]->wakeup) {
+                currentIndex = i + 1;
+                if (currentIndex == size) currentIndex = 0;
+
+                if (activeList[i] == running) {
+                    running->wakeup = false;
+                    return;
+                }
+                void** saved = &running->sp;
+                running = activeList[i];
+                swapcontext(&running->sp, saved);
+                running->wakeup = false;
+                return;
+            }
+        }
+        for (size_t i = 0; i < currentIndex; i++) {
+            if (activeList[i]->wakeup) {
+                currentIndex = i + 1;
+                if (currentIndex == size) currentIndex = 0;
+
                 if (activeList[i] == running) {
                     running->wakeup = false;
                     return;
