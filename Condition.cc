@@ -28,21 +28,14 @@ void condition_variable::wait(SpinLock& lock) {
 
     lock.unlock();
 
-    // Poll for incoming task.
-    // TODO(hq6): Decide whether this function should actually yield immediately.
-    if (taskBox->data.loadState.load() == FILLED) {
-        createNewRunnableThread();
-        TimeTrace::record("About to acquire lock after waking up");
-        lock.lock();
-        running->wakeup = false;
-        return;
-    }
     TimeTrace::record("Finished checking for new threads on core %d", kernelThreadId);
+
     // Find a thread to switch to
-    for (size_t i = 0; i < maybeRunnable.size(); i++) {
-        if (maybeRunnable[i]->wakeup) {
+    auto& activeList = *maybeRunnable;
+    for (size_t i = 0; i < activeList.size(); i++) {
+        if (activeList[i]->wakeup) {
             // If the blocked context is our own, we can simply return.
-            if (maybeRunnable[i] == running) {
+            if (activeList[i] == running) {
                 TimeTrace::record("About to acquire lock after waking up");
                 lock.lock();
                 running->wakeup = false;
@@ -50,7 +43,7 @@ void condition_variable::wait(SpinLock& lock) {
             }
             void** saved = &running->sp;
 
-            running = maybeRunnable[i];
+            running = activeList[i];
 
             swapcontext(&running->sp, saved);
             TimeTrace::record("About to acquire lock after waking up");
@@ -62,7 +55,7 @@ void condition_variable::wait(SpinLock& lock) {
 
     // Run the main scheduler loop in the context of this thread, since this is
     // the last thread that was runnable.
-    schedulerMainLoop();
+    block();
     TimeTrace::record("About to acquire lock after waking up");
     lock.lock();
 }
