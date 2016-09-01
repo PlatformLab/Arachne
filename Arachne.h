@@ -13,6 +13,8 @@
 
 namespace  Arachne {
 
+extern volatile unsigned numCores;
+
 // This class allows us to invoke a function produced by std::bind after it has
 // been copied to a fixed-size object, by using indirection through virtual
 // dispatch.
@@ -68,7 +70,7 @@ struct UserContext {
 
     // Wrapping this array into a struct appears to mitigate the strict
     // aliasing warnings.
-    struct {
+    struct alignas(sizeof(void*)) {
         char data[CACHE_LINE_SIZE];
     } task;
 };
@@ -133,16 +135,52 @@ template<typename _Callable, typename... _Args>
 
         success = occupiedAndCount[coreId].compare_exchange_strong(oldSlotMap,
                 slotMap);
-
     } while (!success);
 
     // Copy in the data
     new (&activeLists[coreId][index].task) Arachne::Task<decltype(task)>(task);
 
     // Set wakeup flag
+    activeLists[coreId][index].index = index;
     activeLists[coreId][index].wakeup = true;
 
     return 0;
+}
+
+// A random number generator from the internets.
+inline unsigned long xorshf96(void) {
+    static unsigned long x=123456789, y=362436069, z=521288629;
+    unsigned long t;
+    x ^= x << 16;
+    x ^= x >> 5;
+    x ^= x << 1;
+
+    t = x;
+    x = y;
+    y = z;
+    z = t ^ x ^ y;
+
+    return z;
+}
+
+/**
+  * This is the thread creation function that is used in real systems, since it
+  * does load balancing.
+  */
+template<typename _Callable, typename... _Args>
+    int createThread(_Callable&& __f, _Args&&... __args) {
+
+    // Find a core to enqueue to by picking two at random.
+    int coreId;
+    int choice1 = xorshf96() % numCores;
+    int choice2 = xorshf96() % numCores;
+
+    if (occupiedAndCount[choice1].load().count < occupiedAndCount[choice2].load().count)
+        coreId = choice1;
+    else
+        coreId = choice2;
+
+    return createThread(coreId, __f, __args...);
 }
 
 void threadMainFunction(int id);
