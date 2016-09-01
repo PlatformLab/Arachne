@@ -21,7 +21,7 @@ void schedulerMainLoop();
 
 
 InitializationState initializationState = NOT_INITIALIZED;
-unsigned numCores = 1;
+volatile unsigned numCores = 1;
 
 /**
  * The state for each user thread.
@@ -93,6 +93,7 @@ void threadInit() {
     printf("numCores = %u\n", numCores);
 
     cache_align_alloc(&occupiedAndCount, sizeof(MaskAndCount) * numCores);
+    memset(occupiedAndCount, 0, sizeof(MaskAndCount));
 
     for (unsigned int i = 0; i < numCores; i++) {
         sleepQueues.push_back(std::deque<UserContext*>());
@@ -143,7 +144,6 @@ void threadMainFunction(int id) {
     // current implementation.
     kernelThreadId = id;
     localOccupiedAndCount = &occupiedAndCount[kernelThreadId];
-    *localOccupiedAndCount = MaskAndCount {0,0};
     activeList = activeLists[kernelThreadId];
 
     PerfUtils::Util::pinThreadToCore(id);
@@ -228,7 +228,15 @@ void schedulerMainLoop() {
     // at any given time.  Most threads should be inside runThread, and only
     // re-enter the thread library by making an API call into Arachne.
     while (true) {
+        block();
+        reinterpret_cast<TaskBase*>(&running->task)->runThread();
+		running->wakeup = false;
+
         // Clear the occupied flag
+        // While this may logically come before the block(), it is here to
+        // prevent it from racing against thread creations that come before
+        // this while loop starts, since the occupied flags for such creations
+        // would get wiped out by this code.
         bool success;
         do {
             MaskAndCount slotMap = *localOccupiedAndCount;
@@ -244,9 +252,6 @@ void schedulerMainLoop() {
                     slotMap);
         } while (!success);
 
-        block();
-        reinterpret_cast<TaskBase*>(&running->task)->runThread();
-		running->wakeup = false;
     }
 
 }
