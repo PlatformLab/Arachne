@@ -269,31 +269,7 @@ void yield() {
 
     // This thread is still runnable since it is merely yielding.
     running->wakeup = true; 
-
-    size_t size = maxThreadsPerCore;
-
-    currentIndex++;
-    if (currentIndex == size) currentIndex = 0;
-
-    // Splitting into two loops instead of a combined loop with an extra conditional save us 8 ns on average.
-    for (size_t i = currentIndex; i < size; i++) {
-        if (activeList[i].wakeup && &activeList[i] != running) {
-            void** saved = &running->sp;
-            running = &activeList[i];
-            swapcontext(&running->sp, saved);
-            running->wakeup = false;
-            return;
-        }
-    }
-    for (size_t i = 0; i < currentIndex; i++) {
-        if (activeList[i].wakeup && &activeList[i] != running) {
-            void** saved = &running->sp;
-            running = &activeList[i];
-            swapcontext(&running->sp, saved);
-            running->wakeup = false;
-            return;
-        }
-    }
+    block();
 }
 void checkSleepQueue() {
     uint64_t currentCycles = Cycles::rdtsc();
