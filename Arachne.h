@@ -38,31 +38,6 @@ template <typename F> struct Task : public TaskBase {
    }
 };
 
-// This structure holds the flags for protecting the enqueuing of a new Task to
-// a particular core, as well as the function and arguments of that task.
-
-// It is important for performance reasons that the two parts are in different
-// cache lines, since the flag will be polled on by a particular core, and set
-// only once loading is complete.
-union alignas(64) TaskBox {
-    // This wrapper enables us to copy out the fixed length array by value, we
-    // can then use a reinterpret_cast to convert to a TaskBase* and invoke the
-    // actual function.
-    struct Task {
-        char taskBuf[CACHE_LINE_SIZE];
-    } task;
-
-   // This function is used in the second step of invoking a function scheduled
-   // by another core.
-   // 0. Core polling loop detects that there is work enqueued.
-   // 1. Caller copy out the function and arguments onto their local stack
-   // 2. Callers free this structure by setting the loadState to EMPTY again.
-   // 3. Caller invoke the function or yield, depending on priority.
-   Task getTask() {
-       return task;
-   }
-};
-
 /*
  * This class holds all the state for a running user thread.
  */
@@ -75,6 +50,9 @@ struct UserContext {
     // recycle the stacks.
     void* stack;
 
+    // When a thread enters the sleep queue, it will keep its wakup time
+    // here.
+    uint64_t wakeUpTimeInCycles;
 
     // This flag is a signal that this thread should run at the next opportunity.
     // It should be cleared immediately before a thread begins to run and
@@ -87,11 +65,12 @@ struct UserContext {
     // complete a task.
     uint8_t index;
 
-    // When a thread enters the sleep queue, it will keep its wakup time
-    // here.
-    uint64_t wakeUpTimeInCycles;
 
-    TaskBox taskBox;
+    // Wrapping this array into a struct appears to mitigate the strict
+    // aliasing warnings.
+    struct {
+        char data[CACHE_LINE_SIZE];
+    } task;
 };
 
 typedef UserContext* ThreadId;
@@ -109,8 +88,8 @@ void  swapcontext(void **saved, void **target);
 void createNewRunnableThread();
 extern thread_local int kernelThreadId;
 extern thread_local UserContext *running;
-extern thread_local std::vector<UserContext*> *maybeRunnable;
-extern std::vector<std::vector<UserContext*> > activeLists;
+extern thread_local UserContext* activeList;
+extern std::vector<UserContext*> activeLists;
 
 // This structure holds a bitmask of occupied flags and a count of busy slots.
 struct MaskAndCount{
@@ -158,10 +137,10 @@ template<typename _Callable, typename... _Args>
     } while (!success);
 
     // Copy in the data
-    new (&activeLists[coreId][index]->taskBox.task) Arachne::Task<decltype(task)>(task);
+    new (&activeLists[coreId][index].task) Arachne::Task<decltype(task)>(task);
 
     // Set wakeup flag
-    activeLists[coreId][index]->wakeup = true;
+    activeLists[coreId][index].wakeup = true;
 
     return 0;
 }

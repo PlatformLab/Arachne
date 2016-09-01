@@ -24,10 +24,10 @@ InitializationState initializationState = NOT_INITIALIZED;
 unsigned numCores = 1;
 
 /**
- * Work to do on each thread. 
- * TODO(hq6): If vector is too slow, we may switch to a linked list.  */
-thread_local std::vector<UserContext*> *maybeRunnable;
-std::vector<std::vector<UserContext*> > activeLists;
+ * The state for each user thread.
+ */
+std::vector<UserContext*> activeLists;
+thread_local UserContext* activeList;
 
 
 /**
@@ -59,6 +59,20 @@ thread_local std::atomic<MaskAndCount>  *localOccupiedAndCount;
 thread_local size_t currentIndex = 0;
 
 /**
+  * This function takes the address of a pointer to be allocated and attempts
+  * to make a cache-aligned allocation for the pointer.
+  */
+void cache_align_alloc(void* addressOfTargetPointer, size_t size) {
+    void ** trueAddress = reinterpret_cast<void**>(addressOfTargetPointer);
+    int result = posix_memalign(trueAddress, CACHE_LINE_SIZE, size);
+    if (result != 0) {
+        fprintf(stderr, "posix_memalign returned %s", strerror(result));
+        exit(1);
+    }
+    assert((reinterpret_cast<uint64_t>(*trueAddress) & 0x3f) == 0);
+}
+
+/**
  * This function will allocate stacks and create kernel threads pinned to particular cores.
  *
  * Note that the setting of initializationState should probably use memory
@@ -78,23 +92,16 @@ void threadInit() {
     numCores = std::thread::hardware_concurrency(); 
     printf("numCores = %u\n", numCores);
 
-    // Special magic to ensure aligned allocation of taskBoxes
-    int result = posix_memalign(reinterpret_cast<void**>(&occupiedAndCount),
-            CACHE_LINE_SIZE, sizeof(MaskAndCount) * numCores);
-    if (result != 0) {
-        fprintf(stderr, "posix_memalign returned %s", strerror(result));
-        exit(1);
-    }
-    assert((reinterpret_cast<uint64_t>(occupiedAndCount) & 0x3f) == 0);
+    cache_align_alloc(&occupiedAndCount, sizeof(MaskAndCount) * numCores);
 
     for (unsigned int i = 0; i < numCores; i++) {
         sleepQueues.push_back(std::deque<UserContext*>());
-        activeLists.push_back(std::vector<UserContext*>());
 
         // Here we will create all the user contexts and user stacks
+        UserContext *contexts;
+        cache_align_alloc(&contexts, sizeof(UserContext) * maxThreadsPerCore);
         for (int k = 0; k < maxThreadsPerCore; k++) {
-            UserContext *freshContext = new UserContext;
-
+            UserContext *freshContext = &contexts[k];
             freshContext->stack = malloc(stackSize);
             freshContext->index = k;
             freshContext->wakeup = false;
@@ -103,8 +110,8 @@ void threadInit() {
             freshContext->sp = (char*) freshContext->stack + stackSize - 64; 
             *(void**) freshContext->sp = (void*) schedulerMainLoop;
             savecontext(&freshContext->sp);
-            activeLists[i].push_back(freshContext);
         }
+        activeLists.push_back(contexts);
 
 
     }
@@ -137,11 +144,11 @@ void threadMainFunction(int id) {
     kernelThreadId = id;
     localOccupiedAndCount = &occupiedAndCount[kernelThreadId];
     *localOccupiedAndCount = MaskAndCount {0,0};
-    maybeRunnable = &activeLists[kernelThreadId];
+    activeList = activeLists[kernelThreadId];
 
     PerfUtils::Util::pinThreadToCore(id);
 
-    running = (*maybeRunnable)[0];
+    running = activeList;
     setcontext(&running->sp);
 
     // TODO: Delete the function below and restructure
@@ -238,7 +245,7 @@ void schedulerMainLoop() {
         } while (!success);
 
         block();
-        reinterpret_cast<TaskBase*>(&running->taskBox.task)->runThread();
+        reinterpret_cast<TaskBase*>(&running->task)->runThread();
 		running->wakeup = false;
     }
 
@@ -258,7 +265,6 @@ void yield() {
     // This thread is still runnable since it is merely yielding.
     running->wakeup = true; 
 
-    auto& activeList = *maybeRunnable;
     size_t size = maxThreadsPerCore;
 
     currentIndex++;
@@ -266,18 +272,18 @@ void yield() {
 
     // Splitting into two loops instead of a combined loop with an extra conditional save us 8 ns on average.
     for (size_t i = currentIndex; i < size; i++) {
-        if (activeList[i]->wakeup && activeList[i] != running) {
+        if (activeList[i].wakeup && &activeList[i] != running) {
             void** saved = &running->sp;
-            running = activeList[i];
+            running = &activeList[i];
             swapcontext(&running->sp, saved);
             running->wakeup = false;
             return;
         }
     }
     for (size_t i = 0; i < currentIndex; i++) {
-        if (activeList[i]->wakeup && activeList[i] != running) {
+        if (activeList[i].wakeup && &activeList[i] != running) {
             void** saved = &running->sp;
-            running = activeList[i];
+            running = &activeList[i];
             swapcontext(&running->sp, saved);
             running->wakeup = false;
             return;
@@ -346,36 +352,35 @@ void block() {
         checkSleepQueue();
 
         // Find a thread to switch to
-        auto& activeList = *maybeRunnable;
-        size_t size= activeList.size();
+        size_t size = maxThreadsPerCore;
 
         for (size_t i = currentIndex; i < size; i++) {
-            if (activeList[i]->wakeup) {
+            if (activeList[i].wakeup) {
                 currentIndex = i + 1;
                 if (currentIndex == size) currentIndex = 0;
 
-                if (activeList[i] == running) {
+                if (&activeList[i] == running) {
                     running->wakeup = false;
                     return;
                 }
                 void** saved = &running->sp;
-                running = activeList[i];
+                running = &activeList[i];
                 swapcontext(&running->sp, saved);
                 running->wakeup = false;
                 return;
             }
         }
         for (size_t i = 0; i < currentIndex; i++) {
-            if (activeList[i]->wakeup) {
+            if (activeList[i].wakeup) {
                 currentIndex = i + 1;
                 if (currentIndex == size) currentIndex = 0;
 
-                if (activeList[i] == running) {
+                if (&activeList[i] == running) {
                     running->wakeup = false;
                     return;
                 }
                 void** saved = &running->sp;
-                running = activeList[i];
+                running = &activeList[i];
                 swapcontext(&running->sp, saved);
                 running->wakeup = false;
                 return;
