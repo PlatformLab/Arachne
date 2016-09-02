@@ -33,7 +33,7 @@ thread_local UserContext* activeList;
 /**
  * Threads that are sleeping and waiting.
  */
-static std::vector<std::deque<UserContext*> > sleepQueues;
+static thread_local std::deque<UserContext*> sleepQueue;
 
 thread_local int kernelThreadId;
 
@@ -96,8 +96,6 @@ void threadInit() {
     memset(occupiedAndCount, 0, sizeof(MaskAndCount));
 
     for (unsigned int i = 0; i < numCores; i++) {
-        sleepQueues.push_back(std::deque<UserContext*>());
-
         // Here we will create all the user contexts and user stacks
         UserContext *contexts;
         cache_align_alloc(&contexts, sizeof(UserContext) * maxThreadsPerCore);
@@ -273,7 +271,6 @@ void yield() {
 }
 void checkSleepQueue() {
     uint64_t currentCycles = Cycles::rdtsc();
-    auto& sleepQueue = sleepQueues[kernelThreadId];
 
     // Assume sorted and move it off the list
     while (sleepQueue.size() > 0 && sleepQueue[0]->wakeUpTimeInCycles < currentCycles) {
@@ -290,7 +287,6 @@ void checkSleepQueue() {
 void sleep(uint64_t ns) {
     running->wakeUpTimeInCycles = Cycles::rdtsc() + Cycles::fromNanoseconds(ns);
 
-    auto& sleepQueue = sleepQueues[kernelThreadId];
     if (sleepQueue.size() == 0) {
         sleepQueue.push_back(running);
     }
