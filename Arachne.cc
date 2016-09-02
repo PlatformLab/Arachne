@@ -334,8 +334,10 @@ void block() {
 
         // Find a thread to switch to
         size_t size = maxThreadsPerCore;
-
-        for (size_t i = currentIndex; i < size; i++) {
+        uint32_t occupied = localOccupiedAndCount->load().occupied;
+        uint32_t firstHalf = occupied >> currentIndex;
+        for (size_t i = currentIndex; firstHalf; i++, firstHalf >>= 1) {
+            if (!(firstHalf & 1)) continue;
             if (activeList[i].wakeup) {
                 currentIndex = i + 1;
                 if (currentIndex == size) currentIndex = 0;
@@ -351,7 +353,9 @@ void block() {
                 return;
             }
         }
-        for (size_t i = 0; i < currentIndex; i++) {
+
+        for (size_t i = 0; i < currentIndex && occupied; i++, occupied >>= 1) {
+            if (!(occupied & 1)) continue;
             if (activeList[i].wakeup) {
                 currentIndex = i + 1;
                 if (currentIndex == size) currentIndex = 0;
