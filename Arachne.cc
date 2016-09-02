@@ -263,8 +263,6 @@ void schedulerMainLoop() {
  * runnable threads from starving all later ones on the list.
  */
 void yield() {
-    checkSleepQueue();
-
     // This thread is still runnable since it is merely yielding.
     running->wakeup = true; 
     block();
