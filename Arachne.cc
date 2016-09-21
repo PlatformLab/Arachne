@@ -283,6 +283,34 @@ ThreadId getThreadId() {
 }
 
 /**
+  * Examine a particular UserContext and checks whether the conditions are
+  * correct for it to awaken. If they are appropriate, then it will awaken the
+  * thread and return true to the newly active context.  Otherwise, it will
+  * return false to the old context.
+  */
+bool attemptWakeup(size_t i, uint64_t currentCycles) {
+    if (activeList[i].wakeup ||
+            (activeList[i].wakeUpTimeInCycles != 0 &&
+             currentCycles > activeList[i].wakeUpTimeInCycles)
+       ) {
+        activeList[i].wakeUpTimeInCycles = 0;
+        currentIndex = i + 1;
+        if (currentIndex == maxThreadsPerCore) currentIndex = 0;
+
+        if (&activeList[i] == running) {
+            running->wakeup = false;
+            return true;
+        }
+        void** saved = &running->sp;
+        running = &activeList[i];
+        swapcontext(&running->sp, saved);
+        running->wakeup = false;
+        return true;
+    }
+    return false;
+}
+
+/**
   * Deschedule the current thread until the application signals using the a
   * ThreadId. The caller of this function must ensure that spurious wakeups are
   * safe, in the same manner as a caller of a condition variable's wait()
@@ -293,51 +321,17 @@ void block() {
         uint64_t currentCycles = Cycles::rdtsc();
 
         // Find a thread to switch to
-        size_t size = maxThreadsPerCore;
         uint64_t occupied = localOccupiedAndCount->load().occupied;
         uint64_t firstHalf = occupied >> currentIndex;
 
         for (size_t i = currentIndex; firstHalf; i++, firstHalf >>= 1) {
             if (!(firstHalf & 1)) continue;
-            if (activeList[i].wakeup ||
-                    (activeList[i].wakeUpTimeInCycles != 0 &&
-                     currentCycles > activeList[i].wakeUpTimeInCycles)) {
-                activeList[i].wakeUpTimeInCycles = 0;
-                currentIndex = i + 1;
-                if (currentIndex == size) currentIndex = 0;
-
-                if (&activeList[i] == running) {
-                    running->wakeup = false;
-                    return;
-                }
-                void** saved = &running->sp;
-                running = &activeList[i];
-                swapcontext(&running->sp, saved);
-                running->wakeup = false;
-                return;
-            }
+            if (attemptWakeup(i, currentCycles)) return;
         }
 
         for (size_t i = 0; i < currentIndex && occupied; i++, occupied >>= 1) {
             if (!(occupied & 1)) continue;
-            if (activeList[i].wakeup ||
-                    (activeList[i].wakeUpTimeInCycles != 0 && 
-                     currentCycles > activeList[i].wakeUpTimeInCycles)
-                    ) {
-                activeList[i].wakeUpTimeInCycles = 0;
-                currentIndex = i + 1;
-                if (currentIndex == size) currentIndex = 0;
-
-                if (&activeList[i] == running) {
-                    running->wakeup = false;
-                    return;
-                }
-                void** saved = &running->sp;
-                running = &activeList[i];
-                swapcontext(&running->sp, saved);
-                running->wakeup = false;
-                return;
-            }
+            if (attemptWakeup(i, currentCycles)) return;
         }
     }
 }
