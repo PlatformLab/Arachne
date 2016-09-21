@@ -174,6 +174,7 @@ template<typename _Callable, typename... _Args>
     int coreId;
     int choice1 = xorshf96() % numCores;
     int choice2 = xorshf96() % numCores;
+    while (choice2 == choice1) choice2 = xorshf96() % numCores;
 
     if (occupiedAndCount[choice1].load().count < occupiedAndCount[choice2].load().count)
         coreId = choice1;
