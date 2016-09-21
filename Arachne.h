@@ -54,7 +54,7 @@ struct UserContext {
 
     // When a thread enters the sleep queue, it will keep its wakup time
     // here.
-    uint64_t wakeUpTimeInCycles;
+    volatile uint64_t wakeUpTimeInCycles;
 
     // This flag is a signal that this thread should run at the next opportunity.
     // It should be cleared immediately before a thread begins to run and
