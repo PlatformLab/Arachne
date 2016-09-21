@@ -104,6 +104,7 @@ void threadInit() {
             freshContext->stack = malloc(stackSize);
             freshContext->index = k;
             freshContext->wakeup = false;
+            freshContext->wakeUpTimeInCycles = 0;
 
             // Set up the stack to return to the main thread function.
             freshContext->sp = (char*) freshContext->stack + stackSize - 64; 
@@ -258,24 +259,11 @@ void schedulerMainLoop() {
  * Return control back to the thread library.
  * Assume we are the running process in the current kernel thread if we are calling
  * yield.
- *
- * TODO: Start from a different point in the list every time to avoid two
- * runnable threads from starving all later ones on the list.
  */
 void yield() {
     // This thread is still runnable since it is merely yielding.
     running->wakeup = true; 
     block();
-}
-void checkSleepQueue() {
-    uint64_t currentCycles = Cycles::rdtsc();
-
-    // Assume sorted and move it off the list
-    while (sleepQueue.size() > 0 && sleepQueue[0]->wakeUpTimeInCycles < currentCycles) {
-        // Move onto the ready queue
-        sleepQueue[0]->wakeup = true;
-        sleepQueue.pop_front();  
-    }
 }
 
 // Sleep for at least the argument number of ns.
@@ -284,27 +272,6 @@ void checkSleepQueue() {
 // passed.
 void sleep(uint64_t ns) {
     running->wakeUpTimeInCycles = Cycles::rdtsc() + Cycles::fromNanoseconds(ns);
-
-    if (sleepQueue.size() == 0) {
-        sleepQueue.push_back(running);
-    }
-    else {
-        auto it = sleepQueue.begin();
-        printf("sleepQueueSize = %zu\n", sleepQueue.size());
-        for (; it != sleepQueue.end() ; it++)
-            if ((*it)->wakeUpTimeInCycles > running->wakeUpTimeInCycles) {
-                sleepQueue.insert(it, running);
-                break;
-            }
-
-        printf("sleepQueueSize = %zu\n", sleepQueue.size());
-        // Insert now
-        if (it == sleepQueue.end()) {
-            sleepQueue.push_back(running);
-        }
-        printf("sleepQueueSize = %zu\n", sleepQueue.size());
-    }
-
     block();
 }
 
@@ -323,16 +290,19 @@ ThreadId getThreadId() {
   */
 void block() {
     while (1) {
-        // Check the sleep queue
-        checkSleepQueue();
+        uint64_t currentCycles = Cycles::rdtsc();
 
         // Find a thread to switch to
         size_t size = maxThreadsPerCore;
-        uint32_t occupied = localOccupiedAndCount->load().occupied;
-        uint32_t firstHalf = occupied >> currentIndex;
+        uint64_t occupied = localOccupiedAndCount->load().occupied;
+        uint64_t firstHalf = occupied >> currentIndex;
+
         for (size_t i = currentIndex; firstHalf; i++, firstHalf >>= 1) {
             if (!(firstHalf & 1)) continue;
-            if (activeList[i].wakeup) {
+            if (activeList[i].wakeup ||
+                    (activeList[i].wakeUpTimeInCycles != 0 &&
+                     currentCycles > activeList[i].wakeUpTimeInCycles)) {
+                activeList[i].wakeUpTimeInCycles = 0;
                 currentIndex = i + 1;
                 if (currentIndex == size) currentIndex = 0;
 
@@ -350,7 +320,11 @@ void block() {
 
         for (size_t i = 0; i < currentIndex && occupied; i++, occupied >>= 1) {
             if (!(occupied & 1)) continue;
-            if (activeList[i].wakeup) {
+            if (activeList[i].wakeup ||
+                    (activeList[i].wakeUpTimeInCycles != 0 && 
+                     currentCycles > activeList[i].wakeUpTimeInCycles)
+                    ) {
+                activeList[i].wakeUpTimeInCycles = 0;
                 currentIndex = i + 1;
                 if (currentIndex == size) currentIndex = 0;
 
