@@ -243,10 +243,10 @@ void schedulerMainLoop() {
             MaskAndCount oldSlotMap = slotMap;
 
             // Decrement count only if the flag was originally set
-            if (slotMap.occupied & (1 << running->index))
+            if (slotMap.occupied & (1L << running->index))
                 slotMap.count--;
 
-            slotMap.occupied &= ~(1 << running->index);
+            slotMap.occupied &= ~(1L << running->index);
             success = localOccupiedAndCount->compare_exchange_strong(
                     oldSlotMap,
                     slotMap);

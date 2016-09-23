@@ -119,18 +119,15 @@ template<typename _Callable, typename... _Args>
         MaskAndCount oldSlotMap = slotMap;
 
         // Search for a non-occupied slot and attempt to reserve the slot
-        // TODO: Try variations on this and see if we can make it faster if we
-        // measure it to be too slow.
         index = 0;
-        while (slotMap.occupied & (1 << index))
+        while ((slotMap.occupied & (1L << index)) && index < maxThreadsPerCore)
             index++;
         
-        if (index > 55) {
-            printf("Reached maximum thread capacity for this core, should throttle but aborting for now");
-            exit(1);
+        if (index == maxThreadsPerCore) {
+            return -1;
         }
 
-        slotMap.occupied |= (1 << index);
+        slotMap.occupied |= (1L << index);
         slotMap.count++;
 
         success = occupiedAndCount[coreId].compare_exchange_strong(oldSlotMap,
