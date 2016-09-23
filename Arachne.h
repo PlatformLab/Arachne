@@ -87,7 +87,10 @@ const int maxThreadsPerCore = 56;
 void schedulerMainLoop();
 void  savecontext(void **target);
 void  swapcontext(void **saved, void **target);
-void createNewRunnableThread();
+void setcontext(void **context);
+void threadMainFunction(int id);
+void mainThreadJoinPool();
+
 extern thread_local int kernelThreadId;
 extern thread_local UserContext *running;
 extern thread_local UserContext* activeList;
@@ -181,24 +184,12 @@ template<typename _Callable, typename... _Args>
     return createThread(coreId, __f, __args...);
 }
 
-void threadMainFunction(int id);
 void threadInit();
-void mainThreadJoinPool();
 void yield();
 void sleep(uint64_t ns);
 ThreadId getThreadId();
 void block();
 void signal(ThreadId id);
-void setBlockingState();
 
-
-// The following data structures and functions are  technically part of the
-// private API and should be in a different header. Move them in the CPP
-// refactor.
-
-void setcontext(void **context);
-void swapcontext(void **saved, void **target);
-void savecontext(void **target);
-void checkSleepQueue();
 }
 #endif
