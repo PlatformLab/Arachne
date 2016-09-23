@@ -6,6 +6,9 @@ CXXFLAGS=-std=c++11 -O3 -Wall -Werror
 INCLUDE=-I..   -lArachne -I../../PerfUtils -isystem ${GTEST_DIR}/include 
 LIBS=-L../  -L../../PerfUtils -L./ -lArachne -lPerfUtils  -lgtest  -pthread
 
+run: ArachneTest
+	./ArachneTest
+
 ArachneTest: $(BINS)
 	g++  $(CXXFLAGS) $^ $(GTEST_DIR)/src/gtest_main.cc $(LIBS)    -o $@
 
