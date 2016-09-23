@@ -21,7 +21,7 @@ void schedulerMainLoop();
 
 
 InitializationState initializationState = NOT_INITIALIZED;
-volatile unsigned numCores = 1;
+volatile unsigned numCores = 0;
 
 /**
  * The state for each user thread.
@@ -89,7 +89,8 @@ void threadInit() {
 
     // Allocate stacks. Note that number of cores is actually number of
     // hyperthreaded cores, rather than necessarily real CPU cores.
-    numCores = std::thread::hardware_concurrency(); 
+    if (numCores == 0)
+        numCores = std::thread::hardware_concurrency();
     printf("numCores = %u\n", numCores);
 
     cache_align_alloc(&occupiedAndCount, sizeof(MaskAndCount) * numCores);
