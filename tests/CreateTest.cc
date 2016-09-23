@@ -3,7 +3,7 @@
 
 
 
-volatile int flag = 0;
+static volatile int flag = 0;
 void clearFlag() {
     while (!flag);
     flag = 0;
