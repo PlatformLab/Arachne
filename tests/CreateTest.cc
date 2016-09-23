@@ -15,9 +15,10 @@ void setFlag(int a) {
 }
 
 TEST(CreateThreadTest, NoArgs) {
-    Arachne::threadInit();
     // By assigning the number of cores, we can run this test independently of the number of cores on the machine.
     Arachne::numCores = 2;
+
+    Arachne::threadInit();
     EXPECT_EQ(0, Arachne::occupiedAndCount[0].load().count);
     EXPECT_EQ(0, Arachne::occupiedAndCount[0].load().occupied);
     Arachne::createThread(0, clearFlag);
@@ -36,9 +37,9 @@ TEST(CreateThreadTest, NoArgs) {
 }
 
 TEST(CreateThreadTest, WithArgs) {
-    Arachne::threadInit();
     // By assigning the number of cores, we can run this test independently of the number of cores on the machine.
     Arachne::numCores = 2;
+    Arachne::threadInit();
     Arachne::createThread(0, setFlag, 2);
     EXPECT_EQ(1, Arachne::occupiedAndCount[0].load().count);
     EXPECT_EQ(1, Arachne::occupiedAndCount[0].load().occupied);
@@ -46,5 +47,19 @@ TEST(CreateThreadTest, WithArgs) {
     flag = 1;
     while (flag == 1);
     EXPECT_EQ(2, flag);
+    flag = 0;
+}
+
+TEST(CreateThreadTest, MaxThreadsExceeded) {
+    // By assigning the number of cores, we can run this test independently of the number of cores on the machine.
+    Arachne::numCores = 2;
+    Arachne::threadInit();
+    for (int i = 0; i < Arachne::maxThreadsPerCore; i++)
+        EXPECT_EQ(0, Arachne::createThread(0, clearFlag));
+//    EXPECT_EQ(-1, Arachne::createThread(0, clearFlag));
+
+    // Clean up the threads
+    while (Arachne::occupiedAndCount[0].load().count > 0)
+        flag = 1;
     flag = 0;
 }
