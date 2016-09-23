@@ -15,6 +15,7 @@ TEST(BlockSignalTest, Signal) {
 }
 
 TEST(BlockSignalTest, AwakenBlockedThread) {
+    Arachne::numCores = 2;
     Arachne::threadInit();
     Arachne::createThread(0, blocker);
     EXPECT_EQ(1, Arachne::occupiedAndCount[0].load().count);

@@ -1,7 +1,7 @@
 GTEST_DIR=../googletest/googletest
 
 
-BINS=CreateTest.o BlockSignalTest.o
+BINS=CreateTest.o BlockSignalTest.o YieldTest.o
 CXXFLAGS=-std=c++11 -O3 -Wall -Werror -g
 INCLUDE=-I..   -lArachne -I../../PerfUtils -isystem ${GTEST_DIR}/include 
 LIBS=-L../  -L../../PerfUtils -L./ -lArachne -lPerfUtils  -lgtest  -pthread
