@@ -1,4 +1,4 @@
-#include "gtest/gtest.h" 
+#include "gtest/gtest.h"
 #include "Arachne.h"
 #include "Condition.h"
 
@@ -17,7 +17,7 @@ static void waiter() {
 TEST(ConditionTest, NotifyOne) {
     Arachne::numCores = 2;
     Arachne::threadInit();
-    awaited = 0; 
+    awaited = 0;
     Arachne::createThread(0, waiter);
     Arachne::createThread(0, waiter);
     EXPECT_EQ(2, Arachne::occupiedAndCount[0].load().count);
@@ -34,7 +34,7 @@ TEST(ConditionTest, NotifyOne) {
 TEST(ConditionTest, NotifyAll) {
     Arachne::numCores = 2;
     Arachne::threadInit();
-    awaited = 0; 
+    awaited = 0;
 	for (int i = 0; i < 10; i++)
 		Arachne::createThread(0, waiter);
     awaited = 5;

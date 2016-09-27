@@ -1,4 +1,4 @@
-#include "gtest/gtest.h" 
+#include "gtest/gtest.h"
 #include "Arachne.h"
 
 
@@ -27,7 +27,7 @@ void setContextHelper() {
 }
 void swapContextHelper() {
     swapContextSuccess = 1;
-    Arachne::swapcontext(&oldStackPointer, &stackPointer); 
+    Arachne::swapcontext(&oldStackPointer, &stackPointer);
 }
 
 TEST(SwapContextTest, SaveContext) {
@@ -57,10 +57,10 @@ TEST(SwapContextTest, SetContext) {
     stackPointer = stack + testStackSize;
     firstEntryToSetContextTest = 1;
     *(void**) stackPointer = (void*) setContextHelper;
-    Arachne::savecontext(&stackPointer); 
+    Arachne::savecontext(&stackPointer);
     asm("mov %%r11, %0": "=g\n\t"(oldStackPointer));
     if (firstEntryToSetContextTest == 1)  {
-        Arachne::setcontext(&stackPointer); 
+        Arachne::setcontext(&stackPointer);
     }
     EXPECT_EQ(0, firstEntryToSetContextTest);
 }

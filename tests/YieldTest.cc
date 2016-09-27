@@ -1,4 +1,4 @@
-#include "gtest/gtest.h" 
+#include "gtest/gtest.h"
 #include "Arachne.h"
 
 
@@ -23,7 +23,7 @@ static void bitSetter(int index) {
 TEST(YieldTest, SecondThreadGotControl) {
    Arachne::numCores = 2;
    Arachne::threadInit();
-   keepYielding = true; 
+   keepYielding = true;
    Arachne::createThread(0, yielder);
 
    flag = 0;
@@ -37,7 +37,7 @@ TEST(YieldTest, SecondThreadGotControl) {
 TEST(YieldTest, AllThreadsRan) {
    Arachne::numCores = 2;
    Arachne::threadInit();
-   keepYielding = true; 
+   keepYielding = true;
    flag = 0;
 
    Arachne::createThread(0, bitSetter, 0);
