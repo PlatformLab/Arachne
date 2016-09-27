@@ -13,21 +13,23 @@
 
 namespace  Arachne {
 
-extern volatile unsigned numCores;
-
-// This class allows us to invoke a function produced by std::bind after it has
-// been copied to a fixed-size object, by using indirection through virtual
-// dispatch.
+/**
+  * This class allows us to invoke a function produced by std::bind after it has
+  * been copied to a fixed-size object, by using indirection through virtual
+  * dispatch.
+  */
 struct TaskBase {
    virtual void runThread() = 0;
 };
 
-// This structure is used for cross-core thread creation.
-// It is effectively a templated wrapper around the return value of std::bind,
-// which is a value type of unspecified class.
-
-// This wrapper enables us to bypass the dynamic memory allocation tendencies
-// of std::function.
+/**
+  * This structure holds the state for a new thread creation request.  It is a
+  * templated wrapper around the return value of std::bind, which is a value
+  * type of unspecified class.
+  *
+  * This wrapper enables us to bypass the dynamic memory allocation that is
+  * sometimes performed by std::function.
+  */
 template <typename F> struct Task : public TaskBase {
     // The main function of the user thread.
     F workFunction;
@@ -41,24 +43,19 @@ template <typename F> struct Task : public TaskBase {
 };
 
 /*
- * This class holds all the state for a running user thread.
+ * This class holds all the state for a managing a user thread.
  */
 struct UserContext {
-    // This is a pointer to the lowest valid memory address in the user thread stack.
+    // This holds the value that rsp will be set to when this thread is swapped in.
     void* sp;
     
-    // The top of the stack of the current workunit, used for both indicating
-    // whether this is new or old work, and also for making it easier to
-    // recycle the stacks.
-    void* stack;
-
-    // When a thread enters the sleep queue, it will keep its wakup time
+    // When a thread blocks due to calling sleep(), it will keep its wakeup time
     // here.
-    volatile uint64_t wakeUpTimeInCycles;
+    volatile uint64_t wakeupTimeInCycles;
 
     // This flag is a signal that this thread should run at the next opportunity.
-    // It should be cleared immediately before a thread begins to run and
-    // should be set by either remote cores as a signal or when a thread
+    // It should be cleared immediately before control is returned to the
+    // application and set by either remote cores as a signal or when a thread
     // yields.
     volatile bool wakeup;
 
@@ -68,22 +65,23 @@ struct UserContext {
     uint8_t index;
 
 
+    // Storage for the Task object which contains the function and arguments
+    // for a new thread.
+    //
     // Wrapping this array into a struct appears to mitigate the strict
     // aliasing warnings.
-    struct alignas(sizeof(void*)) {
+    struct alignas(CACHE_LINE_SIZE) {
         char data[CACHE_LINE_SIZE];
     } task;
 };
 
 typedef UserContext* ThreadId;
+extern volatile unsigned numCores;
 
 const int stackSize = 1024 * 1024;
 const int stackPoolSize = 1000;
 const int maxThreadsPerCore = 56;
 
-/**
-  * The following data structures and functions are private to the thread library.
-  */
 void schedulerMainLoop();
 void  savecontext(void **target);
 void  swapcontext(void **saved, void **target);
@@ -96,17 +94,22 @@ extern thread_local UserContext *running;
 extern thread_local UserContext* activeList;
 extern std::vector<UserContext*> activeLists;
 
-// This structure holds a bitmask of occupied flags and a count of busy slots.
+// This structure tracks, for a particular core, the number of threads resident
+// and which UserContexts are occupied by resident threads.
 struct MaskAndCount{
     unsigned long int occupied : 56;
     uint8_t count : 8;
 };
+
 extern std::atomic<MaskAndCount>  *occupiedAndCount;
 extern thread_local std::atomic<MaskAndCount>  *localOccupiedAndCount;
 
 /**
   * Create a user thread to run the function f with the given args on the provided core.
-  * Pass in -1 as a core ID to use the current core.
+  * Pass in -1 as a core ID to use the creator's core.
+  *
+  * This function should usually only be invoked directly in tests, since it
+  * does not perform load balancing.
   */
 template<typename _Callable, typename... _Args>
     int createThread(int coreId, _Callable&& __f, _Args&&... __args) {
@@ -147,7 +150,10 @@ template<typename _Callable, typename... _Args>
     return 0;
 }
 
-// A random number generator from the internets.
+/**
+  * A random number generator from the Internet, used for selecting candidate
+  * cores to create threads on.
+  */
 inline unsigned long xorshf96(void) {
     static unsigned long x=123456789, y=362436069, z=521288629;
     unsigned long t;
@@ -164,8 +170,8 @@ inline unsigned long xorshf96(void) {
 }
 
 /**
-  * This is the thread creation function that is used in real systems, since it
-  * does load balancing.
+  * The thread creation function that is used in applications.  It does load
+  * balancing using the Power of 2.
   */
 template<typename _Callable, typename... _Args>
     int createThread(_Callable&& __f, _Args&&... __args) {
