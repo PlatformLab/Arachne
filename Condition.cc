@@ -8,19 +8,31 @@ using PerfUtils::TimeTrace;
 ConditionVariable::ConditionVariable() { }
 ConditionVariable::~ConditionVariable() { }
 
-void 
-ConditionVariable::notify_one() {
+/**
+  * Awaken one of the threads that waited on this condition variable.
+  * The caller should have the associated mutex held.
+  */
+void ConditionVariable::notify_one() {
     if (blockedThreads.empty()) return;
     UserContext *awakenedThread = blockedThreads.front();
     blockedThreads.pop_front();
     awakenedThread->wakeup = true;
 }
 
+/**
+  * Awaken all of the threads currently waiting on this condition varible.
+  * The caller should have the associated mutex held.
+  */
 void ConditionVariable::notify_all() {
     while (!blockedThreads.empty())
         notify_one();
 }
 
+/**
+  * Block the current thread until the condition variable is notified.
+  * This function releases the lock before blocking, and re-acquires it before
+  * returning to the user.
+  */
 void ConditionVariable::wait(SpinLock& lock) {
     TimeTrace::record("Wait on Core %d", kernelThreadId);
     // Put my thread on the queue.
