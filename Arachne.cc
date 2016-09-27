@@ -13,14 +13,20 @@ using PerfUtils::TimeTrace;
 
 enum InitializationState {
     NOT_INITIALIZED,
-    INITIALIZING,
     INITIALIZED
 };
 
-void schedulerMainLoop();
-
-
+// This variable causes any initialization after the first one to be a no-opt,
+// but does not protect against the user calling Arachne functions without
+// initializing the library, which will lead to undefined behavior.
 InitializationState initializationState = NOT_INITIALIZED;
+
+
+/**
+  * This value should be set by the user before threadInit if they want a
+  * different number of kernel threads than the number of cores on their
+  * machine.
+  */
 volatile unsigned numCores = 0;
 
 /**
@@ -29,22 +35,22 @@ volatile unsigned numCores = 0;
 std::vector<UserContext*> activeLists;
 thread_local UserContext* activeList;
 
-
 /**
- * Threads that are sleeping and waiting.
- */
-static thread_local std::deque<UserContext*> sleepQueue;
-
+  * This variable provides the position in global data structures which
+  * corresponds to a particular kernel thread. This should eventually become a
+  * coreId, when we support multiple kernel threads per core to handle blocking
+  * system calls.
+  */
 thread_local int kernelThreadId;
 
 /**
-  * This is the context that a given core is currently executing in.
+  * This is the context that a given core is currently executing on.
   */
 thread_local UserContext *running;
 
 /**
-  * This variable holds the array of flags indicating occupancy and the current
-  * number of slots in the core.
+  * This variable holds a bitfield of flags indicating occupancy and the current
+  * number of threads on the core.
   */
 std::atomic<MaskAndCount>  *occupiedAndCount;
 thread_local std::atomic<MaskAndCount>  *localOccupiedAndCount;
@@ -53,8 +59,7 @@ thread_local std::atomic<MaskAndCount>  *localOccupiedAndCount;
 /**
   * This variable holds the most recent index into the active threads array for
   * the current core. By maintaining this index, we can avoid starvation of
-  * runnable threads later on in the list by runnable threads earlier in the
-  * list.
+  * higher-indexed runnable threads by lower-indexed runnable threads.
   */
 thread_local size_t currentIndex = 0;
 
@@ -72,76 +77,14 @@ void cache_align_alloc(void* addressOfTargetPointer, size_t size) {
     assert((reinterpret_cast<uint64_t>(*trueAddress) & 0x3f) == 0);
 }
 
-/**
- * This function will allocate stacks and create kernel threads pinned to particular cores.
- *
- * Note that the setting of initializationState should probably use memory
- * barriers, but we are currently assuming that the application will only call
- * it from a single thread of execution.
- *
- * Calling the function twice is a no-op.
- */
-void threadInit() {
-    if (initializationState != NOT_INITIALIZED) {
-        return;
-    }
-    initializationState = INITIALIZING;
-
-    // Allocate stacks. Note that number of cores is actually number of
-    // hyperthreaded cores, rather than necessarily real CPU cores.
-    if (numCores == 0)
-        numCores = std::thread::hardware_concurrency();
-    printf("numCores = %u\n", numCores);
-
-    cache_align_alloc(&occupiedAndCount, sizeof(MaskAndCount) * numCores);
-    memset(occupiedAndCount, 0, sizeof(MaskAndCount));
-
-    for (unsigned int i = 0; i < numCores; i++) {
-        // Here we will create all the user contexts and user stacks
-        UserContext *contexts;
-        cache_align_alloc(&contexts, sizeof(UserContext) * maxThreadsPerCore);
-        for (int k = 0; k < maxThreadsPerCore; k++) {
-            UserContext *freshContext = &contexts[k];
-            freshContext->stack = malloc(stackSize);
-            freshContext->index = k;
-            freshContext->wakeup = false;
-            freshContext->wakeUpTimeInCycles = 0;
-
-            // Set up the stack to return to the main thread function.
-            freshContext->sp = (char*) freshContext->stack + stackSize - 64; 
-            *(void**) freshContext->sp = (void*) schedulerMainLoop;
-            savecontext(&freshContext->sp);
-        }
-        activeLists.push_back(contexts);
-
-
-    }
-    // Ensure that data structure and stack allocation completes before we
-    // begin to use it in a new thread.
-    PerfUtils::Util::serialize();
-
-    // Leave one thread for the main thread
-    for (unsigned int i = 0; i < numCores - 1; i++) {
-        std::thread(threadMainFunction, i).detach();
-    }
-
-    // Set the kernelThreadId for the main thread
-    kernelThreadId = numCores - 1;
-
-    initializationState = INITIALIZED;
-}
 
 /**
- * Main function for a kernel-level thread participating in the thread pool. 
+ * Main function for a kernel thread which roughly corresponds to a core in this
+ * system.
  */
 void threadMainFunction(int id) {
-    // Switch to a user stack for symmetry, so that we can deallocate it ourselves later.
-    // If we are the last user thread on this core, we will never return since we will simply poll for work.
-    // If we are not the last, we will context switch out of this function and have our
-    // stack deallocated by the thread we swap to (perhaps in the unblock
-    // function), the next time Arachne gets control.
-    // The original thread given by the kernel is simply discarded in the
-    // current implementation.
+    // Switch to a user stack, discarding the stack provided by the kernel, so
+    // that we are always running user code on a stack controlled by Arachne.
     kernelThreadId = id;
     localOccupiedAndCount = &occupiedAndCount[kernelThreadId];
     activeList = activeLists[kernelThreadId];
@@ -150,13 +93,10 @@ void threadMainFunction(int id) {
 
     running = activeList;
     setcontext(&running->sp);
-
-    // TODO: Delete the function below and restructure
-    // block vs ArachneMainLoop.
 }
 
 /**
- * Load a new context without saving anything.
+ * Load a new context without saving any curent state.
  */
 void  __attribute__ ((noinline))  setcontext(void **saved) {
 
@@ -174,10 +114,11 @@ void  __attribute__ ((noinline))  setcontext(void **saved) {
 
 /**
  * Save a context of the currently executing process.
+ * Note that if this function is used to set up the context for a new user
+ * thread, the address of the new thread's main function should be manually
+ * placed on the new stack before invoking this method.
  */
 void  __attribute__ ((noinline))  savecontext(void **target) {
-    // Load the new stack pointer, push the registers, and then restore the old stack pointer.
-
     asm("movq %rsp, %r11\n\t"
         "movq (%rdi), %rsp\n\t"
         "pushq %r12\n\t"
@@ -193,13 +134,12 @@ void  __attribute__ ((noinline))  savecontext(void **target) {
 
 /**
  * Save one set of registers and load another set.
- * %rdi, %rsi are the two addresses of where stack pointers are stored.
+ * %rdi, %rsi are the addresses of where stack pointers are stored.
  *
  * Load from saved and store into target.
  */
 
 void  __attribute__ ((noinline))  swapcontext(void **saved, void **target) {
-
     // Save the registers and store the stack pointer
     asm("pushq %r12\n\t"
         "pushq %r13\n\t"
@@ -220,8 +160,7 @@ void  __attribute__ ((noinline))  swapcontext(void **saved, void **target) {
 }
 
 /**
-  * This function runs the scheduler in the context of the most recently run
-  * thread, unless there is already a new thread creation request on this core.
+  * Top-level function for each user stack. This function never terminates.
   */
 void schedulerMainLoop() {
     // At most one user thread on each core should be going through this loop
@@ -257,9 +196,8 @@ void schedulerMainLoop() {
 }
 
 /**
- * Return control back to the thread library.
- * Assume we are the running process in the current kernel thread if we are calling
- * yield.
+ * Return control back to the thread library, but run again if there are no
+ * other runnable threads.
  */
 void yield() {
     // This thread is still runnable since it is merely yielding.
@@ -267,17 +205,17 @@ void yield() {
     block();
 }
 
-// Sleep for at least the argument number of ns.
-// We keep in core-resident to avoid cross-core cache coherency concerns.
-// It must be the case that this function returns after at least ns have
-// passed.
+/** 
+  * Sleep for at least ns nanoseconds.
+  */
 void sleep(uint64_t ns) {
     running->wakeUpTimeInCycles = Cycles::rdtsc() + Cycles::fromNanoseconds(ns);
     block();
 }
 
 /**
-  * Returns a thread handle to the application, which can be passed into the signal function.
+  * Returns a thread handle to the currently executing thread, which can be
+  * passed into the signal function.
   */
 ThreadId getThreadId() {
     return running;
@@ -287,7 +225,7 @@ ThreadId getThreadId() {
   * Examine a particular UserContext and checks whether the conditions are
   * correct for it to awaken. If they are appropriate, then it will awaken the
   * thread and return true to the newly active context.  Otherwise, it will
-  * return false to the old context.
+  * return false to the current context.
   */
 bool attemptWakeup(size_t i, uint64_t currentCycles) {
     if (activeList[i].wakeup ||
@@ -312,10 +250,9 @@ bool attemptWakeup(size_t i, uint64_t currentCycles) {
 }
 
 /**
-  * Deschedule the current thread until the application signals using the a
-  * ThreadId. The caller of this function must ensure that spurious wakeups are
-  * safe, in the same manner as a caller of a condition variable's wait()
-  * function.
+  * Deschedule the current thread until another thread signals using the
+  * current thread's ThreadId. All direct and indirect callers of this function
+  * must ensure that spurious wakeups are safe.
   */
 void block() {
     while (1) {
@@ -338,7 +275,7 @@ void block() {
 }
 
 /* 
- * Make the thread referred to by ThreadId runnable once again. 
+ * Cause the thread referred to by ThreadId runnable once again. 
  * It is safe to call this function without knowing whether the target thread
  * has already exited.
  */
@@ -349,14 +286,71 @@ void signal(ThreadId id) {
 
 /**
  * This is a special function to allow the main thread to join the thread pool
- * after seeding initial tasks for itself and possibly other threads.
+ * after seeding initial tasks for itself and possibly other threads. It must
+ * be the last statement in the main function since it does not return.
  *
- * The other way of implementing this is to merge this function with the
- * threadInit, and ask the user to provide an initial task to run in the main
- * thread, which will presumably spawn other tasks.
+ * An alternative way of enabling the main thread to join the pool is to change
+ * threadInit to take a real main function as an argument, and have the
+ * standard main invoke only threadInit. Under such an implementation,
+ * threadInit would never * return.
  */
 void mainThreadJoinPool() {
     threadMainFunction(numCores - 1);
+}
+
+/**
+ * This function sets up all state for the thread library to run, and must
+ * return before any other function in the thread library is invoked, lest the
+ * result be undefined behavior.
+ *
+ * Calling the function twice is a no-op.
+ */
+void threadInit() {
+    if (initializationState != NOT_INITIALIZED) {
+        return;
+    }
+
+    // Allocate stacks. Note that number of cores is actually number of
+    // hyperthreaded cores, rather than necessarily real CPU cores.
+    if (numCores == 0)
+        numCores = std::thread::hardware_concurrency();
+    printf("numCores = %u\n", numCores);
+
+    cache_align_alloc(&occupiedAndCount, sizeof(MaskAndCount) * numCores);
+    memset(occupiedAndCount, 0, sizeof(MaskAndCount));
+
+    for (unsigned int i = 0; i < numCores; i++) {
+        // Here we will create all the user contexts and user stacks
+        UserContext *contexts;
+        cache_align_alloc(&contexts, sizeof(UserContext) * maxThreadsPerCore);
+        for (int k = 0; k < maxThreadsPerCore; k++) {
+            UserContext *freshContext = &contexts[k];
+            freshContext->stack = malloc(stackSize);
+            freshContext->index = k;
+            freshContext->wakeup = false;
+            freshContext->wakeUpTimeInCycles = 0;
+
+            // Set up the stack to return to the main thread function.
+            freshContext->sp = (char*) freshContext->stack + stackSize - 64; 
+            *(void**) freshContext->sp = (void*) schedulerMainLoop;
+            savecontext(&freshContext->sp);
+        }
+        activeLists.push_back(contexts);
+
+
+    }
+    // Ensure that data structure and stack allocation completes before we
+    // begin to use it in a new thread.
+    PerfUtils::Util::serialize();
+
+    // Leave one core for the main thread
+    for (unsigned int i = 0; i < numCores - 1; i++) {
+        std::thread(threadMainFunction, i).detach();
+    }
+
+    // Set the kernelThreadId for the main thread
+    kernelThreadId = numCores - 1;
+    initializationState = INITIALIZED;
 }
 
 }
