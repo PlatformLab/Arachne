@@ -4,7 +4,7 @@
 
 
 static Arachne::SpinLock mutex;
-static Arachne::condition_variable cv;
+static Arachne::ConditionVariable cv;
 volatile int awaited;
 
 static void waiter() {
