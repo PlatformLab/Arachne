@@ -15,5 +15,5 @@ Arachne.o: SpinLock.h Arachne.h Condition.h
 clean:
 	rm -f *.o *.a
 
-test:
+test: libArachne.a
 	make -C tests
