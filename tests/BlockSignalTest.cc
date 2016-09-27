@@ -2,7 +2,6 @@
 #include "Arachne.h"
 
 
-
 void blocker() {
     Arachne::block();
 }

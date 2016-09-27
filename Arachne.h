@@ -49,6 +49,9 @@ struct UserContext {
     // This holds the value that rsp will be set to when this thread is swapped in.
     void* sp;
 
+    // This points to the thread which called join() on the current thread.
+    UserContext* waiter;
+
     // When a thread blocks due to calling sleep(), it will keep its wakeup time
     // here.
     volatile uint64_t wakeupTimeInCycles;
@@ -196,6 +199,7 @@ void sleep(uint64_t ns);
 ThreadId getThreadId();
 void block();
 void signal(ThreadId id);
+bool join(ThreadId id);
 
 }
 #endif
