@@ -8,16 +8,15 @@
 
 namespace  Arachne {
 
-class condition_variable {
+class ConditionVariable {
     public:
-        condition_variable();
-        ~condition_variable();
+        ConditionVariable();
+        ~ConditionVariable();
         void notify_one();
         void notify_all();
         void wait(SpinLock& lock);
-        DISALLOW_COPY_AND_ASSIGN(condition_variable);
+        DISALLOW_COPY_AND_ASSIGN(ConditionVariable);
     private:
-        // TODO: This may become core-specific.
         std::deque<UserContext*> blockedThreads;
 };
 

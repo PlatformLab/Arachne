@@ -5,23 +5,23 @@ namespace  Arachne {
 
 using PerfUtils::TimeTrace;
     
-condition_variable::condition_variable() { }
-condition_variable::~condition_variable() { }
+ConditionVariable::ConditionVariable() { }
+ConditionVariable::~ConditionVariable() { }
 
 void 
-condition_variable::notify_one() {
+ConditionVariable::notify_one() {
     if (blockedThreads.empty()) return;
     UserContext *awakenedThread = blockedThreads.front();
     blockedThreads.pop_front();
     awakenedThread->wakeup = true;
 }
 
-void condition_variable::notify_all() {
+void ConditionVariable::notify_all() {
     while (!blockedThreads.empty())
         notify_one();
 }
 
-void condition_variable::wait(SpinLock& lock) {
+void ConditionVariable::wait(SpinLock& lock) {
     TimeTrace::record("Wait on Core %d", kernelThreadId);
     // Put my thread on the queue.
     blockedThreads.push_back(running);
