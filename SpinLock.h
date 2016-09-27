@@ -6,7 +6,8 @@
 namespace Arachne {
 
 /**
- * A simple SpinLock without any statistics.
+ * A simple SpinLock that occupies its own cache line to avoid cache thrashing
+ * with neighboring data structures.
  */
 class SpinLock {
   public:
@@ -16,11 +17,12 @@ class SpinLock {
        while(state.exchange(true, std::memory_order_acquire) != false);
     }
     
-    // If the original value was false, then we successfully acquired the lock.
-    // Otherwise we failed.
     bool try_lock() {
+        // If the original value was false, then we successfully acquired the lock.
+        // Otherwise we failed.
          return !state.exchange(true, std::memory_order_acquire);
     }
+
     void unlock() {
         state.store(false, std::memory_order_release);
     }
