@@ -176,6 +176,10 @@ void schedulerMainLoop() {
         block();
         reinterpret_cast<TaskBase*>(&running->task)->runThread();
 		running->wakeup = false;
+        if (running->waiter) {
+            signal(running->waiter);
+            running->waiter = NULL;
+        }
 
         // Clear the occupied flag
         // While this may logically come before the block(), it is here to
@@ -289,6 +293,23 @@ void signal(ThreadId id) {
     id->wakeup = true;
 }
 
+/**
+  * Blocks the current thread until the thread identified by id finishes its
+  * execution. If the join was successful, then we will return true when we unblock.
+  *
+  * Otherwise return false immediately if the thread has already been joined.
+  */
+bool join(ThreadId id) {
+     if (id->waiter) return false;
+     // If the thread has already exited, we should not block, since doing so
+     // may result in blocking forever.
+     MaskAndCount slotMap = *localOccupiedAndCount;
+     if (!(slotMap.occupied & (1L << id->index))) return true;
+     id->waiter = running;
+     block();
+     return true;
+}
+
 
 /**
  * This is a special function to allow the main thread to join the thread pool
@@ -334,6 +355,7 @@ void threadInit() {
             void* newStack = malloc(stackSize);
             freshContext->index = k;
             freshContext->wakeup = false;
+            freshContext->waiter = NULL;
             freshContext->wakeupTimeInCycles = 0;
 
             // Set up the stack to return to the main thread function.
