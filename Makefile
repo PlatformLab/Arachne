@@ -15,11 +15,5 @@ Arachne.o: SpinLock.h Arachne.h Condition.h
 clean:
 	rm -f *.o *.a
 
-Arachne.S: Arachne.cc Arachne.h
-	g++ -S -Wall -Werror  -O2 $(DEBUG) -c -std=c++11 -o $@ $<
-
-TestSpinLock: TestSpinLock.cc
-	g++  -Wall -Werror  -O2  $< $(DEBUG) $(LIBS) -std=c++11  -o $@
-
 test:
 	make -C tests
