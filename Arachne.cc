@@ -30,9 +30,15 @@ InitializationState initializationState = NOT_INITIALIZED;
 volatile unsigned numCores = 0;
 
 /**
- * The state for each user thread.
+ * The collection of possibly runnable contexts for each core.
  */
 std::vector<UserContext*> activeLists;
+
+/**
+  * This pointer allows fast access to the current kernel thread's activeList
+  * without computing an offset from the global activeLists vector on each
+  * access.
+  */
 thread_local UserContext* activeList;
 
 /**
@@ -209,7 +215,7 @@ void yield() {
   * Sleep for at least ns nanoseconds.
   */
 void sleep(uint64_t ns) {
-    running->wakeUpTimeInCycles = Cycles::rdtsc() + Cycles::fromNanoseconds(ns);
+    running->wakeupTimeInCycles = Cycles::rdtsc() + Cycles::fromNanoseconds(ns);
     block();
 }
 
@@ -229,10 +235,10 @@ ThreadId getThreadId() {
   */
 bool attemptWakeup(size_t i, uint64_t currentCycles) {
     if (activeList[i].wakeup ||
-            (activeList[i].wakeUpTimeInCycles != 0 &&
-             currentCycles > activeList[i].wakeUpTimeInCycles)
+            (activeList[i].wakeupTimeInCycles != 0 &&
+             currentCycles > activeList[i].wakeupTimeInCycles)
        ) {
-        activeList[i].wakeUpTimeInCycles = 0;
+        activeList[i].wakeupTimeInCycles = 0;
         currentIndex = i + 1;
         if (currentIndex == maxThreadsPerCore) currentIndex = 0;
 
@@ -325,13 +331,13 @@ void threadInit() {
         cache_align_alloc(&contexts, sizeof(UserContext) * maxThreadsPerCore);
         for (int k = 0; k < maxThreadsPerCore; k++) {
             UserContext *freshContext = &contexts[k];
-            freshContext->stack = malloc(stackSize);
+            void* newStack = malloc(stackSize);
             freshContext->index = k;
             freshContext->wakeup = false;
-            freshContext->wakeUpTimeInCycles = 0;
+            freshContext->wakeupTimeInCycles = 0;
 
             // Set up the stack to return to the main thread function.
-            freshContext->sp = (char*) freshContext->stack + stackSize - 64; 
+            freshContext->sp = (char*) newStack + stackSize;
             *(void**) freshContext->sp = (void*) schedulerMainLoop;
             savecontext(&freshContext->sp);
         }
