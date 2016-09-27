@@ -34,7 +34,7 @@ template <typename F> struct Task : public TaskBase {
     // The main function of the user thread.
     F workFunction;
     Task(F wf) : workFunction(wf) {
-        static_assert(sizeof(Task<F>) <= CACHE_LINE_SIZE, 
+        static_assert(sizeof(Task<F>) <= CACHE_LINE_SIZE,
                 "Arachne does not support tasks larger than the size of a cache line.");
     }
    void runThread() {
@@ -48,7 +48,7 @@ template <typename F> struct Task : public TaskBase {
 struct UserContext {
     // This holds the value that rsp will be set to when this thread is swapped in.
     void* sp;
-    
+
     // When a thread blocks due to calling sleep(), it will keep its wakeup time
     // here.
     volatile uint64_t wakeupTimeInCycles;
@@ -128,7 +128,7 @@ template<typename _Callable, typename... _Args>
         index = 0;
         while ((slotMap.occupied & (1L << index)) && index < maxThreadsPerCore)
             index++;
-        
+
         if (index == maxThreadsPerCore) {
             return -1;
         }

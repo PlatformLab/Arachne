@@ -207,11 +207,11 @@ void schedulerMainLoop() {
  */
 void yield() {
     // This thread is still runnable since it is merely yielding.
-    running->wakeup = true; 
+    running->wakeup = true;
     block();
 }
 
-/** 
+/**
   * Sleep for at least ns nanoseconds.
   */
 void sleep(uint64_t ns) {
@@ -280,8 +280,8 @@ void block() {
     }
 }
 
-/* 
- * Cause the thread referred to by ThreadId runnable once again. 
+/*
+ * Cause the thread referred to by ThreadId runnable once again.
  * It is safe to call this function without knowing whether the target thread
  * has already exited.
  */

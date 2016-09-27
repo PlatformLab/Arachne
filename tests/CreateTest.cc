@@ -1,4 +1,4 @@
-#include "gtest/gtest.h" 
+#include "gtest/gtest.h"
 #include "Arachne.h"
 
 
@@ -29,7 +29,7 @@ TEST(CreateThreadTest, NoArgs) {
     EXPECT_EQ(1, Arachne::occupiedAndCount[0].load().count);
     EXPECT_EQ(1, Arachne::occupiedAndCount[0].load().occupied);
     flag = 1;
-    
+
     // Wait for thread to exit
     while (Arachne::occupiedAndCount[0].load().count == 1);
     EXPECT_EQ(0, Arachne::occupiedAndCount[0].load().count);

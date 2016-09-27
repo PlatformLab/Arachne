@@ -16,7 +16,7 @@ class SpinLock {
     void lock() {
        while(state.exchange(true, std::memory_order_acquire) != false);
     }
-    
+
     bool try_lock() {
         // If the original value was false, then we successfully acquired the lock.
         // Otherwise we failed.
@@ -30,9 +30,9 @@ class SpinLock {
   private:
     // Implements the lock: false means free, true means locked
     std::atomic<bool> state;
-    
+
     // Pad this data structure out to a cache line size to mitigate false sharing.
     char cachePad[CACHE_LINE_SIZE-sizeof(state)];
 } __attribute__ ((aligned(CACHE_LINE_SIZE)));
-} 
+}
 #endif

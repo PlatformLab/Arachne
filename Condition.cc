@@ -4,7 +4,7 @@
 namespace  Arachne {
 
 using PerfUtils::TimeTrace;
-    
+
 ConditionVariable::ConditionVariable() { }
 ConditionVariable::~ConditionVariable() { }
 
