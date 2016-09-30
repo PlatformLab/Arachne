@@ -1884,31 +1884,6 @@ def CheckForHeaderGuard(filename, clean_lines, error):
         '#endif line should be "#endif  // %s"' % cppvar)
 
 
-def CheckHeaderFileIncluded(filename, include_state, error):
-  """Logs an error if a .cc file does not include its header."""
-
-  # Do not check test files
-  fileinfo = FileInfo(filename)
-  if Search(_TEST_FILE_SUFFIX, fileinfo.BaseName()):
-    return
-
-  headerfile = filename[0:len(filename) - len(fileinfo.Extension())] + '.h'
-  if not os.path.exists(headerfile):
-    return
-  headername = FileInfo(headerfile).RepositoryName()
-  first_include = 0
-  for section_list in include_state.include_list:
-    for f in section_list:
-      if headername in f[0] or f[0] in headername:
-        return
-      if not first_include:
-        first_include = f[1]
-
-  error(filename, first_include, 'build/include', 5,
-        '%s should include its header file %s' % (fileinfo.RepositoryName(),
-                                                  headername))
-
-
 def CheckForBadCharacters(filename, lines, error):
   """Logs an error for each line containing bad characters.
 
@@ -5842,10 +5817,6 @@ def ProcessFileData(filename, file_extension, lines, error,
   nesting_state.CheckCompletedBlocks(filename, error)
 
   CheckForIncludeWhatYouUse(filename, clean_lines, include_state, error)
-
-  # Check that the .cc file has included its header if it exists.
-  if _IsSourceExtension(file_extension):
-    CheckHeaderFileIncluded(filename, include_state, error)
 
   # We check here rather than inside ProcessLine so that we see raw
   # lines rather than "cleaned" lines.
