@@ -1837,18 +1837,6 @@ def CheckForHeaderGuard(filename, clean_lines, error):
           cppvar)
     return
 
-  # The guard should be PATH_FILE_H_, but we also allow PATH_FILE_H__
-  # for backward compatibility.
-  if ifndef != cppvar:
-    error_level = 0
-    if ifndef != cppvar + '_':
-      error_level = 5
-
-    ParseNolintSuppressions(filename, raw_lines[ifndef_linenum], ifndef_linenum,
-                            error)
-    error(filename, ifndef_linenum, 'build/header_guard', error_level,
-          '#ifndef header guard has wrong style, please use: %s' % cppvar)
-
   # Check for "//" comments on endif line.
   ParseNolintSuppressions(filename, raw_lines[endif_linenum], endif_linenum,
                           error)
@@ -1878,10 +1866,6 @@ def CheckForHeaderGuard(filename, clean_lines, error):
         error(filename, endif_linenum, 'build/header_guard', 0,
               '#endif line should be "#endif  /* %s */"' % cppvar)
       return
-
-  # Didn't find anything
-  error(filename, endif_linenum, 'build/header_guard', 5,
-        '#endif line should be "#endif  // %s"' % cppvar)
 
 
 def CheckForBadCharacters(filename, lines, error):
