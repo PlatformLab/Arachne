@@ -1,7 +1,23 @@
-#include <stdio.h>
-#include <thread>
-#include "string.h"
+/* Copyright (c) 2015-2016 Stanford University
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR(S) DISCLAIM ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL AUTHORS BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
+
+
 #include "Arachne.h"
+#include <stdio.h>
+#include <string.h>
+#include <thread>
 #include "Cycles.h"
 #include "TimeTrace.h"
 #include "Util.h"
@@ -30,16 +46,21 @@ InitializationState initializationState = NOT_INITIALIZED;
 volatile unsigned numCores = 0;
 
 /**
+  * Configurable stack size for all threads.
+  */
+int stackSize = 1024 * 1024;
+
+/**
  * The collection of possibly runnable contexts for each core.
  */
-std::vector<UserContext*> activeLists;
+std::vector<ThreadContext*> activeLists;
 
 /**
   * This pointer allows fast access to the current kernel thread's activeList
   * without computing an offset from the global activeLists vector on each
   * access.
   */
-thread_local UserContext* activeList;
+thread_local ThreadContext* activeList;
 
 /**
   * This variable provides the position in global data structures which
@@ -52,7 +73,7 @@ thread_local int kernelThreadId;
 /**
   * This is the context that a given core is currently executing on.
   */
-thread_local UserContext *running;
+thread_local ThreadContext *running;
 
 /**
   * This variable holds a bitfield of flags indicating occupancy and the current
@@ -104,7 +125,7 @@ void threadMainFunction(int id) {
 /**
  * Load a new context without saving any curent state.
  */
-void  __attribute__ ((noinline))  setcontext(void **saved) {
+void __attribute__((noinline)) setcontext(void **saved) {
 
     // Load the stack pointer and restore the registers
     asm("movq (%rdi), %rsp");
@@ -124,7 +145,7 @@ void  __attribute__ ((noinline))  setcontext(void **saved) {
  * thread, the address of the new thread's main function should be manually
  * placed on the new stack before invoking this method.
  */
-void  __attribute__ ((noinline))  savecontext(void **target) {
+void __attribute__((noinline)) savecontext(void **target) {
     asm("movq %rsp, %r11\n\t"
         "movq (%rdi), %rsp\n\t"
         "pushq %r12\n\t"
@@ -145,7 +166,7 @@ void  __attribute__ ((noinline))  savecontext(void **target) {
  * Load from saved and store into target.
  */
 
-void  __attribute__ ((noinline))  swapcontext(void **saved, void **target) {
+void __attribute__((noinline)) swapcontext(void **saved, void **target) {
     // Save the registers and store the stack pointer
     asm("pushq %r12\n\t"
         "pushq %r13\n\t"
@@ -174,8 +195,9 @@ void schedulerMainLoop() {
     // re-enter the thread library by making an API call into Arachne.
     while (true) {
         block();
-        reinterpret_cast<TaskBase*>(&running->task)->runThread();
-		running->wakeup = false;
+        reinterpret_cast<AbstractThreadInvocation*>(
+                &running->threadInvocation)->runThread();
+        running->wakeup = false;
         if (running->waiter) {
             signal(running->waiter);
             running->waiter = NULL;
@@ -191,11 +213,11 @@ void schedulerMainLoop() {
             MaskAndCount slotMap = *localOccupiedAndCount;
             MaskAndCount oldSlotMap = slotMap;
 
-            // Decrement count only if the flag was originally set
-            if (slotMap.occupied & (1L << running->index))
-                slotMap.count--;
+            // Decrement numOccupied only if the flag was originally set
+            if (slotMap.occupied & (1L << running->idInCore))
+                slotMap.numOccupied--;
 
-            slotMap.occupied &= ~(1L << running->index);
+            slotMap.occupied &= ~(1L << running->idInCore);
             success = localOccupiedAndCount->compare_exchange_strong(
                     oldSlotMap,
                     slotMap);
@@ -232,7 +254,7 @@ ThreadId getThreadId() {
 }
 
 /**
-  * Examine a particular UserContext and checks whether the conditions are
+  * Examine a particular ThreadContext and checks whether the conditions are
   * correct for it to awaken. If they are appropriate, then it will awaken the
   * thread and return true to the newly active context.  Otherwise, it will
   * return false to the current context.
@@ -304,7 +326,7 @@ bool join(ThreadId id) {
      // If the thread has already exited, we should not block, since doing so
      // may result in blocking forever.
      MaskAndCount slotMap = *localOccupiedAndCount;
-     if (!(slotMap.occupied & (1L << id->index))) return true;
+     if (!(slotMap.occupied & (1L << id->idInCore))) return true;
      id->waiter = running;
      block();
      return true;
@@ -348,19 +370,22 @@ void threadInit() {
 
     for (unsigned int i = 0; i < numCores; i++) {
         // Here we will create all the user contexts and user stacks
-        UserContext *contexts;
-        cache_align_alloc(&contexts, sizeof(UserContext) * maxThreadsPerCore);
+        ThreadContext *contexts;
+        cache_align_alloc(&contexts, sizeof(ThreadContext) * maxThreadsPerCore);
+        // TODO(hq6): Initialize fields of freshContext in the same order they
+        // are declared.
         for (int k = 0; k < maxThreadsPerCore; k++) {
-            UserContext *freshContext = &contexts[k];
+            ThreadContext *freshContext = &contexts[k];
             void* newStack = malloc(stackSize);
-            freshContext->index = k;
+            freshContext->idInCore = k;
             freshContext->wakeup = false;
             freshContext->waiter = NULL;
             freshContext->wakeupTimeInCycles = 0;
 
             // Set up the stack to return to the main thread function.
-            freshContext->sp = (char*) newStack + stackSize;
-            *(void**) freshContext->sp = (void*) schedulerMainLoop;
+            freshContext->sp = reinterpret_cast<char*>(newStack) + stackSize;
+            *reinterpret_cast<void**>(freshContext->sp) =
+                reinterpret_cast<void*>(schedulerMainLoop);
             savecontext(&freshContext->sp);
         }
         activeLists.push_back(contexts);
@@ -380,5 +405,4 @@ void threadInit() {
     kernelThreadId = numCores - 1;
     initializationState = INITIALIZED;
 }
-
-}
+} // namespace Arachne
