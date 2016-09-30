@@ -4913,15 +4913,6 @@ def CheckForNonConstReference(filename, clean_lines, linenum,
           Search(whitelisted_functions, clean_lines.elided[linenum - i - 1])):
         return
 
-  decls = ReplaceAll(r'{[^}]*}', ' ', line)  # exclude function body
-  for parameter in re.findall(_RE_PATTERN_REF_PARAM, decls):
-    if (not Match(_RE_PATTERN_CONST_REF_PARAM, parameter) and
-        not Match(_RE_PATTERN_REF_STREAM_PARAM, parameter)):
-      error(filename, linenum, 'runtime/references', 2,
-            'Is this a non-const reference? '
-            'If so, make const or use a pointer: ' +
-            ReplaceAll(' *<', '<', parameter))
-
 
 def CheckCasts(filename, clean_lines, linenum, error):
   """Various cast related checks.
