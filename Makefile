@@ -3,6 +3,12 @@
 DEBUG=-g
 
 LIBS=-I../Arachne  -L../Arachne -lArachne  -I../PerfUtils -L../PerfUtils -lPerfUtils
+TOP := $(shell echo $${PWD-`pwd`})
+
+
+ifndef CHECK_TARGET
+CHECK_TARGET=$$(find $(TOP) '(' -name '*.h' -or -name '*.cc' ')' -not -path '$(TOP)/googletest/*' )
+endif
 
 libArachne.a: Arachne.o Condition.o
 	ar rcs $@ $^
@@ -17,3 +23,6 @@ clean:
 
 test: libArachne.a
 	make -C tests
+
+check:
+	./cpplint.py --filter=-runtime/threadsafe_fn,-readability/streams,-whitespace/blank_line,-whitespace/braces,-whitespace/comments,-runtime/arrays,-build/include_what_you_use,-whitespace/semicolon $(CHECK_TARGET)

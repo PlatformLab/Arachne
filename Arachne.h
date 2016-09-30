@@ -1,12 +1,27 @@
-#ifndef ARACHNE_H
-#define ARACHNE_H
+/* Copyright (c) 2015-2016 Stanford University
+ *
+ * Permission to use, copy, modify, and distribute this software for any
+ * purpose with or without fee is hereby granted, provided that the above
+ * copyright notice and this permission notice appear in all copies.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR(S) DISCLAIM ALL WARRANTIES
+ * WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+ * MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL AUTHORS BE LIABLE FOR
+ * ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+ * WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ * ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF
+ * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+ */
 
+#ifndef ARACHNE_H_
+#define ARACHNE_H_
+
+#include <assert.h>
 #include <functional>
 #include <vector>
 #include <mutex>
 #include <deque>
 #include <atomic>
-#include <assert.h>
 
 
 #include "Common.h"
@@ -14,75 +29,84 @@
 namespace  Arachne {
 
 /**
-  * This class allows us to invoke a function produced by std::bind after it has
-  * been copied to a fixed-size object, by using indirection through virtual
-  * dispatch.
+  * We need to invoke a ThreadInvocation with unknown template types, which has
+  * been stored in a character array, and this class enables us to do this.
+  *
+  * TODO: Can we find a better name for this?
   */
-struct TaskBase {
-   virtual void runThread() = 0;
+struct AbstractThreadInvocation {
+    virtual void runThread() = 0;
 };
 
 /**
-  * This structure holds the state for a new thread creation request.  It is a
-  * templated wrapper around the return value of std::bind, which is a value
+  * This structure is used during thread creation to pass the function and
+  * arguments for the new thread's top-level function from a creating thread to
+  * the core that runs the new thread. It also ensures that the arguments will
+  * fit in a single cache line, since they will be stored in a single cache line.
+  *
+  * TODO: Look up the doxygen syntax for documenting types for templates.
+  * TODO: Move internal things to ArachnePrivate.h and include it here.
+  *
+  * F is the type of the return value of std::bind, which is a value
   * type of unspecified class.
   *
   * This wrapper enables us to bypass the dynamic memory allocation that is
   * sometimes performed by std::function.
   */
-template <typename F> struct Task : public TaskBase {
-    // The main function of the user thread.
-    F workFunction;
-    Task(F wf) : workFunction(wf) {
-        static_assert(sizeof(Task<F>) <= CACHE_LINE_SIZE,
-                "Arachne does not support tasks larger than the size of a cache line.");
+template<typename F>
+struct ThreadInvocation : public AbstractThreadInvocation {
+    // The top-level function of the user thread.
+    F mainFunction;
+    explicit ThreadInvocation(F mainFunction) : mainFunction(mainFunction) {
+        static_assert(sizeof(ThreadInvocation<F>) <= CACHE_LINE_SIZE,
+                "Arachne requires the function and arguments for a thread to "
+                "fit within one cache line.");
     }
-   void runThread() {
-       workFunction();
-   }
+    // This is invoked exactly once for each thread to begin its execution.
+    void runThread() {
+        mainFunction();
+    }
 };
 
 /*
  * This class holds all the state for a managing a user thread.
  */
-struct UserContext {
-    // This holds the value that rsp will be set to when this thread is swapped in.
+struct ThreadContext {
+    // This holds the value that rsp will be set to when this thread is swapped
+    // in.
     void* sp;
 
     // This points to the thread which called join() on the current thread.
-    UserContext* waiter;
+    ThreadContext* waiter;
 
     // When a thread blocks due to calling sleep(), it will keep its wakeup time
-    // here.
-    volatile uint64_t wakeupTimeInCycles;
+    // here. This field should only be accessed by the same core that the
+    // thread is resident on.
+    uint64_t wakeupTimeInCycles;
 
-    // This flag is a signal that this thread should run at the next opportunity.
-    // It should be cleared immediately before control is returned to the
-    // application and set by either remote cores as a signal or when a thread
-    // yields.
+    // This flag is a signal that this thread should run at the next
+    // opportunity.  It should be cleared immediately before control is
+    // returned to the application and set by either remote cores as a signal
+    // or when a thread yields.
     volatile bool wakeup;
 
-    // Index of this UserContext in the vector of UserContexts for this core.
-    // This gives us the correct bit to clear in the bit vector when we
-    // complete a task.
-    uint8_t index;
+    // Unique identifier for this thread among those on the same core.
+    // Used to index into various core-specific arrays.
+    // This is read-only after Arachne initialization.
+    uint8_t idInCore;
 
-
-    // Storage for the Task object which contains the function and arguments
-    // for a new thread.
-    //
-    // Wrapping this array into a struct appears to mitigate the strict
-    // aliasing warnings.
+    // Storage for the ThreadInvocation object which contains the function and
+    // arguments for a new thread.
+    // We wrap the char buffer in a struct to enable aligning to a cache line
+    // boundary, which eliminates false sharing of cache lines.
     struct alignas(CACHE_LINE_SIZE) {
         char data[CACHE_LINE_SIZE];
-    } task;
+    } threadInvocation;
 };
 
-typedef UserContext* ThreadId;
+typedef ThreadContext* ThreadId;
 extern volatile unsigned numCores;
 
-const int stackSize = 1024 * 1024;
-const int stackPoolSize = 1000;
 const int maxThreadsPerCore = 56;
 
 void schedulerMainLoop();
@@ -93,15 +117,19 @@ void threadMainFunction(int id);
 void mainThreadJoinPool();
 
 extern thread_local int kernelThreadId;
-extern thread_local UserContext *running;
-extern thread_local UserContext* activeList;
-extern std::vector<UserContext*> activeLists;
+extern thread_local ThreadContext *running;
+extern thread_local ThreadContext *activeList;
+extern std::vector<ThreadContext*> activeLists;
 
-// This structure tracks, for a particular core, the number of threads resident
-// and which UserContexts are occupied by resident threads.
+// This structure tracks the active threads on a single core.
 struct MaskAndCount{
-    unsigned long int occupied : 56;
-    uint8_t count : 8;
+    // Each bit corresponds to a particular ThreadContext which has the
+    // idInCore corresponding to its index
+    // 0 means this ThreadContext is available for a new thread.
+    // 1 means that a thread exists and is running in this context.
+    uint64_t occupied : 56;
+    // The number of 1 bits in occupied.
+    uint8_t numOccupied : 8;
 };
 
 extern std::atomic<MaskAndCount>  *occupiedAndCount;
@@ -118,7 +146,8 @@ template<typename _Callable, typename... _Args>
     int createThread(int coreId, _Callable&& __f, _Args&&... __args) {
     if (coreId == -1) coreId = kernelThreadId;
 
-    auto task = std::bind(std::forward<_Callable>(__f), std::forward<_Args>(__args)...);
+    auto task = std::bind(
+            std::forward<_Callable>(__f), std::forward<_Args>(__args)...);
 
     bool success;
     int index;
@@ -137,17 +166,15 @@ template<typename _Callable, typename... _Args>
         }
 
         slotMap.occupied |= (1L << index);
-        slotMap.count++;
+        slotMap.numOccupied++;
 
         success = occupiedAndCount[coreId].compare_exchange_strong(oldSlotMap,
                 slotMap);
     } while (!success);
 
-    // Copy in the data
-    new (&activeLists[coreId][index].task) Arachne::Task<decltype(task)>(task);
-
-    // Set wakeup flag
-    activeLists[coreId][index].index = index;
+    // Copy the thread invocation into the byte array.
+    new (&activeLists[coreId][index].threadInvocation)
+        Arachne::ThreadInvocation<decltype(task)>(task);
     activeLists[coreId][index].wakeup = true;
 
     return 0;
@@ -157,9 +184,10 @@ template<typename _Callable, typename... _Args>
   * A random number generator from the Internet, used for selecting candidate
   * cores to create threads on.
   */
-inline unsigned long xorshf96(void) {
-    static unsigned long x=123456789, y=362436069, z=521288629;
-    unsigned long t;
+inline uint64_t random(void) {
+    // TODO(hq6): Google for this and find the link: xorshf96
+    static uint64_t x = 123456789, y = 362436069, z = 521288629;
+    uint64_t t;
     x ^= x << 16;
     x ^= x >> 5;
     x ^= x << 1;
@@ -173,19 +201,23 @@ inline unsigned long xorshf96(void) {
 }
 
 /**
-  * The thread creation function that is used in applications.  It does load
-  * balancing using the Power of 2.
+  * Spawn a new thread.
+  * TODO: Fix this documentation for the user.
+  * TODO: Return a ThreadID with a distinguished value (Arachne::NullThread) for failure.
   */
 template<typename _Callable, typename... _Args>
     int createThread(_Callable&& __f, _Args&&... __args) {
 
-    // Find a core to enqueue to by picking two at random.
-    int coreId;
-    int choice1 = xorshf96() % numCores;
-    int choice2 = xorshf96() % numCores;
-    while (choice2 == choice1) choice2 = xorshf96() % numCores;
+    // Find a core to enqueue to by picking two at random and choose the one
+    // with the fewest threads.
 
-    if (occupiedAndCount[choice1].load().count < occupiedAndCount[choice2].load().count)
+    int coreId;
+    int choice1 = random() % numCores;
+    int choice2 = random() % numCores;
+    while (choice2 == choice1) choice2 = random() % numCores;
+
+    if (occupiedAndCount[choice1].load().numOccupied <
+            occupiedAndCount[choice2].load().numOccupied)
         coreId = choice1;
     else
         coreId = choice2;
@@ -201,5 +233,5 @@ void block();
 void signal(ThreadId id);
 bool join(ThreadId id);
 
-}
-#endif
+} // namespace Arachne
+#endif // ARACHNE_H_
