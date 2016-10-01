@@ -13,7 +13,7 @@ endif
 libArachne.a: Arachne.o Condition.o
 	ar rcs $@ $^
 
-Arachne.o: SpinLock.h Arachne.h Condition.h
+Arachne.o: SpinLock.h Arachne.h Condition.h ArachnePrivate.h
 
 %.o: %.cc
 	g++  -Wall -Werror -fomit-frame-pointer  -O3 $(DEBUG) $(LIBS) -c -std=c++11  -o $@ $<
