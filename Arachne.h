@@ -23,22 +23,67 @@
 #include <deque>
 #include <atomic>
 
-
-#include "Common.h"
 #include "ArachnePrivate.h"
+#include "Common.h"
 
 namespace  Arachne {
 
 extern volatile unsigned numCores;
-
+const Arachne::ThreadId NullThread = NULL;
 
 /**
-  * Spawn a new thread.
-  * TODO: Fix this documentation for the user.
-  * TODO: Return a ThreadID with a distinguished value (Arachne::NullThread) for failure.
+  * Spawn a thread with main function f invoked with the given args on the core
+  * with coreId.  Pass in -1 for coreId to use the creator's core.
+  *
+  * This function should usually only be invoked directly in tests, since it
+  * does not perform load balancing. However, it can also be used if the
+  * application wants to do its own load balancing.
   */
 template<typename _Callable, typename... _Args>
-    int createThread(_Callable&& __f, _Args&&... __args) {
+    ThreadId createThread(int coreId, _Callable&& __f, _Args&&... __args) {
+    if (coreId == -1) coreId = kernelThreadId;
+
+    auto task = std::bind(
+            std::forward<_Callable>(__f), std::forward<_Args>(__args)...);
+
+    bool success;
+    int index;
+    do {
+        // Attempt to enqueue the task to the specific core in this case.
+        MaskAndCount slotMap = occupiedAndCount[coreId];
+        MaskAndCount oldSlotMap = slotMap;
+
+        // Search for a non-occupied slot and attempt to reserve the slot
+        index = 0;
+        while ((slotMap.occupied & (1L << index)) && index < maxThreadsPerCore)
+            index++;
+
+        if (index == maxThreadsPerCore) {
+            return NullThread;
+        }
+
+        slotMap.occupied |= (1L << index);
+        slotMap.numOccupied++;
+
+        success = occupiedAndCount[coreId].compare_exchange_strong(oldSlotMap,
+                slotMap);
+    } while (!success);
+
+    // Copy the thread invocation into the byte array.
+    new (&activeLists[coreId][index].threadInvocation)
+        Arachne::ThreadInvocation<decltype(task)>(task);
+    activeLists[coreId][index].wakeup = true;
+
+    return &activeLists[coreId][index];
+}
+
+/**
+  * Spawn a new thread with a function and arguments. The total size of the
+  * arguments cannot exceed 48 bytes, and arguments are taken by value, so any
+  * reference must be wrapped with std::ref.
+  */
+template<typename _Callable, typename... _Args>
+    ThreadId createThread(_Callable&& __f, _Args&&... __args) {
 
     // Find a core to enqueue to by picking two at random and choose the one
     // with the fewest threads.
@@ -67,4 +112,5 @@ bool join(ThreadId id);
 ThreadId getThreadId();
 
 } // namespace Arachne
+
 #endif // ARACHNE_H_

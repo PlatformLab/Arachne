@@ -372,25 +372,21 @@ void threadInit() {
         // Here we will create all the user contexts and user stacks
         ThreadContext *contexts;
         cache_align_alloc(&contexts, sizeof(ThreadContext) * maxThreadsPerCore);
-        // TODO(hq6): Initialize fields of freshContext in the same order they
-        // are declared.
         for (int k = 0; k < maxThreadsPerCore; k++) {
             ThreadContext *freshContext = &contexts[k];
             void* newStack = malloc(stackSize);
-            freshContext->idInCore = k;
-            freshContext->wakeup = false;
+            freshContext->sp = reinterpret_cast<char*>(newStack) + stackSize;
             freshContext->waiter = NULL;
             freshContext->wakeupTimeInCycles = 0;
+            freshContext->wakeup = false;
+            freshContext->idInCore = k;
 
             // Set up the stack to return to the main thread function.
-            freshContext->sp = reinterpret_cast<char*>(newStack) + stackSize;
             *reinterpret_cast<void**>(freshContext->sp) =
                 reinterpret_cast<void*>(schedulerMainLoop);
             savecontext(&freshContext->sp);
         }
         activeLists.push_back(contexts);
-
-
     }
     // Ensure that data structure and stack allocation completes before we
     // begin to use it in a new thread.

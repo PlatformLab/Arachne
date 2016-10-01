@@ -75,8 +75,8 @@ TEST(CreateThreadTest, MaxThreadsExceeded) {
     Arachne::numCores = 2;
     Arachne::threadInit();
     for (int i = 0; i < Arachne::maxThreadsPerCore; i++)
-        EXPECT_EQ(0, Arachne::createThread(0, clearFlag));
-//    EXPECT_EQ(-1, Arachne::createThread(0, clearFlag));
+        EXPECT_NE(Arachne::NullThread, Arachne::createThread(0, clearFlag));
+    EXPECT_EQ(Arachne::NullThread, Arachne::createThread(0, clearFlag));
 
     // Clean up the threads
     while (Arachne::occupiedAndCount[0].load().numOccupied > 0)

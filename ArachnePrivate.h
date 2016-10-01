@@ -16,6 +16,8 @@
 #ifndef ARACHNE_PRIVATE_H_
 #define ARACHNE_PRIVATE_H_
 
+#include "Common.h"
+
 namespace Arachne {
 /**
   * We need to invoke a ThreadInvocation with unknown template types, which has
@@ -31,11 +33,8 @@ struct AbstractThreadInvocation {
   * the core that runs the new thread. It also ensures that the arguments will
   * fit in a single cache line, since they will be stored in a single cache line.
   *
-  * TODO: Look up the doxygen syntax for documenting types for templates.
-  * TODO: Move internal things to ArachnePrivate.h and include it here.
-  *
-  * F is the type of the return value of std::bind, which is a value
-  * type of unspecified class.
+  * @tparam F the type of the return value of std::bind, which is a value type
+  * of unspecified class.
   *
   * This wrapper enables us to bypass the dynamic memory allocation that is
   * sometimes performed by std::function.
@@ -125,7 +124,8 @@ extern thread_local std::atomic<MaskAndCount>  *localOccupiedAndCount;
   * cores to create threads on.
   */
 inline uint64_t random(void) {
-    // TODO(hq6): Google for this and find the link: xorshf96
+    // This function came from the following site.
+    // http://stackoverflow.com/a/1640399/391161
     static uint64_t x = 123456789, y = 362436069, z = 521288629;
     uint64_t t;
     x ^= x << 16;
@@ -140,49 +140,5 @@ inline uint64_t random(void) {
     return z;
 }
 
-/**
-  * Create a user thread to run the function f with the given args on the provided core.
-  * Pass in -1 as a core ID to use the creator's core.
-  *
-  * This function should usually only be invoked directly in tests, since it
-  * does not perform load balancing.
-  */
-template<typename _Callable, typename... _Args>
-    int createThread(int coreId, _Callable&& __f, _Args&&... __args) {
-    if (coreId == -1) coreId = kernelThreadId;
-
-    auto task = std::bind(
-            std::forward<_Callable>(__f), std::forward<_Args>(__args)...);
-
-    bool success;
-    int index;
-    do {
-        // Attempt to enqueue the task to the specific core in this case.
-        MaskAndCount slotMap = occupiedAndCount[coreId];
-        MaskAndCount oldSlotMap = slotMap;
-
-        // Search for a non-occupied slot and attempt to reserve the slot
-        index = 0;
-        while ((slotMap.occupied & (1L << index)) && index < maxThreadsPerCore)
-            index++;
-
-        if (index == maxThreadsPerCore) {
-            return -1;
-        }
-
-        slotMap.occupied |= (1L << index);
-        slotMap.numOccupied++;
-
-        success = occupiedAndCount[coreId].compare_exchange_strong(oldSlotMap,
-                slotMap);
-    } while (!success);
-
-    // Copy the thread invocation into the byte array.
-    new (&activeLists[coreId][index].threadInvocation)
-        Arachne::ThreadInvocation<decltype(task)>(task);
-    activeLists[coreId][index].wakeup = true;
-
-    return 0;
-}
 } // namespace Arachne
 #endif
