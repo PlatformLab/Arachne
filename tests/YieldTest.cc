@@ -16,9 +16,9 @@
 #include "gtest/gtest.h"
 #include "Arachne.h"
 
-
-volatile int keepYielding;
+static volatile int keepYielding;
 static volatile int flag;
+
 static void yielder() {
     while (keepYielding)
         Arachne::yield();

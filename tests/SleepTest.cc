@@ -19,6 +19,8 @@
 
 using PerfUtils::Cycles;
 
+static volatile int flag;
+
 void sleeper() {
     uint64_t before = Cycles::rdtsc();
     Arachne::sleep(1000);
@@ -26,7 +28,6 @@ void sleeper() {
     EXPECT_LE(1000, delta);
 }
 
-static volatile int flag;
 void simplesleeper() {
     Arachne::sleep(10000);
     flag = 1;

@@ -16,16 +16,9 @@
 #include "gtest/gtest.h"
 #include "Arachne.h"
 
+static volatile Arachne::ThreadContext* joineeId;
+static volatile Arachne::ThreadContext* joinerId;
 
-// This test verifies that only one thread can join at a time
-TEST(JoinTest, DoubleJoin) {
-    Arachne::ThreadContext tempContext;
-    tempContext.waiter = reinterpret_cast<Arachne::ThreadContext*>(1);;
-    EXPECT_EQ(false, Arachne::join(&tempContext));
-}
-
-volatile Arachne::ThreadContext* joineeId;
-volatile Arachne::ThreadContext* joinerId;
 void joinee() {
     joineeId = Arachne::getThreadId();
 }
@@ -37,6 +30,19 @@ void joiner() {
             Arachne::join(const_cast<Arachne::ThreadContext*>(joineeId)));
 }
 
+void joinee2() {
+    joineeId = Arachne::getThreadId();
+    Arachne::yield();
+    EXPECT_EQ(joinerId, Arachne::running->waiter);
+}
+
+// This test verifies that only one thread can join at a time
+TEST(JoinTest, DoubleJoin) {
+    Arachne::ThreadContext tempContext;
+    tempContext.waiter = reinterpret_cast<Arachne::ThreadContext*>(1);;
+    EXPECT_EQ(false, Arachne::join(&tempContext));
+}
+
 TEST(JoinTest, JoinAfterTermination) {
     Arachne::numCores = 2;
     Arachne::threadInit();
@@ -45,12 +51,6 @@ TEST(JoinTest, JoinAfterTermination) {
     // jointer got a chance to run.
     Arachne::createThread(0, joinee);
     Arachne::createThread(0, joiner);
-}
-
-void joinee2() {
-    joineeId = Arachne::getThreadId();
-    Arachne::yield();
-    EXPECT_EQ(joinerId, Arachne::running->waiter);
 }
 
 TEST(JoinTest, JoinDuringRun) {

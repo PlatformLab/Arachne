@@ -17,10 +17,9 @@
 #include "Arachne.h"
 #include "Condition.h"
 
-
 static Arachne::SpinLock mutex;
 static Arachne::ConditionVariable cv;
-volatile int awaited;
+static volatile int awaited;
 
 static void waiter() {
     mutex.lock();
