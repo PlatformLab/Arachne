@@ -16,9 +16,8 @@
 #include "gtest/gtest.h"
 #include "Arachne.h"
 
-
-
 static volatile int flag = 0;
+
 void clearFlag() {
     while (!flag);
     flag = 0;

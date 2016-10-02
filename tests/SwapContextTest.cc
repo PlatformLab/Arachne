@@ -16,14 +16,13 @@
 #include "gtest/gtest.h"
 #include "Arachne.h"
 
+static const size_t testStackSize = 256;
+static char stack[testStackSize];
+static void* stackPointer;
+static void *oldStackPointer;
 
-const size_t testStackSize = 256;
-char stack[testStackSize];
-void* stackPointer;
-void *oldStackPointer;
-
-bool firstEntryToSetContextTest;
-bool swapContextSuccess;
+static bool firstEntryToSetContextTest;
+static bool swapContextSuccess;
 
 void setContextHelper() {
     firstEntryToSetContextTest = 0;
@@ -40,6 +39,7 @@ void setContextHelper() {
     asm("mov %0, %%rsp": "=g"(oldStackPointer));
     asm("retq");
 }
+
 void swapContextHelper() {
     swapContextSuccess = 1;
     Arachne::swapcontext(&oldStackPointer, &stackPointer);
