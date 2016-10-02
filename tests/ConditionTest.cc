@@ -38,10 +38,10 @@ TEST(ConditionTest, NotifyOne) {
     EXPECT_EQ(2, Arachne::occupiedAndCount[0].load().numOccupied);
     EXPECT_EQ(3, Arachne::occupiedAndCount[0].load().occupied);
     awaited = 2;
-    cv.notify_one();
+    cv.notifyOne();
     while (awaited == 2);
     EXPECT_EQ(1, awaited);
-    cv.notify_one();
+    cv.notifyOne();
     while (awaited == 1);
     EXPECT_EQ(0, awaited);
 }
@@ -53,9 +53,9 @@ TEST(ConditionTest, NotifyAll) {
     for (int i = 0; i < 10; i++)
         Arachne::createThread(0, waiter);
     awaited = 5;
-    cv.notify_all();
+    cv.notifyAll();
     while (Arachne::occupiedAndCount[0].load().numOccupied > 5);
     EXPECT_EQ(0, awaited);
     awaited = 5;
-    cv.notify_all();
+    cv.notifyAll();
 }

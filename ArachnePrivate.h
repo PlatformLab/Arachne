@@ -19,11 +19,12 @@
 #include "Common.h"
 
 namespace Arachne {
+
 /**
   * We need to invoke a ThreadInvocation with unknown template types, which has
   * been stored in a character array, and this class enables us to do this.
   */
-struct AbstractThreadInvocation {
+struct ThreadInvocationEnabler {
     virtual void runThread() = 0;
 };
 
@@ -33,17 +34,19 @@ struct AbstractThreadInvocation {
   * the core that runs the new thread. It also ensures that the arguments will
   * fit in a single cache line, since they will be stored in a single cache line.
   *
-  * @tparam F the type of the return value of std::bind, which is a value type
-  * of unspecified class.
+  * \tparam F
+  *     the type of the return value of std::bind, which is a value type of
+  *     unspecified class.
   *
   * This wrapper enables us to bypass the dynamic memory allocation that is
   * sometimes performed by std::function.
   */
 template<typename F>
-struct ThreadInvocation : public AbstractThreadInvocation {
+struct ThreadInvocation : public ThreadInvocationEnabler {
     // The top-level function of the user thread.
     F mainFunction;
-    explicit ThreadInvocation(F mainFunction) : mainFunction(mainFunction) {
+    explicit ThreadInvocation(F mainFunction)
+        : mainFunction(mainFunction) {
         static_assert(sizeof(ThreadInvocation<F>) <= CACHE_LINE_SIZE,
                 "Arachne requires the function and arguments for a thread to "
                 "fit within one cache line.");
@@ -55,7 +58,7 @@ struct ThreadInvocation : public AbstractThreadInvocation {
 };
 
 /*
- * This class holds all the state for a managing a user thread.
+ * This class holds all the state for managing a user thread.
  */
 struct ThreadContext {
     // This holds the value that rsp will be set to when this thread is swapped
@@ -65,15 +68,14 @@ struct ThreadContext {
     // This points to the thread which called join() on the current thread.
     ThreadContext* waiter;
 
-    // When a thread blocks due to calling sleep(), it will keep its wakeup time
-    // here. This field should only be accessed by the same core that the
-    // thread is resident on.
+    // When a thread blocks due to calling sleep(), it will keep its wakeup
+    // time in rdtsc cycles here. This field should only be accessed by the
+    // same core that the thread runs on.
     uint64_t wakeupTimeInCycles;
 
     // This flag is a signal that this thread should run at the next
-    // opportunity.  It should be cleared immediately before control is
-    // returned to the application and set by either remote cores as a signal
-    // or when a thread yields.
+    // opportunity. It should be cleared immediately before control is
+    // returned to the application.
     volatile bool wakeup;
 
     // Unique identifier for this thread among those on the same core.
@@ -95,8 +97,8 @@ typedef ThreadContext* ThreadId;
 const int maxThreadsPerCore = 56;
 
 void schedulerMainLoop();
-void  savecontext(void **target);
-void  swapcontext(void **saved, void **target);
+void savecontext(void **target);
+void swapcontext(void **saved, void **target);
 void setcontext(void **context);
 void threadMainFunction(int id);
 
@@ -116,12 +118,12 @@ struct MaskAndCount{
     uint8_t numOccupied : 8;
 };
 
-extern std::atomic<MaskAndCount>  *occupiedAndCount;
-extern thread_local std::atomic<MaskAndCount>  *localOccupiedAndCount;
+extern std::atomic<MaskAndCount> *occupiedAndCount;
+extern thread_local std::atomic<MaskAndCount> *localOccupiedAndCount;
 
 /**
-  * A random number generator from the Internet, used for selecting candidate
-  * cores to create threads on.
+  * A random number generator from the Internet which returns 64-bit integers.
+  * It is used for selecting candidate cores to create threads on.
   */
 inline uint64_t random(void) {
     // This function came from the following site.

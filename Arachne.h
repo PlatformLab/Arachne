@@ -26,21 +26,40 @@
 #include "ArachnePrivate.h"
 #include "Common.h"
 
-namespace  Arachne {
+namespace Arachne {
 
-extern volatile unsigned numCores;
+/**
+  * These configuration parameters should be set before calling threadInit and
+  * are documented with threadInit.
+  */
+extern volatile uint32_t numCores;
+
+/**
+  * This value is returned by createThread when there are not enough resources
+  * to create a new thread.
+  */
 const Arachne::ThreadId NullThread = NULL;
 
 /**
   * Spawn a thread with main function f invoked with the given args on the core
-  * with coreId.  Pass in -1 for coreId to use the creator's core.
+  * with coreId. Pass in -1 for coreId to use the creator's core. This can be
+  * useful if the created thread will share a lot of state with the current
+  * thread, since it will improve locality.
   *
   * This function should usually only be invoked directly in tests, since it
   * does not perform load balancing. However, it can also be used if the
   * application wants to do its own load balancing.
+  *
+  * \param __f
+  *     The main function for the new thread.
+  * \param __args
+  *     The arguments for __f.
+  * \return
+  *     The return value is an identifier which can be passed to other
+  *     functions as an identifier.
   */
 template<typename _Callable, typename... _Args>
-    ThreadId createThread(int coreId, _Callable&& __f, _Args&&... __args) {
+ThreadId createThread(int coreId, _Callable&& __f, _Args&&... __args) {
     if (coreId == -1) coreId = kernelThreadId;
 
     auto task = std::bind(
@@ -81,9 +100,17 @@ template<typename _Callable, typename... _Args>
   * Spawn a new thread with a function and arguments. The total size of the
   * arguments cannot exceed 48 bytes, and arguments are taken by value, so any
   * reference must be wrapped with std::ref.
+  *
+  * \param __f
+  *     The main function for the new thread.
+  * \param __args
+  *     The arguments for __f.
+  * \return
+  *     The return value is an identifier which can be passed to other
+  *     functions as an identifier.
   */
 template<typename _Callable, typename... _Args>
-    ThreadId createThread(_Callable&& __f, _Args&&... __args) {
+ThreadId createThread(_Callable&& __f, _Args&&... __args) {
 
     // Find a core to enqueue to by picking two at random and choose the one
     // with the fewest threads.

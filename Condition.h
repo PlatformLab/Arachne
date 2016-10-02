@@ -20,21 +20,20 @@
 #include "SpinLock.h"
 #include "Arachne.h"
 
-
-namespace  Arachne {
+namespace Arachne {
 
 /**
   * This class implements a subset of the functionality of
   * std::condition_variable.
-  * It takes no internal locks, so is assumed that notifications are done with
-  * the associated mutex held.
+  * It takes no internal locks, so is assumed that notifications are performed
+  * with the associated mutex held.
   */
 class ConditionVariable {
  public:
     ConditionVariable();
     ~ConditionVariable();
-    void notify_one();
-    void notify_all();
+    void notifyOne();
+    void notifyAll();
     void wait(SpinLock& lock);
  private:
     std::deque<ThreadContext*> blockedThreads;
