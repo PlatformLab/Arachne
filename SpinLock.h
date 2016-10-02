@@ -34,7 +34,7 @@ class SpinLock {
 
     bool try_lock() {
         // If the original value was false, then we successfully acquired the
-        // lock.  Otherwise we failed.
+        // lock. Otherwise we failed.
         return !state.exchange(true, std::memory_order_acquire);
     }
 

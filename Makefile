@@ -2,7 +2,7 @@
 
 DEBUG=-g
 
-LIBS=-I../Arachne  -L../Arachne -lArachne  -I../PerfUtils -L../PerfUtils -lPerfUtils
+LIBS=-I../Arachne -L../Arachne -lArachne -I../PerfUtils -L../PerfUtils -lPerfUtils
 TOP := $(shell echo $${PWD-`pwd`})
 
 
@@ -16,7 +16,7 @@ libArachne.a: Arachne.o Condition.o
 Arachne.o: SpinLock.h Arachne.h Condition.h ArachnePrivate.h
 
 %.o: %.cc
-	g++  -Wall -Werror -fomit-frame-pointer  -O3 $(DEBUG) $(LIBS) -c -std=c++11  -o $@ $<
+	g++ -Wall -Werror -fomit-frame-pointer -O3 $(DEBUG) $(LIBS) -c -std=c++11 -o $@ $<
 
 clean:
 	rm -f *.o *.a
