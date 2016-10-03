@@ -33,16 +33,16 @@ enum InitializationState {
 };
 
 /**
-  * This variable causes any initialization after the first one to be a no-opt,
-  * but does not protect against the user calling Arachne functions without
-  * initializing the library, which will lead to undefined behavior.
+  * This variable prevents multiple initializations of the library, but does
+  * not protect against the user calling Arachne functions without initializing
+  * the library, which results in undefined behavior.
   */
 InitializationState initializationState = NOT_INITIALIZED;
 
 
 /**
-  * This value should be set by the user before threadInit if they want a
-  * different number of kernel threads than the number of cores on their
+  * This value should be set by the user before calling threadInit if they want
+  * a different number of kernel threads than the number of cores on their
   * machine.
   */
 volatile uint32_t numCores = 0;
@@ -73,13 +73,13 @@ thread_local ThreadContext* activeList;
 thread_local int kernelThreadId;
 
 /**
-  * This is the context that a given core is currently executing on.
+  * This is the context that a given core is currently executing.
   */
 thread_local ThreadContext *running;
 
 /**
-  * This array holds a bitfield of flags indicating occupancy and the current
-  * number of threads on each core.
+  * This array holds a bitfield of flags indicating which contexts are occupied
+  * and the current number of occupied contexts on each core.
   */
 std::atomic<MaskAndCount> *occupiedAndCount;
 thread_local std::atomic<MaskAndCount> *localOccupiedAndCount;
@@ -87,16 +87,18 @@ thread_local std::atomic<MaskAndCount> *localOccupiedAndCount;
 
 /**
   * This variable holds the most recent index into the active threads array for
-  * the current core. By maintaining this index, we can avoid starvation of
-  * higher-indexed runnable threads by lower-indexed runnable threads.
+  * the current core. By maintaining this index to point one higher than the
+  * last thread to run, we avoid starvation of higher-indexed runnable threads
+  * by lower-indexed runnable threads.
   */
 thread_local size_t currentIndex = 0;
 
 /**
-  * This function attempts to perform a cache-aligned allocation
+  * This function attempts to perform a cache-aligned allocation for the
+  * pointer passed in.
   *
-  * \param 
-  *     The address of a pointer to be allocated 
+  * \param addressOfTargetPointer
+  *     The location of a pointer to be allocated.
   */
 void cache_align_alloc(void* addressOfTargetPointer, size_t size) {
     void ** trueAddress = reinterpret_cast<void**>(addressOfTargetPointer);
@@ -130,7 +132,11 @@ void threadMainFunction(int id) {
 }
 
 /**
- * Load a new context without saving any curent state.
+ * Load a fresh set of register values without saving any current register
+ * values.
+ * 
+ * \param saved
+ *     A pointer to the top of the stack to load the register values from.
  */
 void __attribute__((noinline)) setcontext(void **saved) {
 
@@ -152,6 +158,9 @@ void __attribute__((noinline)) setcontext(void **saved) {
  * Note that if this function is used to set up the context for a new user
  * thread, the address of the new thread's main function should be manually
  * placed on the new stack before invoking this method.
+ *
+ * \param target
+ *     The address of the top of the stack to store the registers in.
  */
 void __attribute__((noinline)) savecontext(void **target) {
     asm("movq %rsp, %r11\n\t"
@@ -172,9 +181,9 @@ void __attribute__((noinline)) savecontext(void **target) {
  * %rdi, %rsi are the addresses of where stack pointers are stored.
  *
  * \param saved
- *     Pointer to the pointer holding the stack to load register values from.
+ *     Address of the stack location to load register values from.
  * \param target
- *     Pointer to the pointer holding the stack to save register values to.
+ *     Address of the stack location to save register values to.
  */
 
 void __attribute__((noinline)) swapcontext(void **saved, void **target) {
@@ -214,11 +223,13 @@ void schedulerMainLoop() {
             running->waiter = NULL;
         }
 
-        // Clear the occupied flag
-        // While this may logically come before the block(), it is here to
-        // prevent it from racing against thread creations that come before
-        // this while loop starts, since the occupied flags for such creations
-        // would get wiped out by this code.
+        // The code below attempts to clear the occupied flag for the current
+        // ThreadContext, and continues to retry until success.
+        //
+        // While this logically comes before block(), it is here to prevent it
+        // from racing against thread creations that come before the start of
+        // the outer loop, since the occupied flags for such creations would
+        // get wiped out by this code.
         bool success;
         do {
             MaskAndCount slotMap = *localOccupiedAndCount;
@@ -239,8 +250,9 @@ void schedulerMainLoop() {
 }
 
 /**
- * Return control back to the thread library, but run again if there are no
- * other runnable threads.
+ * The application calls this function to transfer control to the thread
+ * library. It returns immediately if there are no other runnable threads on
+ * the same core.
  */
 void yield() {
     // This thread is still runnable since it is merely yielding.
@@ -249,8 +261,7 @@ void yield() {
 }
 
 /**
-  * Sleep for at least ns nanoseconds. There is no practical upper bound on how
-  * long the function could sleep for.
+  * Sleep for at least ns nanoseconds.
   */
 void sleep(uint64_t ns) {
     running->wakeupTimeInCycles = Cycles::rdtsc() + Cycles::fromNanoseconds(ns);
@@ -259,16 +270,17 @@ void sleep(uint64_t ns) {
 
 /**
   * Return a thread handle to the currently executing thread, identical to the
-  * one returned by createThread.
+  * one returned by the createThread call that initially created this thread.
   */
 ThreadId getThreadId() {
     return running;
 }
 
 /**
-  * Examine a particular ThreadContext and checks whether the thread should
-  * run. If so, then it will switch to the thread and return true to the newly
-  * active context. Otherwise, it will return false to the current context.
+  * Examine the ThreadContext with idInCore equal to i, checking whether the
+  * thread should run. If so, then it will switch to the thread and return true
+  * to the newly active context. Otherwise, it will return false to the current
+  * context.
   * 
   * \param i
   *     The index into the current core's list of threads of the thread to
@@ -323,7 +335,7 @@ void block() {
 }
 
 /*
- * Cause the thread referred to by ThreadId to be runnable once again.
+ * Make the thread referred to by ThreadId runnable.
  * It is safe to call this function without knowing whether the target thread
  * has already exited.
  */
@@ -354,9 +366,9 @@ bool join(ThreadId id) {
 
 
 /**
- * This is a special function to allow the main thread to join the thread pool
- * after seeding initial tasks for itself and possibly other threads. It must
- * be the last statement in the main function since it never returns.
+ * This is a special function to allow the main kernel thread to join the
+ * thread pool after seeding at least one initial Arachne thread. It must be
+ * the last statement in the main function since it never returns.
  *
  * An alternative way of enabling the main thread to join the pool is to change
  * threadInit to take a real main function as an argument, and have the
@@ -369,8 +381,8 @@ void mainThreadJoinPool() {
 
 /**
  * This function sets up state needed by the thread library, and must be
- * invoked and return before any other function in the thread library is
- * invoked. It is undefined behavior to invoke other functions before this one.
+ * invoked before any other function in the thread library is invoked. It is
+ * undefined behavior to invoke other Arachne functions before this one.
  *
  * The following configuration parameters should be set before invoking this
  * function, if desired.
