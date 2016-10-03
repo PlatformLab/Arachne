@@ -16,16 +16,16 @@
 #include "gtest/gtest.h"
 #include "Arachne.h"
 
-static volatile int flag = 0;
+static volatile int threadCreationIndicator = 0;
 
 void clearFlag() {
-    while (!flag);
-    flag = 0;
+    while (!threadCreationIndicator);
+    threadCreationIndicator = 0;
 }
 
 void setFlag(int a) {
-    while (!flag);
-    flag = a;
+    while (!threadCreationIndicator);
+    threadCreationIndicator = a;
 }
 
 TEST(CreateThreadTest, NoArgs) {
@@ -45,7 +45,7 @@ TEST(CreateThreadTest, NoArgs) {
                     &Arachne::activeLists[0]->threadInvocation) + 1));
     EXPECT_EQ(1, Arachne::occupiedAndCount[0].load().numOccupied);
     EXPECT_EQ(1, Arachne::occupiedAndCount[0].load().occupied);
-    flag = 1;
+    threadCreationIndicator = 1;
 
     // Wait for thread to exit
     while (Arachne::occupiedAndCount[0].load().numOccupied == 1);
@@ -61,11 +61,11 @@ TEST(CreateThreadTest, WithArgs) {
     Arachne::createThread(0, setFlag, 2);
     EXPECT_EQ(1, Arachne::occupiedAndCount[0].load().numOccupied);
     EXPECT_EQ(1, Arachne::occupiedAndCount[0].load().occupied);
-    EXPECT_EQ(0, flag);
-    flag = 1;
-    while (flag == 1);
-    EXPECT_EQ(2, flag);
-    flag = 0;
+    EXPECT_EQ(0, threadCreationIndicator);
+    threadCreationIndicator = 1;
+    while (threadCreationIndicator == 1);
+    EXPECT_EQ(2, threadCreationIndicator);
+    threadCreationIndicator = 0;
 }
 
 TEST(CreateThreadTest, MaxThreadsExceeded) {
@@ -79,6 +79,6 @@ TEST(CreateThreadTest, MaxThreadsExceeded) {
 
     // Clean up the threads
     while (Arachne::occupiedAndCount[0].load().numOccupied > 0)
-        flag = 1;
-    flag = 0;
+        threadCreationIndicator = 1;
+    threadCreationIndicator = 0;
 }

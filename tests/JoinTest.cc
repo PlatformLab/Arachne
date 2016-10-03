@@ -48,7 +48,7 @@ TEST(JoinTest, JoinAfterTermination) {
     Arachne::threadInit();
 
     // Since the joinee does not yield, we know that it terminated before the
-    // jointer got a chance to run.
+    // joiner got a chance to run.
     Arachne::createThread(0, joinee);
     Arachne::createThread(0, joiner);
 }
