@@ -1,10 +1,8 @@
 # Compile a static library
 
 DEBUG=-g
-
 LIBS=-I../Arachne -L../Arachne -lArachne -I../PerfUtils -L../PerfUtils -lPerfUtils
 TOP := $(shell echo $${PWD-`pwd`})
-
 
 ifndef CHECK_TARGET
 CHECK_TARGET=$$(find $(TOP) '(' -name '*.h' -or -name '*.cc' ')' -not -path '$(TOP)/googletest/*' )
