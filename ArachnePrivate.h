@@ -69,14 +69,14 @@ struct ThreadContext {
     ThreadContext* waiter;
 
     // When a thread blocks due to calling sleep(), it will keep its wakeup
-    // time in rdtsc cycles here. This field should only be accessed by the
-    // same core that the thread runs on.
-    uint64_t wakeupTimeInCycles;
+    // time in rdtsc cycles here.
+    // The special value 0 is a signal that this thread should run at the next
+    // opportunity.
+    // The special value ~0 is a signal that the thread should not be run, and
+    // wakeupTimeInCycles should be set to this value immediately before
+    // returning control to the application.
+    volatile uint64_t wakeupTimeInCycles;
 
-    // This flag is a signal that this thread should run at the next
-    // opportunity. It should be cleared immediately before control is
-    // returned to the application.
-    volatile bool wakeup;
 
     // Unique identifier for this thread among those on the same core.
     // Used to index into various core-specific arrays.

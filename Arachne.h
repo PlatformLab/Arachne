@@ -91,8 +91,7 @@ ThreadId createThread(int coreId, _Callable&& __f, _Args&&... __args) {
     // Copy the thread invocation into the byte array.
     new (&activeLists[coreId][index].threadInvocation)
         Arachne::ThreadInvocation<decltype(task)>(task);
-    activeLists[coreId][index].wakeup = true;
-
+    activeLists[coreId][index].wakeupTimeInCycles = 0;
     return &activeLists[coreId][index];
 }
 
