@@ -22,9 +22,9 @@ void blocker() {
 
 TEST(BlockSignalTest, Signal) {
     Arachne::ThreadContext tempContext;
-    tempContext.wakeup = false;
+    tempContext.wakeupTimeInCycles = ~0L;
     Arachne::signal(&tempContext);
-    EXPECT_EQ(true, tempContext.wakeup);
+    EXPECT_EQ(0, tempContext.wakeupTimeInCycles);
 }
 
 TEST(BlockSignalTest, AwakenBlockedThread) {

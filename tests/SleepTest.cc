@@ -46,6 +46,6 @@ TEST(SleepTest, WakeupTimeSetAndCleared) {
     flag = 0;
     Arachne::createThread(0, simplesleeper);
     while (!flag);
-    EXPECT_EQ(0, Arachne::activeLists[0]->wakeupTimeInCycles);
+    EXPECT_EQ(~0L, Arachne::activeLists[0]->wakeupTimeInCycles);
     flag = 0;
 }

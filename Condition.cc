@@ -31,7 +31,7 @@ void ConditionVariable::notifyOne() {
     if (blockedThreads.empty()) return;
     ThreadContext *awakenedThread = blockedThreads.front();
     blockedThreads.pop_front();
-    awakenedThread->wakeup = true;
+    awakenedThread->wakeupTimeInCycles = 0;
 }
 
 /**

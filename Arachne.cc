@@ -217,7 +217,7 @@ void schedulerMainLoop() {
         block();
         reinterpret_cast<ThreadInvocationEnabler*>(
                 &running->threadInvocation)->runThread();
-        running->wakeup = false;
+        running->wakeupTimeInCycles = ~0L;
         if (running->waiter) {
             signal(running->waiter);
             running->waiter = NULL;
@@ -256,7 +256,7 @@ void schedulerMainLoop() {
  */
 void yield() {
     // This thread is still runnable since it is merely yielding.
-    running->wakeup = true;
+    running->wakeupTimeInCycles = 0;
     block();
 }
 
@@ -289,22 +289,18 @@ ThreadId getThreadId() {
   *     The current value of the cycle counter.
   */
 bool attemptWakeup(size_t i, uint64_t currentCycles) {
-    if (activeList[i].wakeup ||
-            (activeList[i].wakeupTimeInCycles != 0 &&
-             currentCycles > activeList[i].wakeupTimeInCycles)
-       ) {
-        activeList[i].wakeupTimeInCycles = 0;
+    if (currentCycles > activeList[i].wakeupTimeInCycles) {
         currentIndex = i + 1;
         if (currentIndex == maxThreadsPerCore) currentIndex = 0;
 
         if (&activeList[i] == running) {
-            running->wakeup = false;
+            running->wakeupTimeInCycles = ~0L;
             return true;
         }
         void** saved = &running->sp;
         running = &activeList[i];
         swapcontext(&running->sp, saved);
-        running->wakeup = false;
+        running->wakeupTimeInCycles = ~0L;
         return true;
     }
     return false;
@@ -340,7 +336,7 @@ void block() {
  * has already exited.
  */
 void signal(ThreadId id) {
-    id->wakeup = true;
+    id->wakeupTimeInCycles = 0L;
 }
 
 /**
@@ -414,8 +410,7 @@ void threadInit() {
             void* newStack = malloc(stackSize);
             freshContext->sp = reinterpret_cast<char*>(newStack) + stackSize;
             freshContext->waiter = NULL;
-            freshContext->wakeupTimeInCycles = 0;
-            freshContext->wakeup = false;
+            freshContext->wakeupTimeInCycles = ~0L;
             freshContext->idInCore = k;
 
             // Set up the stack to return to the main thread function.
