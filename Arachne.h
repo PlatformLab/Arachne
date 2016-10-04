@@ -110,10 +110,8 @@ ThreadId createThread(int coreId, _Callable&& __f, _Args&&... __args) {
   */
 template<typename _Callable, typename... _Args>
 ThreadId createThread(_Callable&& __f, _Args&&... __args) {
-
     // Find a core to enqueue to by picking two at random and choose the one
     // with the fewest threads.
-
     int coreId;
     int choice1 = random() % numCores;
     int choice2 = random() % numCores;

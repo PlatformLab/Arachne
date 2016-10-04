@@ -13,7 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-
 #include "Arachne.h"
 #include <stdio.h>
 #include <string.h>
@@ -38,7 +37,6 @@ enum InitializationState {
   * the library, which results in undefined behavior.
   */
 InitializationState initializationState = NOT_INITIALIZED;
-
 
 /**
   * This value should be set by the user before calling threadInit if they want
@@ -84,7 +82,6 @@ thread_local ThreadContext *running;
 std::atomic<MaskAndCount> *occupiedAndCount;
 thread_local std::atomic<MaskAndCount> *localOccupiedAndCount;
 
-
 /**
   * This variable holds the most recent index into the active threads array for
   * the current core. By maintaining this index to point one higher than the
@@ -109,7 +106,6 @@ void cache_align_alloc(void* addressOfTargetPointer, size_t size) {
     }
     assert((reinterpret_cast<uint64_t>(*trueAddress) & 0x3f) == 0);
 }
-
 
 /**
  * Main function for a kernel thread which roughly corresponds to a core in the
@@ -139,10 +135,7 @@ void threadMainFunction(int id) {
  *     A pointer to the top of the stack to load the register values from.
  */
 void __attribute__((noinline)) setcontext(void **saved) {
-
-    // Load the stack pointer and restore the registers
     asm("movq (%rdi), %rsp");
-
     asm("popq %rbp\n\t"
         "popq %rbx\n\t"
         "popq %r15\n\t"
@@ -177,15 +170,16 @@ void __attribute__((noinline)) savecontext(void **target) {
 }
 
 /**
- * Save the current register values onto one stack and load fresh register values from another stack.
- * %rdi, %rsi are the addresses of where stack pointers are stored.
+ * Save the current register values onto one stack and load fresh register
+ * values from another stack.
  *
  * \param saved
- *     Address of the stack location to load register values from.
+ *     Address of the stack location to load register values from. It is passed
+ *     in register rdi.
  * \param target
- *     Address of the stack location to save register values to.
+ *     Address of the stack location to save register values to. It is passed
+ *     in register rsi.
  */
-
 void __attribute__((noinline)) swapcontext(void **saved, void **target) {
     // Save the registers and store the stack pointer
     asm("pushq %r12\n\t"
@@ -244,9 +238,7 @@ void schedulerMainLoop() {
                     oldSlotMap,
                     slotMap);
         } while (!success);
-
     }
-
 }
 
 /**
@@ -279,7 +271,7 @@ ThreadId getThreadId() {
 /**
   * Examine the ThreadContext with idInCore equal to i, checking whether the
   * thread should run. If so, then it will switch to the thread and return true
-  * to the newly active context. Otherwise, it will return false to the current
+  * to that thread's context. Otherwise, it will return false to the current
   * context.
   * 
   * \param i
@@ -360,7 +352,6 @@ bool join(ThreadId id) {
      return true;
 }
 
-
 /**
  * This is a special function to allow the main kernel thread to join the
  * thread pool after seeding at least one initial Arachne thread. It must be
@@ -402,7 +393,7 @@ void threadInit() {
     memset(occupiedAndCount, 0, sizeof(MaskAndCount));
 
     for (unsigned int i = 0; i < numCores; i++) {
-        // Here we will create all the user contexts and user stacks
+        // Here we will allocate all the thread contexts and stacks
         ThreadContext *contexts;
         cache_align_alloc(&contexts, sizeof(ThreadContext) * maxThreadsPerCore);
         for (int k = 0; k < maxThreadsPerCore; k++) {
@@ -424,12 +415,19 @@ void threadInit() {
     // begin to use it in a new thread.
     PerfUtils::Util::serialize();
 
-    // Leave one core for the main thread
+    // We only loop to numCores - 1 to leave one core for the main thread to
+    // run on.
     for (unsigned int i = 0; i < numCores - 1; i++) {
+        // These threads are started with threadMainFuncion instead of
+        // schedulerMainLoop because we want schedulerMainLoop to run on a user
+        // stack rather than a kernel-provided stack
         std::thread(threadMainFunction, i).detach();
     }
 
-    // Set the kernelThreadId for the main thread
+    // Set the kernelThreadId for the main thread.
+    // This is necessary to enable the original main function to schedule
+    // Arachne threads onto its own core before the main thread joins the
+    // thread pool.
     kernelThreadId = numCores - 1;
     initializationState = INITIALIZED;
 }

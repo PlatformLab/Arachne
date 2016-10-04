@@ -25,8 +25,8 @@ namespace Arachne {
 /**
   * This class implements a subset of the functionality of
   * std::condition_variable.
-  * It takes no internal locks, so is assumed that notifications are performed
-  * with the associated mutex held.
+  * It takes no internal locks, so it is assumed that notifications are
+  * performed with the associated mutex held.
   */
 class ConditionVariable {
  public:
