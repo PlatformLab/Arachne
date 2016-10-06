@@ -20,7 +20,9 @@ namespace Arachne {
 
 using PerfUtils::TimeTrace;
 
-ConditionVariable::ConditionVariable() { }
+ConditionVariable::ConditionVariable()
+    : blockedThreads() {}
+
 ConditionVariable::~ConditionVariable() { }
 
 /**

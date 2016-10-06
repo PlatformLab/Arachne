@@ -26,6 +26,7 @@ namespace Arachne {
   */
 struct ThreadInvocationEnabler {
     virtual void runThread() = 0;
+    virtual ~ThreadInvocationEnabler() { }
 };
 
 /**

@@ -233,7 +233,7 @@ void schedulerMainLoop() {
             if (slotMap.occupied & (1L << running->idInCore))
                 slotMap.numOccupied--;
 
-            slotMap.occupied &= ~(1L << running->idInCore);
+            slotMap.occupied &= ~(1L << running->idInCore) & 0x00FFFFFFFFFFFFFF;
             success = localOccupiedAndCount->compare_exchange_strong(
                     oldSlotMap,
                     slotMap);
@@ -402,7 +402,7 @@ void threadInit() {
             freshContext->sp = reinterpret_cast<char*>(newStack) + stackSize;
             freshContext->waiter = NULL;
             freshContext->wakeupTimeInCycles = ~0L;
-            freshContext->idInCore = k;
+            freshContext->idInCore = static_cast<uint8_t>(k);
 
             // Set up the stack to return to the main thread function.
             *reinterpret_cast<void**>(freshContext->sp) =

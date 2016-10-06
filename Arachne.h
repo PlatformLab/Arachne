@@ -66,7 +66,7 @@ ThreadId createThread(int coreId, _Callable&& __f, _Args&&... __args) {
             std::forward<_Callable>(__f), std::forward<_Args>(__args)...);
 
     bool success;
-    int index;
+    uint32_t index;
     do {
         // Attempt to enqueue the task to the specific core in this case.
         MaskAndCount slotMap = occupiedAndCount[coreId];
@@ -81,7 +81,8 @@ ThreadId createThread(int coreId, _Callable&& __f, _Args&&... __args) {
             return NullThread;
         }
 
-        slotMap.occupied |= (1L << index);
+        slotMap.occupied =
+            (slotMap.occupied | (1L << index)) & 0x00FFFFFFFFFFFFFF;
         slotMap.numOccupied++;
 
         success = occupiedAndCount[coreId].compare_exchange_strong(oldSlotMap,
@@ -113,9 +114,9 @@ ThreadId createThread(_Callable&& __f, _Args&&... __args) {
     // Find a core to enqueue to by picking two at random and choose the one
     // with the fewest threads.
     int coreId;
-    int choice1 = random() % numCores;
-    int choice2 = random() % numCores;
-    while (choice2 == choice1) choice2 = random() % numCores;
+    int choice1 = static_cast<int>(random()) % numCores;
+    int choice2 = static_cast<int>(random()) % numCores;
+    while (choice2 == choice1) choice2 = static_cast<int>(random()) % numCores;
 
     if (occupiedAndCount[choice1].load().numOccupied <
             occupiedAndCount[choice2].load().numOccupied)
