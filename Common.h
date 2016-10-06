@@ -25,6 +25,6 @@ namespace Arachne {
     TypeName& operator=(const TypeName&) = delete;
 #endif
 
-const int CACHE_LINE_SIZE = 64;
+#define CACHE_LINE_SIZE 64
 } //namespace Arachne
 #endif // ARACHNE_COMMON_H_
