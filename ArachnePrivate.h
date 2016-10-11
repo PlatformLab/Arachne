@@ -97,10 +97,15 @@ typedef ThreadContext* ThreadId;
 
 const int maxThreadsPerCore = 56;
 
+/**
+  * This is the amount of space needed on the stack to store the callee-saved
+  * registers that are defined by the current processor and operating system's
+  * calling convention.
+  */
+const size_t SpaceForSavedRegisters = 48;
+
 void schedulerMainLoop();
-void savecontext(void **target);
 void swapcontext(void **saved, void **target);
-void setcontext(void **context);
 void threadMainFunction(int id);
 
 extern thread_local int kernelThreadId;
