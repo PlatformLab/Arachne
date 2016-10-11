@@ -124,50 +124,10 @@ void threadMainFunction(int id) {
     // Transfers control to the Arachne dispatcher.
     // This context has been pre-initialized by threadInit so it will "return"
     // to the schedulerMainLoop.
-    setcontext(&runningContext->sp);
-}
-
-/**
- * Switch into a given context without saving current state. Only used
- * once per kernel thread to enter the Arachne scheduler. This method does not
- * return to its caller.
- * 
- * \param saved
- *     A pointer to the top of the stack to load the register values from.
- */
-void __attribute__((noinline)) setcontext(void **saved) {
-    asm("movq (%rdi), %rsp");
-    asm("popq %rbp\n\t"
-        "popq %rbx\n\t"
-        "popq %r15\n\t"
-        "popq %r14\n\t"
-        "popq %r13\n\t"
-        "popq %r12\n\t"
-        );
-}
-
-/**
- * Copy the context of the currently executing process onto a stack.
- *
- * Note that if this function is used to set up the context for a new user
- * thread, the address of the new thread's main function should be manually
- * placed on the new stack before invoking this method.
- *
- * \param target
- *     The address of the top of the stack to store the registers in.
- */
-void __attribute__((noinline)) savecontext(void **target) {
-    asm("movq %rsp, %r11\n\t"
-        "movq (%rdi), %rsp\n\t"
-        "pushq %r12\n\t"
-        "pushq %r13\n\t"
-        "pushq %r14\n\t"
-        "pushq %r15\n\t"
-        "pushq %rbx\n\t"
-        "pushq %rbp\n\t"
-        "movq %rsp, (%rdi)\n\t"
-        "movq %r11, %rsp"
-        );
+    runningContext->sp = reinterpret_cast<char*>(runningContext->sp) +
+        SpaceForSavedRegisters;
+    asm("movq %0, %%rsp"::"g"(runningContext->sp));
+    asm("retq");
 }
 
 /**
@@ -189,6 +149,9 @@ void __attribute__((noinline)) swapcontext(void **saved, void **target) {
     // use.
 
     // Save the registers and store the stack pointer
+    // NB: The space used by the pushed and popped registers must equal the
+    // value of SpaceForSavedRegisters, which should be updated atomically with
+    // this assembly.
     asm("pushq %r12\n\t"
         "pushq %r13\n\t"
         "pushq %r14\n\t"
@@ -420,13 +383,12 @@ void threadInit() {
             // this thread, we enter schedulerMainLoop.
             *reinterpret_cast<void**>(freshContext->sp) =
                 reinterpret_cast<void*>(schedulerMainLoop);
-            // TODO(hq6): Either document clearly the fact that this method is
-            // lying
-            // Or change it so that we simply set the stack pointer to some
-            // offset and document in swapcontext that any change in the set of
-            // registers saved needs to also update constant X.
-            savecontext(&freshContext->sp);
-//            freshContext->sp = reinterpret_cast<char*>(freshContext->sp) - 48;
+            /**
+              * Decrement the stack pointer by the amount of space needed to
+              * store the registers in swapcontext.
+              */
+            freshContext->sp = reinterpret_cast<char*>(freshContext->sp) -
+                SpaceForSavedRegisters;
         }
         activeLists.push_back(contexts);
     }
