@@ -33,7 +33,7 @@ void joiner() {
 void joinee2() {
     joineeId = Arachne::getThreadId();
     Arachne::yield();
-    EXPECT_EQ(joinerId, Arachne::running->waiter);
+    EXPECT_EQ(joinerId, Arachne::runningContext->waiter);
 }
 
 // This test verifies that only one thread can join at a time

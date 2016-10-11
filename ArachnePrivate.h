@@ -104,7 +104,7 @@ void setcontext(void **context);
 void threadMainFunction(int id);
 
 extern thread_local int kernelThreadId;
-extern thread_local ThreadContext *running;
+extern thread_local ThreadContext *runningContext;
 extern thread_local ThreadContext *activeList;
 extern std::vector<ThreadContext*> activeLists;
 

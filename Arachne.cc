@@ -71,28 +71,24 @@ thread_local ThreadContext* activeList;
 thread_local int kernelThreadId;
 
 /**
-  * This is the context that a given core is currently executing.
+  * This is the context that a given kernel thread is currently executing.
   */
-thread_local ThreadContext *running;
+thread_local ThreadContext *runningContext;
 
 /**
-  * This array holds a bitfield of flags indicating which contexts are occupied
-  * and the current number of occupied contexts on each core.
+  * See documentation for MaskAndCount.
   */
 std::atomic<MaskAndCount> *occupiedAndCount;
 thread_local std::atomic<MaskAndCount> *localOccupiedAndCount;
 
 /**
-  * This variable holds the most recent index into the active threads array for
-  * the current core. By maintaining this index to point one higher than the
-  * last thread to run, we avoid starvation of higher-indexed runnable threads
-  * by lower-indexed runnable threads.
+  * This variable holds the index into the current core's activeList that it
+  * will check first the next time it looks for a thread to run.
   */
-thread_local size_t currentIndex = 0;
+thread_local size_t nextCandidateIndex = 0;
 
 /**
-  * This function attempts to perform a cache-aligned allocation for the
-  * pointer passed in.
+  * Allocates a block of memory that is aligned at the beginning of a cache line.
   *
   * \param addressOfTargetPointer
   *     The location of a pointer to be allocated.
@@ -111,7 +107,7 @@ void cache_align_alloc(void* addressOfTargetPointer, size_t size) {
  * Main function for a kernel thread which roughly corresponds to a core in the
  * current design of the system.
  * 
- * \param id
+ * \param coreId
  *     The kernel thread ID for the newly created kernel thread.
  */
 void threadMainFunction(int id) {
@@ -123,13 +119,18 @@ void threadMainFunction(int id) {
 
     PerfUtils::Util::pinThreadToCore(id);
 
-    running = activeList;
-    setcontext(&running->sp);
+    runningContext = activeList;
+
+    // Transfers control to the Arachne dispatcher.
+    // This context has been pre-initialized by threadInit so it will "return"
+    // to the schedulerMainLoop.
+    setcontext(&runningContext->sp);
 }
 
 /**
- * Load a fresh set of register values without saving any current register
- * values.
+ * Switch into a given context without saving current state. Only used
+ * once per kernel thread to enter the Arachne scheduler. This method does not
+ * return to its caller.
  * 
  * \param saved
  *     A pointer to the top of the stack to load the register values from.
@@ -172,15 +173,21 @@ void __attribute__((noinline)) savecontext(void **target) {
 /**
  * Save the current register values onto one stack and load fresh register
  * values from another stack.
+ * This method does not return to its caller immediately. It returns to the
+ * caller when another thread on the same core invokes this method with the
+ * current value of target as the saved parameter.
  *
  * \param saved
- *     Address of the stack location to load register values from. It is passed
- *     in register rdi.
+ *     Address of the stack location to load register values from.
  * \param target
- *     Address of the stack location to save register values to. It is passed
- *     in register rsi.
+ *     Address of the stack location to save register values to.
  */
 void __attribute__((noinline)) swapcontext(void **saved, void **target) {
+    // This code depends on knowledge of the compiler's calling convention: rdi
+    // and rsi are the first two arguments.
+    // Alternative approaches tend to run into conflicts with compiler register
+    // use.
+
     // Save the registers and store the stack pointer
     asm("pushq %r12\n\t"
         "pushq %r13\n\t"
@@ -201,20 +208,24 @@ void __attribute__((noinline)) swapcontext(void **saved, void **target) {
 }
 
 /**
-  * This function is the entry point for application code and never terminates.
+  * This is the top level method executed by each thread context. It is never
+  * directly invoked. Instead, the thread's context is set up to "return" to
+  * this method when we context switch to it the first time.
   */
 void schedulerMainLoop() {
-    // At most one user thread on each core should be going through this loop
-    // at any given time. Most threads should be inside runThread, and only
-    // re-enter the thread library by making an API call into Arachne.
     while (true) {
+        // No thread to execute yet. This call will not return until we have
+        // been assigned a new Arachne thread.
         block();
         reinterpret_cast<ThreadInvocationEnabler*>(
-                &running->threadInvocation)->runThread();
-        running->wakeupTimeInCycles = ~0L;
-        if (running->waiter) {
-            signal(running->waiter);
-            running->waiter = NULL;
+                &runningContext->threadInvocation)->runThread();
+        // The thread has exited.
+        // Cancel any wakeups the thread may have scheduled for itself before
+        // exiting.
+        runningContext->wakeupTimeInCycles = ~0L;
+        if (runningContext->waiter) {
+            signal(runningContext->waiter);
+            runningContext->waiter = NULL;
         }
 
         // The code below attempts to clear the occupied flag for the current
@@ -230,10 +241,11 @@ void schedulerMainLoop() {
             MaskAndCount oldSlotMap = slotMap;
 
             // Decrement numOccupied only if the flag was originally set
-            if (slotMap.occupied & (1L << running->idInCore))
+            if (slotMap.occupied & (1L << runningContext->idInCore))
                 slotMap.numOccupied--;
 
-            slotMap.occupied &= ~(1L << running->idInCore) & 0x00FFFFFFFFFFFFFF;
+            slotMap.occupied &=
+                ~(1L << runningContext->idInCore) & 0x00FFFFFFFFFFFFFF;
             success = localOccupiedAndCount->compare_exchange_strong(
                     oldSlotMap,
                     slotMap);
@@ -242,13 +254,13 @@ void schedulerMainLoop() {
 }
 
 /**
- * The application calls this function to transfer control to the thread
- * library. It returns immediately if there are no other runnable threads on
- * the same core.
- */
+  * This method is used as part of cooperative multithreading to give other
+  * Arachne threads on the same core a chance to run.
+  * It will return when all other threads have had a chance to run.
+  */
 void yield() {
     // This thread is still runnable since it is merely yielding.
-    running->wakeupTimeInCycles = 0;
+    runningContext->wakeupTimeInCycles = 0;
     block();
 }
 
@@ -256,7 +268,8 @@ void yield() {
   * Sleep for at least ns nanoseconds.
   */
 void sleep(uint64_t ns) {
-    running->wakeupTimeInCycles = Cycles::rdtsc() + Cycles::fromNanoseconds(ns);
+    runningContext->wakeupTimeInCycles =
+        Cycles::rdtsc() + Cycles::fromNanoseconds(ns);
     block();
 }
 
@@ -265,37 +278,7 @@ void sleep(uint64_t ns) {
   * one returned by the createThread call that initially created this thread.
   */
 ThreadId getThreadId() {
-    return running;
-}
-
-/**
-  * Examine the ThreadContext with idInCore equal to i, checking whether the
-  * thread should run. If so, then it will switch to the thread and return true
-  * to that thread's context. Otherwise, it will return false to the current
-  * context.
-  * 
-  * \param i
-  *     The index into the current core's list of threads of the thread to
-  *     examine.
-  * \param currentCycles
-  *     The current value of the cycle counter.
-  */
-bool attemptWakeup(size_t i, uint64_t currentCycles) {
-    if (currentCycles > activeList[i].wakeupTimeInCycles) {
-        currentIndex = i + 1;
-        if (currentIndex == maxThreadsPerCore) currentIndex = 0;
-
-        if (&activeList[i] == running) {
-            running->wakeupTimeInCycles = ~0L;
-            return true;
-        }
-        void** saved = &running->sp;
-        running = &activeList[i];
-        swapcontext(&running->sp, saved);
-        running->wakeupTimeInCycles = ~0L;
-        return true;
-    }
-    return false;
+    return runningContext;
 }
 
 /**
@@ -303,21 +286,37 @@ bool attemptWakeup(size_t i, uint64_t currentCycles) {
   * callers of this function must ensure that spurious wakeups are safe.
   */
 void block() {
-    while (1) {
-        uint64_t currentCycles = Cycles::rdtsc();
+    // Find a thread to switch to
+    size_t currentIndex = nextCandidateIndex;
+    uint64_t mask = localOccupiedAndCount->load().occupied >> currentIndex;
+    uint64_t currentCycles = Cycles::rdtsc();
 
-        // Find a thread to switch to
-        uint64_t occupied = localOccupiedAndCount->load().occupied;
-        uint64_t firstHalf = occupied >> currentIndex;
-
-        for (size_t i = currentIndex; firstHalf; i++, firstHalf >>= 1) {
-            if (!(firstHalf & 1)) continue;
-            if (attemptWakeup(i, currentCycles)) return;
+    for (;;currentIndex++, mask >>= 1L) {
+        if (mask == 0) {
+            // We have reached the end of the threads, so we should go back to
+            // the beginning.
+            currentIndex = 0;
+            mask = localOccupiedAndCount->load().occupied;
+            currentCycles = Cycles::rdtsc();
         }
+        // Optimize to eliminate unoccupied contexts
+        if (!(mask & 1))
+            continue;
 
-        for (size_t i = 0; i < currentIndex && occupied; i++, occupied >>= 1) {
-            if (!(occupied & 1)) continue;
-            if (attemptWakeup(i, currentCycles)) return;
+        ThreadContext* currentContext = &activeList[currentIndex];
+        if (currentCycles >= currentContext->wakeupTimeInCycles) {
+            nextCandidateIndex = currentIndex + 1;
+            if (nextCandidateIndex == maxThreadsPerCore) nextCandidateIndex = 0;
+
+            if (currentContext == runningContext) {
+                runningContext->wakeupTimeInCycles = ~0L;
+                return;
+            }
+            void** saved = &runningContext->sp;
+            runningContext = currentContext;
+            swapcontext(&runningContext->sp, saved);
+            runningContext->wakeupTimeInCycles = ~0L;
+            return;
         }
     }
 }
@@ -333,7 +332,7 @@ void signal(ThreadId id) {
 
 /**
   * Block the current thread until the thread identified by id finishes its
-  * execution. 
+  * execution.
   *
   * \param id
   *     The id of the thread to join.
@@ -347,7 +346,7 @@ bool join(ThreadId id) {
      // may result in blocking forever.
      MaskAndCount slotMap = *localOccupiedAndCount;
      if (!(slotMap.occupied & (1L << id->idInCore))) return true;
-     id->waiter = running;
+     id->waiter = runningContext;
      block();
      return true;
 }
@@ -399,15 +398,35 @@ void threadInit() {
         for (int k = 0; k < maxThreadsPerCore; k++) {
             ThreadContext *freshContext = &contexts[k];
             void* newStack = malloc(stackSize);
-            freshContext->sp = reinterpret_cast<char*>(newStack) + stackSize;
+            // When schedulerMainLoop gains control, we want the stack to look
+            // like this.
+            //           +-----------------------+
+            //      sp-> |                       |
+            //           +-----------------------+
+            //           |     Return Address    |
+            //           +-----------------------+
+            //           |       Registers       |
+            //           +-----------------------+
+            //           |                       |
+            //           |                       |
+
+            freshContext->sp =
+                reinterpret_cast<char*>(newStack) + stackSize - 2*sizeof(void*);
             freshContext->waiter = NULL;
             freshContext->wakeupTimeInCycles = ~0L;
             freshContext->idInCore = static_cast<uint8_t>(k);
 
-            // Set up the stack to return to the main thread function.
+            // Set up the stack so that the first time we switch context to
+            // this thread, we enter schedulerMainLoop.
             *reinterpret_cast<void**>(freshContext->sp) =
                 reinterpret_cast<void*>(schedulerMainLoop);
+            // TODO(hq6): Either document clearly the fact that this method is
+            // lying
+            // Or change it so that we simply set the stack pointer to some
+            // offset and document in swapcontext that any change in the set of
+            // registers saved needs to also update constant X.
             savecontext(&freshContext->sp);
+//            freshContext->sp = reinterpret_cast<char*>(freshContext->sp) - 48;
         }
         activeLists.push_back(contexts);
     }
