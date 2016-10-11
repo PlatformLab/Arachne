@@ -56,7 +56,7 @@ void ConditionVariable::notifyAll() {
   */
 void ConditionVariable::wait(SpinLock& lock) {
     TimeTrace::record("Wait on Core %d", kernelThreadId);
-    blockedThreads.push_back(running);
+    blockedThreads.push_back(runningContext);
     lock.unlock();
     block();
     TimeTrace::record("About to acquire lock after waking up");
