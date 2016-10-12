@@ -8,12 +8,12 @@ ifndef CHECK_TARGET
 CHECK_TARGET=$$(find $(TOP) '(' -name '*.h' -or -name '*.cc' ')' -not -path '$(TOP)/googletest/*' )
 endif
 
-CCFLAGS=-Wall -Werror -Wformat=2 -Wextra -Wwrite-strings -Wno-unused-parameter -Wmissing-format-attribute -Wno-non-template-friend -Woverloaded-virtual -Wcast-qual -Wcast-align -Wconversion -Weffc++ -fomit-frame-pointer
+CCFLAGS=-Wall -Werror -Wformat=2 -Wextra -Wwrite-strings -Wno-unused-parameter -Wmissing-format-attribute -Wno-non-template-friend -Woverloaded-virtual -Wcast-qual -Wcast-align -Wconversion -fomit-frame-pointer
 
-libArachne.a: Arachne.o Condition.o
+libArachne.a: Arachne.o
 	ar rcs $@ $^
 
-Arachne.o: SpinLock.h Arachne.h Condition.h ArachnePrivate.h
+Arachne.o:  Arachne.h
 
 %.o: %.cc
 	g++ $(CCFLAGS)  -O3 $(DEBUG) $(LIBS) -c -std=c++11 -o $@ $<

@@ -51,6 +51,20 @@ volatile uint32_t numCores = 0;
 int stackSize = 1024 * 1024;
 
 /**
+  * Keep track of the kernel threads we are running so that we can join them on
+  * destruction. Also, store a pointer to the original stacks to facilitate
+  * switching back and joining.
+  */
+std::vector<std::thread> kernelThreads;
+std::vector<void*> kernelThreadStacks;
+
+/**
+  * Alert the kernel threads that they should exit if there are no further
+  * threads to run.
+  */
+volatile bool threadsShouldTerminate;
+
+/**
   * The collection of possibly runnable contexts for each core.
   */
 std::vector<ThreadContext*> activeLists;
@@ -124,10 +138,11 @@ void threadMainFunction(int id) {
     // Transfers control to the Arachne dispatcher.
     // This context has been pre-initialized by threadInit so it will "return"
     // to the schedulerMainLoop.
-    runningContext->sp = reinterpret_cast<char*>(runningContext->sp) +
-        SpaceForSavedRegisters;
-    asm("movq %0, %%rsp"::"g"(runningContext->sp));
-    asm("retq");
+    swapcontext(&runningContext->sp, &kernelThreadStacks[id]);
+//    runningContext->sp = reinterpret_cast<char*>(runningContext->sp) +
+//        SpaceForSavedRegisters;
+//    asm("movq %0, %%rsp"::"g"(runningContext->sp));
+//    asm("retq");
 }
 
 /**
@@ -180,15 +195,25 @@ void schedulerMainLoop() {
         // No thread to execute yet. This call will not return until we have
         // been assigned a new Arachne thread.
         block();
+        if (threadsShouldTerminate &&
+                localOccupiedAndCount->load().numOccupied == 0) {
+            swapcontext(
+                    &kernelThreadStacks[kernelThreadId], &runningContext->sp);
+        }
         reinterpret_cast<ThreadInvocationEnabler*>(
                 &runningContext->threadInvocation)->runThread();
         // The thread has exited.
         // Cancel any wakeups the thread may have scheduled for itself before
         // exiting.
         runningContext->wakeupTimeInCycles = ~0L;
-        if (runningContext->waiter) {
-            signal(runningContext->waiter);
-            runningContext->waiter = NULL;
+        {
+            // Handle joins
+            std::lock_guard<SpinLock> joinGuard(runningContext->joinLock);
+            runningContext->joinCV.notifyAll();
+            // Bump the generation number for the next newborn thread.
+            // This should logically be done inside createThread, but by
+            // putting it here, we can take the joinLock in only one place.
+            runningContext->generation++;
         }
 
         // The code below attempts to clear the occupied flag for the current
@@ -203,9 +228,7 @@ void schedulerMainLoop() {
             MaskAndCount slotMap = *localOccupiedAndCount;
             MaskAndCount oldSlotMap = slotMap;
 
-            // Decrement numOccupied only if the flag was originally set
-            if (slotMap.occupied & (1L << runningContext->idInCore))
-                slotMap.numOccupied--;
+            slotMap.numOccupied--;
 
             slotMap.occupied &=
                 ~(1L << runningContext->idInCore) & 0x00FFFFFFFFFFFFFF;
@@ -241,7 +264,7 @@ void sleep(uint64_t ns) {
   * one returned by the createThread call that initially created this thread.
   */
 ThreadId getThreadId() {
-    return runningContext;
+    return ThreadId(runningContext, runningContext->generation);
 }
 
 /**
@@ -261,6 +284,10 @@ void block() {
             currentIndex = 0;
             mask = localOccupiedAndCount->load().occupied;
             currentCycles = Cycles::rdtsc();
+
+            // Check for termination
+            if (threadsShouldTerminate && !mask)
+                return;
         }
         // Optimize to eliminate unoccupied contexts
         if (!(mask & 1))
@@ -286,11 +313,12 @@ void block() {
 
 /*
  * Make the thread referred to by ThreadId runnable.
- * It is safe to call this function without knowing whether the target thread
- * has already exited.
+ * If one thread exits and another is created between the check and the setting
+ * of the wakeup flag, this signal will result in a spurious wake-up.
  */
 void signal(ThreadId id) {
-    id->wakeupTimeInCycles = 0L;
+    if (id.generation == id.context->generation)
+        id.context->wakeupTimeInCycles = 0L;
 }
 
 /**
@@ -299,19 +327,16 @@ void signal(ThreadId id) {
   *
   * \param id
   *     The id of the thread to join.
-  * \return
-  *     A bool indicating whether the join was successful. The join is only
-  *     unsuccessful if the target has already been joined by another thread.
   */
-bool join(ThreadId id) {
-     if (id->waiter) return false;
-     // If the thread has already exited, we should not block, since doing so
-     // may result in blocking forever.
-     MaskAndCount slotMap = *localOccupiedAndCount;
-     if (!(slotMap.occupied & (1L << id->idInCore))) return true;
-     id->waiter = runningContext;
-     block();
-     return true;
+void join(ThreadId id) {
+    std::lock_guard<SpinLock> joinGuard(id.context->joinLock);
+    if (id.generation != id.context->generation) return;
+    // If the thread has already exited, we should not block, since doing so
+    // may result in blocking forever.
+    MaskAndCount slotMap = *localOccupiedAndCount;
+    if (!(slotMap.occupied & (1L << id.context->idInCore))) return;
+    id.context->joinCV.wait(id.context->joinLock);
+    return;
 }
 
 /**
@@ -347,9 +372,11 @@ void mainThreadJoinPool() {
 void threadInit() {
     if (initializationState != NOT_INITIALIZED)
         return;
+    initializationState = INITIALIZED;
+
     if (numCores == 0)
         numCores = std::thread::hardware_concurrency();
-    printf("numCores = %u\n", numCores);
+//    printf("numCores = %u\n", numCores);
 
     cache_align_alloc(&occupiedAndCount, sizeof(MaskAndCount) * numCores);
     memset(occupiedAndCount, 0, sizeof(MaskAndCount));
@@ -360,7 +387,7 @@ void threadInit() {
         cache_align_alloc(&contexts, sizeof(ThreadContext) * maxThreadsPerCore);
         for (int k = 0; k < maxThreadsPerCore; k++) {
             ThreadContext *freshContext = &contexts[k];
-            void* newStack = malloc(stackSize);
+            freshContext->stack = malloc(stackSize);
             // When schedulerMainLoop gains control, we want the stack to look
             // like this.
             //           +-----------------------+
@@ -374,9 +401,12 @@ void threadInit() {
             //           |                       |
 
             freshContext->sp =
-                reinterpret_cast<char*>(newStack) + stackSize - 2*sizeof(void*);
-            freshContext->waiter = NULL;
+                reinterpret_cast<char*>(freshContext->stack) + stackSize -
+                2*sizeof(void*);
             freshContext->wakeupTimeInCycles = ~0L;
+            freshContext->generation = 0;
+            new (&freshContext->joinLock) SpinLock;
+            new (&freshContext->joinCV) ConditionVariable;
             freshContext->idInCore = static_cast<uint8_t>(k);
 
             // Set up the stack so that the first time we switch context to
@@ -392,6 +422,11 @@ void threadInit() {
         }
         activeLists.push_back(contexts);
     }
+
+    // Allocate space to store all the original kernel pointers
+    kernelThreadStacks.reserve(numCores);
+    threadsShouldTerminate = false;
+
     // Ensure that data structure and stack allocation completes before we
     // begin to use it in a new thread.
     PerfUtils::Util::serialize();
@@ -402,7 +437,7 @@ void threadInit() {
         // These threads are started with threadMainFuncion instead of
         // schedulerMainLoop because we want schedulerMainLoop to run on a user
         // stack rather than a kernel-provided stack
-        std::thread(threadMainFunction, i).detach();
+        kernelThreads.emplace_back(threadMainFunction, i);
     }
 
     // Set the kernelThreadId for the main thread.
@@ -410,6 +445,95 @@ void threadInit() {
     // Arachne threads onto its own core before the main thread joins the
     // thread pool.
     kernelThreadId = numCores - 1;
-    initializationState = INITIALIZED;
+}
+
+/**
+  * This function tears down all state created by threadInit, and restores the
+  * state of the system to the time before threadInit is called.
+  *
+  * It is primarily used in testing, and only works in the absence of new
+  * thread creations. It should be invoked only from a thread not managed by
+  * Arachne.
+  */
+void threadDestroy() {
+    // Wait for all contexts to finish executing
+    while (true) {
+        bool quiescent = true;
+        for (size_t i = 0; i < numCores; i++) {
+            MaskAndCount slotMap = occupiedAndCount[i];
+            if (slotMap.numOccupied > 0) {
+                quiescent = false;
+                break;
+            }
+        }
+        if (quiescent)
+            break;
+    }
+    // Join the kernel threads.
+    threadsShouldTerminate = true;
+    for (size_t i = 0; i < kernelThreads.size(); i++) {
+        kernelThreads[i].join();
+    }
+    kernelThreads.clear();
+
+    // We now assume that all threads are done executing.
+    PerfUtils::Util::serialize();
+
+    free(occupiedAndCount);
+    for (size_t i = 0; i < numCores; i++) {
+        for (int k = 0; k < maxThreadsPerCore; k++) {
+            free(activeLists[i][k].stack);
+            activeLists[i][k].joinLock.~SpinLock();
+            activeLists[i][k].joinCV.~ConditionVariable();
+        }
+        free(activeLists[i]);
+    }
+    activeLists.clear();
+    initializationState = NOT_INITIALIZED;
+    PerfUtils::Util::serialize();
+}
+
+ConditionVariable::ConditionVariable()
+    : blockedThreads() {}
+
+ConditionVariable::~ConditionVariable() { }
+
+/**
+  * Awaken one of the threads waiting on this condition variable.
+  * The caller should have the associated mutex held.
+  */
+void ConditionVariable::notifyOne() {
+    if (blockedThreads.empty()) return;
+    ThreadId awakenedThread = blockedThreads.front();
+    blockedThreads.pop_front();
+    signal(awakenedThread);
+}
+
+/**
+  * Awaken all of the threads waiting on this condition variable.
+  * The caller should have the associated mutex held.
+  */
+void ConditionVariable::notifyAll() {
+    while (!blockedThreads.empty())
+        notifyOne();
+}
+
+/**
+  * Block the current thread until the condition variable is notified.
+  * This function releases the lock before blocking, and re-acquires it before
+  * returning to the user.
+  *
+  * \param lock
+  *     The mutex associated with this condition variable; should be held by
+  *     caller before calling wait.
+  */
+void ConditionVariable::wait(SpinLock& lock) {
+    TimeTrace::record("Wait on Core %d", kernelThreadId);
+    blockedThreads.push_back(
+            ThreadId(runningContext, runningContext->generation));
+    lock.unlock();
+    block();
+    TimeTrace::record("About to acquire lock after waking up");
+    lock.lock();
 }
 } // namespace Arachne
