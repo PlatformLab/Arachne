@@ -379,7 +379,7 @@ void threadInit() {
 //    printf("numCores = %u\n", numCores);
 
     cache_align_alloc(&occupiedAndCount, sizeof(MaskAndCount) * numCores);
-    memset(occupiedAndCount, 0, sizeof(MaskAndCount));
+    memset(occupiedAndCount, 0, sizeof(MaskAndCount) * numCores);
 
     for (unsigned int i = 0; i < numCores; i++) {
         // Here we will allocate all the thread contexts and stacks
