@@ -103,6 +103,8 @@ thread_local size_t nextCandidateIndex = 0;
 
 /**
   * Allocates a block of memory that is aligned at the beginning of a cache line.
+  * TODO(hq6): Fix this to return a pointer instead of taking the address of one.
+  * TODO(hq6): Add a unit test for this.
   *
   * \param addressOfTargetPointer
   *     The location of a pointer to be allocated.
@@ -139,10 +141,6 @@ void threadMainFunction(int id) {
     // This context has been pre-initialized by threadInit so it will "return"
     // to the schedulerMainLoop.
     swapcontext(&runningContext->sp, &kernelThreadStacks[id]);
-//    runningContext->sp = reinterpret_cast<char*>(runningContext->sp) +
-//        SpaceForSavedRegisters;
-//    asm("movq %0, %%rsp"::"g"(runningContext->sp));
-//    asm("retq");
 }
 
 /**
@@ -376,7 +374,6 @@ void threadInit() {
 
     if (numCores == 0)
         numCores = std::thread::hardware_concurrency();
-//    printf("numCores = %u\n", numCores);
 
     cache_align_alloc(&occupiedAndCount, sizeof(MaskAndCount) * numCores);
     memset(occupiedAndCount, 0, sizeof(MaskAndCount) * numCores);
