@@ -103,7 +103,8 @@ thread_local size_t nextCandidateIndex = 0;
   * \param size
   *     The amount of memory to allocate.
   */
-void* cacheAlignAlloc(size_t size) {
+void*
+cacheAlignAlloc(size_t size) {
     void *temp;
     int result = posix_memalign(&temp, CACHE_LINE_SIZE, size);
     if (result != 0) {
@@ -121,7 +122,8 @@ void* cacheAlignAlloc(size_t size) {
  * \param kId
  *     The kernel thread ID for the newly created kernel thread.
  */
-void threadMain(int kId) {
+void
+threadMain(int kId) {
     // Switch to a user stack, discarding the stack provided by the kernel, so
     // that we are always running user code on a stack controlled by Arachne.
     kernelThreadId = kId;
@@ -153,7 +155,8 @@ void threadMain(int kId) {
  * \param target
  *     Address of the stack location to save register values to.
  */
-void __attribute__((noinline)) swapcontext(void **saved, void **target) {
+void __attribute__((noinline))
+swapcontext(void **saved, void **target) {
     // This code depends on knowledge of the compiler's calling convention: rdi
     // and rsi are the first two arguments.
     // Alternative approaches tend to run into conflicts with compiler register
@@ -186,7 +189,8 @@ void __attribute__((noinline)) swapcontext(void **saved, void **target) {
   * directly invoked. Instead, the thread's context is set up to "return" to
   * this method when we context switch to it the first time.
   */
-void schedulerMainLoop() {
+void
+schedulerMainLoop() {
     while (true) {
         // No thread to execute yet. This call will not return until we have
         // been assigned a new Arachne thread.
@@ -244,7 +248,8 @@ void schedulerMainLoop() {
   * Arachne threads on the same core a chance to run.
   * It will return when all other threads have had a chance to run.
   */
-void yield() {
+void
+yield() {
     // This thread is still runnable since it is merely yielding.
     runningContext->wakeupTimeInCycles = 0;
     block();
@@ -253,7 +258,8 @@ void yield() {
 /**
   * Sleep for at least ns nanoseconds.
   */
-void sleep(uint64_t ns) {
+void
+sleep(uint64_t ns) {
     runningContext->wakeupTimeInCycles =
         Cycles::rdtsc() + Cycles::fromNanoseconds(ns);
     block();
@@ -263,7 +269,8 @@ void sleep(uint64_t ns) {
   * Return a thread handle for the currently executing thread, identical to the
   * one returned by the createThread call that initially created this thread.
   */
-ThreadId getThreadId() {
+ThreadId
+getThreadId() {
     return ThreadId(runningContext, runningContext->generation);
 }
 
@@ -271,7 +278,8 @@ ThreadId getThreadId() {
   * Deschedule the current thread until it is signaled. All direct and indirect
   * callers of this function must ensure that spurious wakeups are safe.
   */
-void block() {
+void
+block() {
     // Find a thread to switch to
     size_t currentIndex = nextCandidateIndex;
     uint64_t mask = localOccupiedAndCount->load().occupied >> currentIndex;
@@ -320,7 +328,8 @@ void block() {
  * If this method is invoked on a currently running thread, it will have the
  * effect of causing the thread to immediately unblock the next time it blocks.
  */
-void signal(ThreadId id) {
+void
+signal(ThreadId id) {
     if (id.generation == id.context->generation)
         id.context->wakeupTimeInCycles = 0L;
 }
@@ -332,7 +341,8 @@ void signal(ThreadId id) {
   * \param id
   *     The id of the thread to join.
   */
-void join(ThreadId id) {
+void
+join(ThreadId id) {
     std::lock_guard<SpinLock> joinGuard(id.context->joinLock);
     if (id.generation != id.context->generation) return;
     // If the thread has already exited, we should not block, since doing so
@@ -353,7 +363,8 @@ void join(ThreadId id) {
  * standard main invoke only threadInit. Under such an implementation,
  * threadInit would never return.
  */
-void mainThreadJoinPool() {
+void
+mainThreadJoinPool() {
     threadMain(numCores - 1);
 }
 
@@ -374,7 +385,8 @@ void mainThreadJoinPool() {
  * stackSize
  *     The maximum size of a thread stack.
  */
-void threadInit() {
+void
+threadInit() {
     if (initialized)
         return;
     initialized = true;
@@ -460,7 +472,8 @@ void threadInit() {
   * thread creations. It should be invoked only from a thread not managed by
   * Arachne.
   */
-void threadDestroy() {
+void
+threadDestroy() {
     // Wait for all contexts to finish executing
     while (true) {
         bool quiescent = true;
@@ -508,7 +521,8 @@ ConditionVariable::~ConditionVariable() { }
   * The caller should hold the mutex that waiting threads held when they called
   * wait().
   */
-void ConditionVariable::notifyOne() {
+void
+ConditionVariable::notifyOne() {
     if (blockedThreads.empty()) return;
     ThreadId awakenedThread = blockedThreads.front();
     blockedThreads.pop_front();
@@ -520,7 +534,8 @@ void ConditionVariable::notifyOne() {
   * The caller should hold the mutex that waiting threads held when they called
   * wait().
   */
-void ConditionVariable::notifyAll() {
+void
+ConditionVariable::notifyAll() {
     while (!blockedThreads.empty())
         notifyOne();
 }
@@ -534,7 +549,8 @@ void ConditionVariable::notifyAll() {
   *     blocking, and re-acquires it before returning to the user.
   
   */
-void ConditionVariable::wait(SpinLock& lock) {
+void
+ConditionVariable::wait(SpinLock& lock) {
     TimeTrace::record("Wait on Core %d", kernelThreadId);
     blockedThreads.push_back(
             ThreadId(runningContext, runningContext->generation));
