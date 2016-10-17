@@ -38,7 +38,8 @@ static volatile int numWaitedOn;
 static volatile int flag;
 
 // Helper function for SpinLock tests
-static void lockTaker() {
+static void
+lockTaker() {
     flag = 1;
     mutex.lock();
     mutex.unlock();
@@ -65,7 +66,8 @@ TEST_F(ArachneTest, spinLock_tryLock) {
 }
 
 // Helper function for condition variable tests.
-static void waiter() {
+static void
+waiter() {
     mutex.lock();
     while (!numWaitedOn)
         cv.wait(mutex);
@@ -113,12 +115,14 @@ TEST_F(ArachneTest, conditionVariable_notifyAll) {
 // Helper functions for thread creation tests.
 static volatile int threadCreationIndicator = 0;
 
-void clearFlag() {
+void
+clearFlag() {
     while (!threadCreationIndicator);
     threadCreationIndicator = 0;
 }
 
-void setFlagForCreation(int a) {
+void
+setFlagForCreation(int a) {
     while (!threadCreationIndicator);
     threadCreationIndicator = a;
 }
@@ -193,7 +197,8 @@ TEST_F(ArachneTest, cacheAlignAlloc) {
 
 extern std::vector<void*> kernelThreadStacks;
 
-void threadMainHelper() {
+void
+threadMainHelper() {
     swapcontext(&kernelThreadStacks[kernelThreadId], &runningContext->sp);
 }
 
@@ -214,7 +219,8 @@ static void *oldStackPointer;
 
 static bool swapContextSuccess;
 
-void swapContextHelper() {
+void
+swapContextHelper() {
     swapContextSuccess = 1;
     Arachne::swapcontext(&oldStackPointer, &stackPointer);
 }
@@ -235,7 +241,8 @@ TEST_F(ArachneTest, swapContext) {
 }
 
 // Helper method for schedulerMainLoop
-void checkSchedulerState() {
+void
+checkSchedulerState() {
     EXPECT_EQ(~0L, runningContext->wakeupTimeInCycles);
     EXPECT_EQ(1, localOccupiedAndCount->load().numOccupied);
     EXPECT_EQ(1, localOccupiedAndCount->load().occupied);
@@ -247,16 +254,19 @@ TEST_F(ArachneTest, schedulerMainLoop) {
 
 static volatile int keepYielding;
 
-static void yielder() {
+static void
+yielder() {
     while (keepYielding)
         Arachne::yield();
 }
 
-static void setFlag() {
+static void
+setFlag() {
     flag = 1;
 }
 
-static void bitSetter(int index) {
+static void
+bitSetter(int index) {
     while (keepYielding) {
         flag |= (1 << index);
         Arachne::yield();
@@ -294,14 +304,16 @@ TEST_F(ArachneTest, yield_allThreadsRan) {
 
 using PerfUtils::Cycles;
 
-void sleeper() {
+void
+sleeper() {
     uint64_t before = Cycles::rdtsc();
     Arachne::sleep(1000);
     uint64_t delta = Cycles::toNanoseconds(Cycles::rdtsc() - before);
     EXPECT_LE(1000, delta);
 }
 
-void simplesleeper() {
+void
+simplesleeper() {
     Arachne::sleep(10000);
     flag = 1;
     while (flag);
@@ -325,7 +337,8 @@ TEST_F(ArachneTest, sleep_wakeupTimeSetAndCleared) {
 
 volatile bool blockerHasStarted;
 
-void blocker() {
+void
+blocker() {
     blockerHasStarted = true;
     Arachne::block();
 }
@@ -355,16 +368,19 @@ TEST_F(ArachneTest, signal) {
 
 static Arachne::ThreadId joineeId;
 
-void joinee() {
+void
+joinee() {
     EXPECT_LE(1, Arachne::occupiedAndCount[0].load().numOccupied);
 }
 
-void joiner() {
+void
+joiner() {
     Arachne::join(joineeId);
     EXPECT_EQ(1, Arachne::occupiedAndCount[0].load().numOccupied);
 }
 
-void joinee2() {
+void
+joinee2() {
     Arachne::yield();
 }
 

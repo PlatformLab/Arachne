@@ -56,11 +56,13 @@ struct ThreadId {
         : context(NULL)
         , generation(0) { }
 
-    bool operator==(const ThreadId& other) const {
+    bool
+    operator==(const ThreadId& other) const {
         return context == other.context && generation == other.generation;
     }
 
-    bool operator!=(const ThreadId& other) const {
+    bool
+    operator!=(const ThreadId& other) const {
         return !(*this == other);
     }
 };
@@ -72,17 +74,20 @@ class SpinLock {
  public:
     SpinLock() : state(false) {}
     ~SpinLock(){}
-    void lock() {
+    void
+    lock() {
         while (state.exchange(true, std::memory_order_acquire) != false);
     }
 
-    bool try_lock() {
+    bool
+    try_lock() {
         // If the original value was false, then we successfully acquired the
         // lock. Otherwise we failed.
         return !state.exchange(true, std::memory_order_acquire);
     }
 
-    void unlock() {
+    void
+    unlock() {
         state.store(false, std::memory_order_release);
     }
 
@@ -152,7 +157,8 @@ struct ThreadInvocation : public ThreadInvocationEnabler {
                 "fit within one cache line.");
     }
     // This is invoked exactly once for each thread to begin its execution.
-    void runThread() {
+    void
+    runThread() {
         mainFunction();
     }
 };
@@ -244,7 +250,8 @@ extern thread_local std::atomic<MaskAndCount> *localOccupiedAndCount;
   * A random number generator from the Internet that returns 64-bit integers.
   * It is used for selecting candidate cores to create threads on.
   */
-inline uint64_t random(void) {
+inline uint64_t
+random(void) {
     // This function came from the following site.
     // http://stackoverflow.com/a/1640399/391161
     //
@@ -282,7 +289,8 @@ inline uint64_t random(void) {
   *     The return value is an identifier for the newly created thread.
   */
 template<typename _Callable, typename... _Args>
-ThreadId createThread(int kId, _Callable&& __f, _Args&&... __args) {
+ThreadId
+createThread(int kId, _Callable&& __f, _Args&&... __args) {
     if (kId == -1)
         kId = kernelThreadId;
 
@@ -339,7 +347,8 @@ ThreadId createThread(int kId, _Callable&& __f, _Args&&... __args) {
   *     The return value is an identifier for the newly created thread.
   */
 template<typename _Callable, typename... _Args>
-ThreadId createThread(_Callable&& __f, _Args&&... __args) {
+ThreadId
+createThread(_Callable&& __f, _Args&&... __args) {
     // Find a kernel thread to enqueue to by picking two at random and choose
     // the one with the fewest threads.
     int kId;
