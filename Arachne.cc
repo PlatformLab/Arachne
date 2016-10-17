@@ -23,6 +23,10 @@
 
 namespace Arachne {
 
+// Change 0 -> 1 in the following line to compile detailed time tracing in
+// this file.
+#define TIME_TRACE 0
+
 using PerfUtils::Cycles;
 using PerfUtils::TimeTrace;
 
@@ -551,12 +555,16 @@ ConditionVariable::notifyAll() {
   */
 void
 ConditionVariable::wait(SpinLock& lock) {
+#if TIME_TRACE
     TimeTrace::record("Wait on Core %d", kernelThreadId);
+#endif
     blockedThreads.push_back(
             ThreadId(runningContext, runningContext->generation));
     lock.unlock();
     block();
+#if TIME_TRACE
     TimeTrace::record("About to acquire lock after waking up");
+#endif
     lock.lock();
 }
 } // namespace Arachne
