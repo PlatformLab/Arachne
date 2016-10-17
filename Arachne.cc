@@ -26,22 +26,18 @@ namespace Arachne {
 using PerfUtils::Cycles;
 using PerfUtils::TimeTrace;
 
-enum InitializationState {
-    NOT_INITIALIZED,
-    INITIALIZED
-};
-
 /**
   * This variable prevents multiple initializations of the library, but does
   * not protect against the user calling Arachne functions without initializing
   * the library, which results in undefined behavior.
   */
-InitializationState initializationState = NOT_INITIALIZED;
+bool initialized = false;
 
 /**
   * This value should be set by the user before calling threadInit if they want
   * a different number of kernel threads than the number of cores on their
   * machine.
+  * TODO(hq6): Convert this into argc, argv.
   */
 volatile uint32_t numCores = 0;
 
@@ -65,7 +61,7 @@ std::vector<void*> kernelThreadStacks;
 volatile bool threadsShouldTerminate;
 
 /**
-  * The collection of possibly runnable contexts for each core.
+  * The collection of possibly runnable contexts for each kernel thread.
   */
 std::vector<ThreadContext*> activeLists;
 
@@ -96,59 +92,61 @@ std::atomic<MaskAndCount> *occupiedAndCount;
 thread_local std::atomic<MaskAndCount> *localOccupiedAndCount;
 
 /**
-  * This variable holds the index into the current core's activeList that it
-  * will check first the next time it looks for a thread to run.
+  * This variable holds the index into the current kernel thread's activeList
+  * that it will check first the next time it looks for a thread to run.
   */
 thread_local size_t nextCandidateIndex = 0;
 
 /**
-  * Allocates a block of memory that is aligned at the beginning of a cache line.
-  * TODO(hq6): Fix this to return a pointer instead of taking the address of one.
-  * TODO(hq6): Add a unit test for this.
+  * Allocate a block of memory aligned at the beginning of a cache line.
   *
-  * \param addressOfTargetPointer
-  *     The location of a pointer to be allocated.
+  * \param size
+  *     The amount of memory to allocate.
   */
-void cache_align_alloc(void* addressOfTargetPointer, size_t size) {
-    void ** trueAddress = reinterpret_cast<void**>(addressOfTargetPointer);
-    int result = posix_memalign(trueAddress, CACHE_LINE_SIZE, size);
+void* cacheAlignAlloc(size_t size) {
+    void *temp;
+    int result = posix_memalign(&temp, CACHE_LINE_SIZE, size);
     if (result != 0) {
         fprintf(stderr, "posix_memalign returned %s", strerror(result));
         exit(1);
     }
-    assert((reinterpret_cast<uint64_t>(*trueAddress) & 0x3f) == 0);
+    assert((reinterpret_cast<uint64_t>(temp) & (CACHE_LINE_SIZE - 1)) == 0);
+    return temp;
 }
 
 /**
- * Main function for a kernel thread which roughly corresponds to a core in the
+ * Main function for a kernel thread, which roughly corresponds to a core in the
  * current design of the system.
  * 
- * \param coreId
+ * \param kId
  *     The kernel thread ID for the newly created kernel thread.
  */
-void threadMainFunction(int id) {
+void threadMain(int kId) {
     // Switch to a user stack, discarding the stack provided by the kernel, so
     // that we are always running user code on a stack controlled by Arachne.
-    kernelThreadId = id;
+    kernelThreadId = kId;
     localOccupiedAndCount = &occupiedAndCount[kernelThreadId];
     activeList = activeLists[kernelThreadId];
 
-    PerfUtils::Util::pinThreadToCore(id);
+    PerfUtils::Util::pinThreadToCore(kId);
 
     runningContext = activeList;
 
     // Transfers control to the Arachne dispatcher.
     // This context has been pre-initialized by threadInit so it will "return"
     // to the schedulerMainLoop.
-    swapcontext(&runningContext->sp, &kernelThreadStacks[id]);
+    // This call will return iff threadDestroy is called from the main thread
+    // and the main thread never joined the Arachne thread pool. This situation
+    // normally occurs only in unit tests..
+    swapcontext(&runningContext->sp, &kernelThreadStacks[kId]);
 }
 
 /**
  * Save the current register values onto one stack and load fresh register
  * values from another stack.
  * This method does not return to its caller immediately. It returns to the
- * caller when another thread on the same core invokes this method with the
- * current value of target as the saved parameter.
+ * caller when another thread on the same kernel thread invokes this method
+ * with the current value of target as the saved parameter.
  *
  * \param saved
  *     Address of the stack location to load register values from.
@@ -193,6 +191,10 @@ void schedulerMainLoop() {
         // No thread to execute yet. This call will not return until we have
         // been assigned a new Arachne thread.
         block();
+        // If the termination flag is set by threadDestroy and we are finished
+        // executing user threads on this kernel thread, we swap back to the
+        // original context of the kernel thread facilitate joining with the
+        // main kernel thread.
         if (threadsShouldTerminate &&
                 localOccupiedAndCount->load().numOccupied == 0) {
             swapcontext(
@@ -214,8 +216,8 @@ void schedulerMainLoop() {
             runningContext->generation++;
         }
 
-        // The code below attempts to clear the occupied flag for the current
-        // ThreadContext, and continues to retry until success.
+        // The code below clears the occupied flag for the current
+        // ThreadContext.
         //
         // While this logically comes before block(), it is here to prevent it
         // from racing against thread creations that come before the start of
@@ -258,7 +260,7 @@ void sleep(uint64_t ns) {
 }
 
 /**
-  * Return a thread handle to the currently executing thread, identical to the
+  * Return a thread handle for the currently executing thread, identical to the
   * one returned by the createThread call that initially created this thread.
   */
 ThreadId getThreadId() {
@@ -303,6 +305,8 @@ void block() {
             void** saved = &runningContext->sp;
             runningContext = currentContext;
             swapcontext(&runningContext->sp, saved);
+            // After the old context is swapped out above, this line executes
+            // in the new context.
             runningContext->wakeupTimeInCycles = ~0L;
             return;
         }
@@ -313,6 +317,8 @@ void block() {
  * Make the thread referred to by ThreadId runnable.
  * If one thread exits and another is created between the check and the setting
  * of the wakeup flag, this signal will result in a spurious wake-up.
+ * If this method is invoked on a currently running thread, it will have the
+ * effect of causing the thread to immediately unblock the next time it blocks.
  */
 void signal(ThreadId id) {
     if (id.generation == id.context->generation)
@@ -348,7 +354,7 @@ void join(ThreadId id) {
  * threadInit would never return.
  */
 void mainThreadJoinPool() {
-    threadMainFunction(numCores - 1);
+    threadMain(numCores - 1);
 }
 
 /**
@@ -359,6 +365,7 @@ void mainThreadJoinPool() {
  * The following configuration parameters should be set before invoking this
  * function, if desired.
  * 
+ * TODO(hq6): Turn these options into argc / argv parsing, and rename numCores --> numKernelThreads.
  * numCores
  *     The degree of parallelism between user threads. If this is set higher
  *     than the number of physical cores, the kernel will multiplex, which is
@@ -368,20 +375,21 @@ void mainThreadJoinPool() {
  *     The maximum size of a thread stack.
  */
 void threadInit() {
-    if (initializationState != NOT_INITIALIZED)
+    if (initialized)
         return;
-    initializationState = INITIALIZED;
+    initialized = true;
 
     if (numCores == 0)
         numCores = std::thread::hardware_concurrency();
 
-    cache_align_alloc(&occupiedAndCount, sizeof(MaskAndCount) * numCores);
+    occupiedAndCount = reinterpret_cast<std::atomic<Arachne::MaskAndCount>* >(
+            cacheAlignAlloc(sizeof(MaskAndCount) * numCores));
     memset(occupiedAndCount, 0, sizeof(MaskAndCount) * numCores);
 
     for (unsigned int i = 0; i < numCores; i++) {
         // Here we will allocate all the thread contexts and stacks
-        ThreadContext *contexts;
-        cache_align_alloc(&contexts, sizeof(ThreadContext) * maxThreadsPerCore);
+        ThreadContext *contexts = reinterpret_cast<ThreadContext*>(
+                cacheAlignAlloc(sizeof(ThreadContext) * maxThreadsPerCore));
         for (int k = 0; k < maxThreadsPerCore; k++) {
             ThreadContext *freshContext = &contexts[k];
             freshContext->stack = malloc(stackSize);
@@ -431,10 +439,10 @@ void threadInit() {
     // We only loop to numCores - 1 to leave one core for the main thread to
     // run on.
     for (unsigned int i = 0; i < numCores - 1; i++) {
-        // These threads are started with threadMainFuncion instead of
+        // These threads are started with threadMain instead of
         // schedulerMainLoop because we want schedulerMainLoop to run on a user
         // stack rather than a kernel-provided stack
-        kernelThreads.emplace_back(threadMainFunction, i);
+        kernelThreads.emplace_back(threadMain, i);
     }
 
     // Set the kernelThreadId for the main thread.
@@ -486,8 +494,8 @@ void threadDestroy() {
         free(activeLists[i]);
     }
     activeLists.clear();
-    initializationState = NOT_INITIALIZED;
     PerfUtils::Util::serialize();
+    initialized = false;
 }
 
 ConditionVariable::ConditionVariable()
@@ -497,7 +505,8 @@ ConditionVariable::~ConditionVariable() { }
 
 /**
   * Awaken one of the threads waiting on this condition variable.
-  * The caller should have the associated mutex held.
+  * The caller should hold the mutex that waiting threads held when they called
+  * wait().
   */
 void ConditionVariable::notifyOne() {
     if (blockedThreads.empty()) return;
@@ -508,7 +517,8 @@ void ConditionVariable::notifyOne() {
 
 /**
   * Awaken all of the threads waiting on this condition variable.
-  * The caller should have the associated mutex held.
+  * The caller should hold the mutex that waiting threads held when they called
+  * wait().
   */
 void ConditionVariable::notifyAll() {
     while (!blockedThreads.empty())
@@ -517,12 +527,12 @@ void ConditionVariable::notifyAll() {
 
 /**
   * Block the current thread until the condition variable is notified.
-  * This function releases the lock before blocking, and re-acquires it before
-  * returning to the user.
   *
   * \param lock
   *     The mutex associated with this condition variable; should be held by
-  *     caller before calling wait.
+  *     caller before calling wait. This function releases the mutex before
+  *     blocking, and re-acquires it before returning to the user.
+  
   */
 void ConditionVariable::wait(SpinLock& lock) {
     TimeTrace::record("Wait on Core %d", kernelThreadId);
