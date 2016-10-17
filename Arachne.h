@@ -94,8 +94,6 @@ class SpinLock {
 /**
   * This class implements a subset of the functionality of
   * std::condition_variable.
-  * It takes no internal locks, so it is assumed that notifications are
-  * performed with the associated mutex held.
   */
 class ConditionVariable {
  public:
@@ -105,9 +103,16 @@ class ConditionVariable {
     void notifyAll();
     void wait(SpinLock& lock);
  private:
+    // Collection of threads that are waiting on this condition variable.
     std::deque<ThreadId> blockedThreads;
     DISALLOW_COPY_AND_ASSIGN(ConditionVariable);
 };
+
+/**
+  * This value is returned by createThread when there are not enough resources
+  * to create a new thread.
+  */
+const Arachne::ThreadId NullThread;
 
 ////////////////////////////////////////////////////////////////////////////////
 // The code in following section are private to the thread library.
@@ -126,7 +131,8 @@ struct ThreadInvocationEnabler {
   * This structure is used during thread creation to pass the function and
   * arguments for the new thread's top-level function from a creating thread to
   * the core that runs the new thread. It also ensures that the arguments will
-  * fit in a single cache line, since they will be stored in a single cache line.
+  * fit in a single cache line, since they will be stored in a single cache
+  * line.
   *
   * \tparam F
   *     the type of the return value of std::bind, which is a value type of
@@ -165,11 +171,9 @@ struct ThreadContext {
 
     // When a thread blocks due to calling sleep(), it will keep its wakeup
     // time in rdtsc cycles here.
-    // The special value 0 is a signal that this thread should run at the next
-    // opportunity.
-    // The special value ~0 is a signal that the thread should not be run, and
-    // wakeupTimeInCycles should be set to this value immediately before
-    // returning control to the application.
+    // 0 is a signal that this thread should run at the next opportunity.
+    // ~0 is used as an infinitely large time: a sleeping thread will not
+    // wakeup as long as wakeupTimeInCycles has this value.
     volatile uint64_t wakeupTimeInCycles;
 
     // This variable is incremented whenever a new thread begins or ends
@@ -192,7 +196,7 @@ struct ThreadContext {
     // This is read-only after Arachne initialization.
     uint8_t idInCore;
 
-    // Storage for the ThreadInvocation object which contains the function and
+    // Storage for the ThreadInvocation object that contains the function and
     // arguments for a new thread.
     // We wrap the char buffer in a struct to enable aligning to a cache line
     // boundary, which eliminates false sharing of cache lines.
@@ -215,19 +219,19 @@ const size_t SpaceForSavedRegisters = 48;
 
 void schedulerMainLoop();
 void swapcontext(void **saved, void **target);
-void threadMainFunction(int id);
+void threadMain(int id);
 
 extern thread_local int kernelThreadId;
 extern thread_local ThreadContext *runningContext;
 extern thread_local ThreadContext *activeList;
 extern std::vector<ThreadContext*> activeLists;
 
-// This structure tracks the active threads on a single core.
+// This structure tracks the live threads on a single core.
 struct MaskAndCount{
     // Each bit corresponds to a particular ThreadContext which has the
     // idInCore corresponding to its index
-    // 0 means this ThreadContext is available for a new thread.
-    // 1 means that a thread exists and is running in this context.
+    // 0 means this context is available for a new thread.
+    // 1 means this context is in use by a live thread.
     uint64_t occupied : 56;
     // The number of 1 bits in occupied.
     uint8_t numOccupied : 8;
@@ -237,12 +241,15 @@ extern std::atomic<MaskAndCount> *occupiedAndCount;
 extern thread_local std::atomic<MaskAndCount> *localOccupiedAndCount;
 
 /**
-  * A random number generator from the Internet which returns 64-bit integers.
+  * A random number generator from the Internet that returns 64-bit integers.
   * It is used for selecting candidate cores to create threads on.
   */
 inline uint64_t random(void) {
     // This function came from the following site.
     // http://stackoverflow.com/a/1640399/391161
+    //
+    // It was chosen because it was advertised to be fast, but this fact has
+    // not yet been verified or disproved through experiments.
     static uint64_t x = 123456789, y = 362436069, z = 521288629;
     uint64_t t;
     x ^= x << 16;
@@ -257,37 +264,27 @@ inline uint64_t random(void) {
     return z;
 }
 
-////////////////////////////////////////////////////////////////////////////////
-// The ends the private section of the thread library.
-////////////////////////////////////////////////////////////////////////////////
-
 /**
-  * This value is returned by createThread when there are not enough resources
-  * to create a new thread.
-  */
-const Arachne::ThreadId NullThread;
-
-/**
-  * Spawn a thread with main function f invoked with the given args on the core
-  * with coreId. Pass in -1 for coreId to use the creator's core. This can be
-  * useful if the created thread will share a lot of state with the current
-  * thread, since it will improve locality.
-  *
+  * Spawn a thread with main function f invoked with the given args on the
+  * kernel thread with id = kId
   * This function should usually only be invoked directly in tests, since it
-  * does not perform load balancing. However, it can also be used if the
-  * application wants to do its own load balancing.
+  * does not perform load balancing.
   *
+  * \param kId
+  *     Pass in -1 to use the creator's kernel thread. This can be useful if
+  *     the created thread will share a lot of state with the current thread,
+  *     since it will improve locality.
   * \param __f
   *     The main function for the new thread.
   * \param __args
   *     The arguments for __f.
   * \return
-  *     The return value is an identifier which can be passed to other
-  *     functions as an identifier.
+  *     The return value is an identifier for the newly created thread.
   */
 template<typename _Callable, typename... _Args>
-ThreadId createThread(int coreId, _Callable&& __f, _Args&&... __args) {
-    if (coreId == -1) coreId = kernelThreadId;
+ThreadId createThread(int kId, _Callable&& __f, _Args&&... __args) {
+    if (kId == -1)
+        kId = kernelThreadId;
 
     auto task = std::bind(
             std::forward<_Callable>(__f), std::forward<_Args>(__args)...);
@@ -295,8 +292,8 @@ ThreadId createThread(int coreId, _Callable&& __f, _Args&&... __args) {
     bool success;
     uint32_t index;
     do {
-        // Attempt to enqueue the task to the specific core in this case.
-        MaskAndCount slotMap = occupiedAndCount[coreId];
+        // Attempt to enqueue the task to the specified core.
+        MaskAndCount slotMap = occupiedAndCount[kId];
         MaskAndCount oldSlotMap = slotMap;
 
         // Search for a non-occupied slot and attempt to reserve the slot
@@ -312,47 +309,52 @@ ThreadId createThread(int coreId, _Callable&& __f, _Args&&... __args) {
             (slotMap.occupied | (1L << index)) & 0x00FFFFFFFFFFFFFF;
         slotMap.numOccupied++;
 
-        success = occupiedAndCount[coreId].compare_exchange_strong(oldSlotMap,
+        success = occupiedAndCount[kId].compare_exchange_strong(oldSlotMap,
                 slotMap);
     } while (!success);
 
     // Copy the thread invocation into the byte array.
-    new (&activeLists[coreId][index].threadInvocation)
+    new (&activeLists[kId][index].threadInvocation)
         Arachne::ThreadInvocation<decltype(task)>(task);
-    activeLists[coreId][index].wakeupTimeInCycles = 0;
-    return ThreadId(&activeLists[coreId][index],
-            activeLists[coreId][index].generation);
+    activeLists[kId][index].wakeupTimeInCycles = 0;
+    return ThreadId(&activeLists[kId][index],
+            activeLists[kId][index].generation);
 }
 
+
+////////////////////////////////////////////////////////////////////////////////
+// The ends the private section of the thread library.
+////////////////////////////////////////////////////////////////////////////////
+
 /**
-  * Spawn a new thread with a function and arguments. The total size of the
-  * arguments cannot exceed 48 bytes, and arguments are taken by value, so any
-  * reference must be wrapped with std::ref.
+  * Spawn a new thread with a function and arguments.
   *
   * \param __f
   *     The main function for the new thread.
   * \param __args
-  *     The arguments for __f.
+  *     The arguments for __f. The total size of the arguments cannot exceed 48
+  *     bytes, and arguments are taken by value, so any reference must be
+  *     wrapped with std::ref.
   * \return
-  *     The return value is an identifier which can be passed to other
-  *     functions as an identifier.
+  *     The return value is an identifier for the newly created thread.
   */
 template<typename _Callable, typename... _Args>
 ThreadId createThread(_Callable&& __f, _Args&&... __args) {
-    // Find a core to enqueue to by picking two at random and choose the one
-    // with the fewest threads.
-    int coreId;
+    // Find a kernel thread to enqueue to by picking two at random and choose
+    // the one with the fewest threads.
+    int kId;
     int choice1 = static_cast<int>(random()) % numCores;
     int choice2 = static_cast<int>(random()) % numCores;
-    while (choice2 == choice1) choice2 = static_cast<int>(random()) % numCores;
+    while (choice2 == choice1)
+        choice2 = static_cast<int>(random()) % numCores;
 
     if (occupiedAndCount[choice1].load().numOccupied <
             occupiedAndCount[choice2].load().numOccupied)
-        coreId = choice1;
+        kId = choice1;
     else
-        coreId = choice2;
+        kId = choice2;
 
-    return createThread(coreId, __f, __args...);
+    return createThread(kId, __f, __args...);
 }
 
 void threadInit();

@@ -178,15 +178,28 @@ TEST_F(ArachneTest, createThread_maxThreadsExceeded) {
     threadCreationIndicator = 0;
 }
 
+void* cacheAlignAlloc(size_t size);
+
+TEST_F(ArachneTest, cacheAlignAlloc) {
+    // Multiple of alignment size
+    void* ptr = cacheAlignAlloc(CACHE_LINE_SIZE);
+    EXPECT_EQ(0, reinterpret_cast<uint64_t>(ptr) & (CACHE_LINE_SIZE - 1));
+    free(ptr);
+    ptr = cacheAlignAlloc(63);
+    EXPECT_EQ(0, reinterpret_cast<uint64_t>(ptr) & (CACHE_LINE_SIZE - 1));
+    free(ptr);
+
+}
+
 extern std::vector<void*> kernelThreadStacks;
 
 void threadMainHelper() {
     swapcontext(&kernelThreadStacks[kernelThreadId], &runningContext->sp);
 }
 
-TEST_F(ArachneTest, threadMainFunction) {
+TEST_F(ArachneTest, threadMain) {
     createThread(1, threadMainHelper);
-    threadMainFunction(1);
+    threadMain(1);
     EXPECT_EQ(activeList, activeLists[kernelThreadId]);
     EXPECT_EQ(localOccupiedAndCount, occupiedAndCount + kernelThreadId);
     EXPECT_EQ(1, localOccupiedAndCount->load().numOccupied);
@@ -310,7 +323,10 @@ TEST_F(ArachneTest, sleep_wakeupTimeSetAndCleared) {
     flag = 0;
 }
 
+volatile bool blockerHasStarted;
+
 void blocker() {
+    blockerHasStarted = true;
     Arachne::block();
 }
 
@@ -319,7 +335,7 @@ TEST_F(ArachneTest, blockSignal) {
     EXPECT_EQ(1, Arachne::occupiedAndCount[0].load().numOccupied);
     EXPECT_EQ(1, Arachne::occupiedAndCount[0].load().occupied);
 
-    usleep(1000);
+    while (!blockerHasStarted);
     Arachne::signal(id);
     while (Arachne::occupiedAndCount[0].load().numOccupied == 1);
     EXPECT_EQ(0, Arachne::occupiedAndCount[0].load().occupied);
