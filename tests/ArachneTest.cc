@@ -13,9 +13,10 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "gtest/gtest.h"
 #include "Arachne.h"
+#include <thread>
 #include "Cycles.h"
+#include "gtest/gtest.h"
 
 namespace Arachne {
 
@@ -145,11 +146,6 @@ setFlagForCreation(int a) {
 }
 
 TEST_F(ArachneTest, createThread_noArgs) {
-    // By assigning the number of cores, we can run this test independently of
-    // the number of cores on the machine.
-    Arachne::numCores = 2;
-
-    Arachne::threadInit();
     EXPECT_EQ(0, Arachne::occupiedAndCount[0].load().numOccupied);
     EXPECT_EQ(0, Arachne::occupiedAndCount[0].load().occupied);
     createThread(0, clearFlag);
@@ -171,10 +167,6 @@ TEST_F(ArachneTest, createThread_noArgs) {
 }
 
 TEST_F(ArachneTest, createThread_withArgs) {
-    // By assigning the number of cores, we can run this test independently of
-    // the number of cores on the machine.
-    Arachne::numCores = 2;
-    Arachne::threadInit();
     createThread(0, setFlagForCreation, 2);
     EXPECT_EQ(1, Arachne::occupiedAndCount[0].load().numOccupied);
     EXPECT_EQ(1, Arachne::occupiedAndCount[0].load().occupied);
@@ -186,10 +178,6 @@ TEST_F(ArachneTest, createThread_withArgs) {
 }
 
 TEST_F(ArachneTest, createThread_maxThreadsExceeded) {
-    // By assigning the number of cores, we can run this test independently of
-    // the number of cores on the machine.
-    Arachne::numCores = 2;
-    Arachne::threadInit();
     for (int i = 0; i < Arachne::maxThreadsPerCore; i++)
         EXPECT_NE(Arachne::NullThread, createThread(0, clearFlag));
     EXPECT_EQ(Arachne::NullThread, createThread(0, clearFlag));
@@ -299,7 +287,8 @@ TEST_F(ArachneTest, yield_secondThreadGotControl) {
 
     flag = 0;
     createThread(0, setFlag);
-    limitedTimeWait ([]()->bool { return Arachne::occupiedAndCount[0].load().numOccupied <= 1;});
+    limitedTimeWait([]()->bool {
+            return Arachne::occupiedAndCount[0].load().numOccupied <= 1;});
     EXPECT_EQ(1, flag);
     flag = 0;
     keepYielding = false;
@@ -414,7 +403,8 @@ TEST_F(ArachneTest, join_afterTermination) {
 
     // Wait for threads to finish so that tests do not interfere with each
     // other.
-    limitedTimeWait([]()->bool { return Arachne::occupiedAndCount[0].load().numOccupied == 0;});
+    limitedTimeWait([]()->bool {
+            return Arachne::occupiedAndCount[0].load().numOccupied == 0;});
 }
 
 TEST_F(ArachneTest, join_DuringRun) {
@@ -424,6 +414,79 @@ TEST_F(ArachneTest, join_DuringRun) {
     createThread(0, joiner);
     limitedTimeWait([]() ->bool {
             return Arachne::occupiedAndCount[0].load().numOccupied == 0;});
+}
+
+extern int stackSize;
+TEST_F(ArachneTest, parseOptions_noOptions) {
+    // Since Google Test requires all tests by the same name to either use or
+    // not use the fixture, we must de-initialize so that we can initialize
+    // again to test argument parsing.
+    Arachne::threadDestroy();
+
+    int argc = 3;
+    const char* originalArgv[] = {"ArachneTest", "foo", "bar"};
+    const char** argv = originalArgv;
+    Arachne::threadInit(&argc, &argv);
+    EXPECT_EQ(3, argc);
+    EXPECT_EQ(originalArgv, argv);
+    EXPECT_EQ(2, numCores);
+    EXPECT_EQ(1024 * 1024, stackSize);
+}
+
+TEST_F(ArachneTest, parseOptions_shortOptions) {
+    // See comment in parseOptions_noOptions
+    Arachne::threadDestroy();
+
+    int argc = 5;
+    const char* originalArgv[] = {"ArachneTest", "-c", "3", "-s", "2048"};
+    const char** argv = originalArgv;
+    Arachne::threadInit(&argc, &argv);
+    EXPECT_EQ(1, argc);
+    EXPECT_EQ(originalArgv + 4, argv);
+    EXPECT_EQ(3, numCores);
+    EXPECT_EQ(stackSize, 2048);
+}
+
+TEST_F(ArachneTest, parseOptions_longOptions) {
+    // See comment in parseOptions_noOptions
+    Arachne::threadDestroy();
+
+    int argc = 5;
+    const char* originalArgv[] =
+        {"ArachneTest", "--numCores", "5", "--stackSize", "4096"};
+    const char** argv = originalArgv;
+    Arachne::threadInit(&argc, &argv);
+    EXPECT_EQ(1, argc);
+    EXPECT_EQ(originalArgv + 4, argv);
+    EXPECT_EQ(5, numCores);
+    EXPECT_EQ(stackSize, 4096);
+}
+
+TEST_F(ArachneTest, parseOptions_mixedOptions) {
+    // See comment in parseOptions_noOptions
+    Arachne::threadDestroy();
+
+    int argc = 8;
+    const char* originalArgv[] =
+        {"ArachneTest", "-c", "2", "--stackSize", "2048", "--",
+            "--appOptionA", "Argument"};
+    const char** argv = originalArgv;
+    Arachne::threadInit(&argc, &argv);
+    EXPECT_EQ(3, argc);
+    EXPECT_EQ(originalArgv + 5, argv);
+}
+
+TEST_F(ArachneTest, parseOptions_appOptionsOnly) {
+    // See comment in parseOptions_noOptions
+    Arachne::threadDestroy();
+
+    int argc = 3;
+    const char* originalArgv[] =
+        {"ArachneTest", "--appOptionA", "Argument"};
+    const char** argv = originalArgv;
+    Arachne::threadInit(&argc, &argv);
+    EXPECT_EQ(3, argc);
+    EXPECT_EQ(originalArgv, argv);
 }
 
 } // namespace Arachne

@@ -366,7 +366,7 @@ createThread(_Callable&& __f, _Args&&... __args) {
     return createThread(kId, __f, __args...);
 }
 
-void threadInit();
+void threadInit(int* argcp = NULL, const char*** argvp = NULL);
 void threadDestroy();
 void mainThreadJoinPool();
 void yield();

@@ -16,6 +16,7 @@
 #include "Arachne.h"
 #include <stdio.h>
 #include <string.h>
+#include <getopt.h>
 #include <thread>
 #include "Cycles.h"
 #include "TimeTrace.h"
@@ -37,16 +38,19 @@ using PerfUtils::TimeTrace;
   */
 bool initialized = false;
 
+
+// The following configuration options can be passed into threadInit.
+
 /**
-  * This value should be set by the user before calling threadInit if they want
-  * a different number of kernel threads than the number of cores on their
-  * machine.
-  * TODO(hq6): Convert this into argc, argv.
+  * The degree of parallelism between user threads. If this is set higher
+  * than the number of physical cores, the kernel will multiplex, which is
+  * usually undesirable except when running unit tests on a single-core
+  * system.
   */
 volatile uint32_t numCores = 0;
 
 /**
-  * Configurable stack size for all threads.
+  * Configurable maximum stack size for all threads.
   */
 int stackSize = 1024 * 1024;
 
@@ -373,27 +377,89 @@ mainThreadJoinPool() {
 }
 
 /**
+  * This function parses out the arguments intended for the thread library from
+  * a command line, and adjusts the values of argc and argv to eliminate the
+  * arguments that the thread library consumed.
+  *
+  * Here are valid sequences of arguments in argv.
+  *
+  * 1. Library options followed by '--' followed by application options.
+  *        <libraryOptionA> <libraryOptionB> -- <applicationOptionA>...
+  * 2. Library options only.
+  *        <libraryOptionA> <libraryOptionB>
+  * 3. Application options only.
+  *        <applicationOptionA> <applicationOptionB>...
+ */
+void
+parseOptions(int* argcp, const char*** argvp) {
+    if (argcp == NULL) return;
+
+    // Disable printing to stderr when we see an unrecognized option, since we
+    // expect to see unrecognized options when the application was invoked
+    // without arguments for Arachne.
+    opterr = 0;
+
+    int argc = *argcp;
+    char* const * argv = const_cast<char* const*>(*argvp);
+    int option;
+    static struct option longOptions[] = {
+        {"numCores", required_argument, NULL, 'c'},
+        {"stackSize", required_argument, NULL, 's'},
+        {0, 0, 0, 0}
+    };
+    while (1) {
+        /* getopt_long stores the option index here. */
+        int optionIndex = 0;
+        option = getopt_long(argc, argv, "+c:s:", longOptions, &optionIndex);
+        if (option == -1)
+            break;
+        if (option == '?') { // Unrecognized option, let application handle it
+            // Reverse the increment of optind which still happens when we
+            // encounter an unrecognized option
+            optind--;
+            break;
+        }
+        switch (option) {
+            case 'c':
+                numCores = atoi(optarg);
+                break;
+            case 's':
+                stackSize = atoi(optarg);
+                break;
+            default:
+                fprintf(stderr, "Unrecognized option %d found!\n", option);
+                abort();
+        }
+    }
+    *argcp -= optind - 1;
+    *argvp += optind - 1;
+    // Move the program's name to one position before the unparsed options, so
+    // the application's argument parser will be able to look at an argc, argv
+    // pair that looks like it was not already processed.
+    **argvp = *argv;
+
+    // Reset optind to 0, so that the application can have a clean state in
+    // case it wants to use getopt also.
+    optind = 0;
+    // Restore error reporting to getopts
+    opterr = 1;
+}
+
+/**
  * This function sets up state needed by the thread library, and must be
  * invoked before any other function in the thread library is invoked. It is
  * undefined behavior to invoke other Arachne functions before this one.
  *
- * The following configuration parameters should be set before invoking this
- * function, if desired.
- * 
- * TODO(hq6): Turn these options into argc / argv parsing, and rename numCores --> numKernelThreads.
- * numCores
- *     The degree of parallelism between user threads. If this is set higher
- *     than the number of physical cores, the kernel will multiplex, which is
- *     usually undesirable except when running unit tests on a single-core
- *     system. 
- * stackSize
- *     The maximum size of a thread stack.
+ * Arachne will take configuration options from the command line specified by
+ * argc and argv, and then update the values of argv and argc to reflect the
+ * remaining arguments.
  */
 void
-threadInit() {
+threadInit(int* argcp, const char*** argvp) {
     if (initialized)
         return;
     initialized = true;
+    parseOptions(argcp, argvp);
 
     if (numCores == 0)
         numCores = std::thread::hardware_concurrency();
