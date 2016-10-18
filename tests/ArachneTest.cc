@@ -32,6 +32,20 @@ struct ArachneTest : public ::testing::Test {
     }
 };
 
+// Helper function for tests with timing dependencies, so that we wait for a
+// finite amount of time in the case of a bug causing an infinite loop.
+static void limitedTimeWait(std::function<bool()> condition) {
+    for (int i = 0; i < 1000; i++) {
+        if (condition()) {
+            break;
+        }
+        usleep(1000);
+    }
+    // We use assert here because an infinite loop will result in threadDestroy
+    // not being able to complete, so we might as well terminate the tests here.
+    ASSERT_TRUE(condition());
+}
+
 static Arachne::SpinLock mutex;
 static Arachne::ConditionVariable cv;
 static volatile int numWaitedOn;
@@ -50,10 +64,10 @@ TEST_F(ArachneTest, spinLock_exclusion) {
     flag = 0;
     mutex.lock();
     createThread(0, lockTaker);
-    while (!flag);
+    limitedTimeWait([]() -> bool {return flag;});
     EXPECT_EQ(1, flag);
     mutex.unlock();
-    while (flag);
+    limitedTimeWait([]() -> bool {return !flag;});
     EXPECT_EQ(0, flag);
 }
 
@@ -85,14 +99,14 @@ TEST_F(ArachneTest, conditionVariable_notifyOne) {
     mutex.lock();
     cv.notifyOne();
     mutex.unlock();
-    while (numWaitedOn == 2);
+    limitedTimeWait([]() -> bool {return numWaitedOn != 2;});
     // We test for GE here because it is possible that one of the two threads
     // ran after numWaitedOn = 2 was set, which means it would not wait at all.
     EXPECT_GE(1, numWaitedOn);
     mutex.lock();
     cv.notifyOne();
     mutex.unlock();
-    while (numWaitedOn == 1);
+    limitedTimeWait([]() -> bool {return numWaitedOn != 1;});
     EXPECT_EQ(0, numWaitedOn);
 }
 
@@ -104,7 +118,8 @@ TEST_F(ArachneTest, conditionVariable_notifyAll) {
     numWaitedOn = 5;
     cv.notifyAll();
     mutex.unlock();
-    while (Arachne::occupiedAndCount[0].load().numOccupied > 5);
+    limitedTimeWait([]()-> bool {
+            return Arachne::occupiedAndCount[0].load().numOccupied <= 5;});
     mutex.lock();
     EXPECT_EQ(0, numWaitedOn);
     numWaitedOn = 5;
@@ -117,13 +132,15 @@ static volatile int threadCreationIndicator = 0;
 
 void
 clearFlag() {
-    while (!threadCreationIndicator);
+    limitedTimeWait([]()-> bool {
+            return threadCreationIndicator;});
     threadCreationIndicator = 0;
 }
 
 void
 setFlagForCreation(int a) {
-    while (!threadCreationIndicator);
+    limitedTimeWait([]()-> bool {
+            return threadCreationIndicator;});
     threadCreationIndicator = a;
 }
 
@@ -147,7 +164,8 @@ TEST_F(ArachneTest, createThread_noArgs) {
     threadCreationIndicator = 1;
 
     // Wait for thread to exit
-    while (Arachne::occupiedAndCount[0].load().numOccupied == 1);
+    limitedTimeWait([]()-> bool {
+            return Arachne::occupiedAndCount[0].load().numOccupied != 1;});
     EXPECT_EQ(0, Arachne::occupiedAndCount[0].load().numOccupied);
     EXPECT_EQ(0, Arachne::occupiedAndCount[0].load().occupied);
 }
@@ -162,7 +180,7 @@ TEST_F(ArachneTest, createThread_withArgs) {
     EXPECT_EQ(1, Arachne::occupiedAndCount[0].load().occupied);
     EXPECT_EQ(0, threadCreationIndicator);
     threadCreationIndicator = 1;
-    while (threadCreationIndicator == 1);
+    limitedTimeWait([]()->bool { return threadCreationIndicator != 1; });
     EXPECT_EQ(2, threadCreationIndicator);
     threadCreationIndicator = 0;
 }
@@ -281,7 +299,7 @@ TEST_F(ArachneTest, yield_secondThreadGotControl) {
 
     flag = 0;
     createThread(0, setFlag);
-    while (Arachne::occupiedAndCount[0].load().numOccupied > 1);
+    limitedTimeWait ([]()->bool { return Arachne::occupiedAndCount[0].load().numOccupied <= 1;});
     EXPECT_EQ(1, flag);
     flag = 0;
     keepYielding = false;
@@ -316,7 +334,7 @@ void
 simplesleeper() {
     Arachne::sleep(10000);
     flag = 1;
-    while (flag);
+    limitedTimeWait([]()->bool { return !flag; });
 }
 
 TEST_F(ArachneTest, sleep_minimumDelay) {
@@ -330,7 +348,7 @@ TEST_F(ArachneTest, sleep_wakeupTimeSetAndCleared) {
     Arachne::threadInit();
     flag = 0;
     createThread(0, simplesleeper);
-    while (!flag);
+    limitedTimeWait([]()->bool { return flag; });
     EXPECT_EQ(~0L, Arachne::activeLists[0]->wakeupTimeInCycles);
     flag = 0;
 }
@@ -348,9 +366,10 @@ TEST_F(ArachneTest, blockSignal) {
     EXPECT_EQ(1, Arachne::occupiedAndCount[0].load().numOccupied);
     EXPECT_EQ(1, Arachne::occupiedAndCount[0].load().occupied);
 
-    while (!blockerHasStarted);
+    limitedTimeWait([]()->bool { return blockerHasStarted;});
     Arachne::signal(id);
-    while (Arachne::occupiedAndCount[0].load().numOccupied == 1);
+    limitedTimeWait([]()->bool {
+            return Arachne::occupiedAndCount[0].load().numOccupied < 1;});
     EXPECT_EQ(0, Arachne::occupiedAndCount[0].load().occupied);
 }
 
@@ -395,7 +414,7 @@ TEST_F(ArachneTest, join_afterTermination) {
 
     // Wait for threads to finish so that tests do not interfere with each
     // other.
-    while (Arachne::occupiedAndCount[0].load().numOccupied > 0);
+    limitedTimeWait([]()->bool { return Arachne::occupiedAndCount[0].load().numOccupied == 0;});
 }
 
 TEST_F(ArachneTest, join_DuringRun) {
@@ -403,7 +422,8 @@ TEST_F(ArachneTest, join_DuringRun) {
     Arachne::threadInit();
     joineeId = createThread(0, joinee2);
     createThread(0, joiner);
-    while (Arachne::occupiedAndCount[0].load().numOccupied > 0);
+    limitedTimeWait([]() ->bool {
+            return Arachne::occupiedAndCount[0].load().numOccupied == 0;});
 }
 
 } // namespace Arachne
