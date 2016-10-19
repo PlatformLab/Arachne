@@ -32,19 +32,10 @@ namespace Arachne {
 // ConditionVariable
 struct ThreadContext;
 
-/**
-  * These configuration parameters should be set before calling threadInit and
-  * are documented with threadInit.
-  */
+// This is used in createThread.
 extern volatile uint32_t numCores;
 
 struct ThreadId {
-    /**
-      * This ThreadId does not simply use std::pair because std::pair does not
-      * support assignment of volatile from non-volatile variables, and it
-      * makes sense for applications to keep volatile ThreadIds which are
-      * shared between threads.
-      */
     ThreadContext* context;
     uint32_t generation;
 
@@ -120,7 +111,7 @@ class ConditionVariable {
 const Arachne::ThreadId NullThread;
 
 ////////////////////////////////////////////////////////////////////////////////
-// The code in following section are private to the thread library.
+// The code in following section is private to the thread library.
 ////////////////////////////////////////////////////////////////////////////////
 
 /**
@@ -140,7 +131,7 @@ struct ThreadInvocationEnabler {
   * line.
   *
   * \tparam F
-  *     the type of the return value of std::bind, which is a value type of
+  *     The type of the return value of std::bind, which is a value type of
   *     unspecified class.
   *
   * This wrapper enables us to bypass the dynamic memory allocation that is
@@ -172,28 +163,25 @@ struct ThreadContext {
     void* sp;
 
     // Keep a reference to a original allocation so that we can release the
-    // memory if we need to.
+    // memory in threadDestroy.
     void* stack;
 
     // When a thread blocks due to calling sleep(), it will keep its wakeup
     // time in rdtsc cycles here.
     // 0 is a signal that this thread should run at the next opportunity.
     // ~0 is used as an infinitely large time: a sleeping thread will not
-    // wakeup as long as wakeupTimeInCycles has this value.
+    // awaken as long as wakeupTimeInCycles has this value.
     volatile uint64_t wakeupTimeInCycles;
 
-    // This variable is incremented whenever a new thread begins or ends
+    // This variable is incremented whenever a new thread finishes execution
     // execution in this ThreadContext. It is used to differentiate between
-    // threads which existed at different points in time in the same
-    // ThreadContext, and ensure that thread joins do not inadvertently join a
-    // new thread living at the same ThreadContext rather than the original
-    // thread they were waiting for.
+    // threads which existed at different points in time , and ensure that
+    // thread joins do not inadvertently join a new thread living at the same
+    // ThreadContext as the original thread they were waiting for.
     uint32_t generation;
 
     // This lock and condition variable is used for synchronizing threads that
     // attempt to join this thread.
-    // They are pointers rather than values to avoid circular dependencies
-    // between Condition Variables and ThreadContext objects.
     SpinLock joinLock;
     ConditionVariable joinCV;
 
@@ -235,7 +223,7 @@ extern std::vector<ThreadContext*> activeLists;
 // This structure tracks the live threads on a single core.
 struct MaskAndCount{
     // Each bit corresponds to a particular ThreadContext which has the
-    // idInCore corresponding to its index
+    // idInCore corresponding to its index.
     // 0 means this context is available for a new thread.
     // 1 means this context is in use by a live thread.
     uint64_t occupied : 56;
@@ -329,7 +317,6 @@ createThread(int kId, _Callable&& __f, _Args&&... __args) {
             activeLists[kId][index].generation);
 }
 
-
 ////////////////////////////////////////////////////////////////////////////////
 // The ends the private section of the thread library.
 ////////////////////////////////////////////////////////////////////////////////
@@ -349,7 +336,7 @@ createThread(int kId, _Callable&& __f, _Args&&... __args) {
 template<typename _Callable, typename... _Args>
 ThreadId
 createThread(_Callable&& __f, _Args&&... __args) {
-    // Find a kernel thread to enqueue to by picking two at random and choose
+    // Find a kernel thread to enqueue to by picking two at random and choosing
     // the one with the fewest threads.
     int kId;
     int choice1 = static_cast<int>(random()) % numCores;

@@ -38,7 +38,6 @@ using PerfUtils::TimeTrace;
   */
 bool initialized = false;
 
-
 // The following configuration options can be passed into threadInit.
 
 /**
@@ -132,8 +131,8 @@ cacheAlignAlloc(size_t size) {
  */
 void
 threadMain(int kId) {
-    // Switch to a user stack, discarding the stack provided by the kernel, so
-    // that we are always running user code on a stack controlled by Arachne.
+    // Switch to a user stack so that we are always running user code on a
+    // stack controlled by Arachne.
     kernelThreadId = kId;
     localOccupiedAndCount = &occupiedAndCount[kernelThreadId];
     activeList = activeLists[kernelThreadId];
@@ -147,22 +146,22 @@ threadMain(int kId) {
     // to the schedulerMainLoop.
     // This call will return iff threadDestroy is called from the main thread
     // and the main thread never joined the Arachne thread pool. This situation
-    // normally occurs only in unit tests..
+    // normally occurs only in unit tests.
     swapcontext(&runningContext->sp, &kernelThreadStacks[kId]);
 }
 
 /**
- * Save the current register values onto one stack and load fresh register
- * values from another stack.
- * This method does not return to its caller immediately. It returns to the
- * caller when another thread on the same kernel thread invokes this method
- * with the current value of target as the saved parameter.
- *
- * \param saved
- *     Address of the stack location to load register values from.
- * \param target
- *     Address of the stack location to save register values to.
- */
+  * Save the current register values onto one stack and load fresh register
+  * values from another stack.
+  * This method does not return to its caller immediately. It returns to the
+  * caller when another thread on the same kernel thread invokes this method
+  * with the current value of target as the saved parameter.
+  *
+  * \param saved
+  *     Address of the stack location to load register values from.
+  * \param target
+  *     Address of the stack location to save register values to.
+  */
 void __attribute__((noinline))
 swapcontext(void **saved, void **target) {
     // This code depends on knowledge of the compiler's calling convention: rdi
@@ -356,6 +355,8 @@ join(ThreadId id) {
     // If the thread has already exited, we should not block, since doing so
     // may result in blocking forever.
     MaskAndCount slotMap = *localOccupiedAndCount;
+    // The thread we are waiting for has already exited, so we can return
+    // immediately.
     if (!(slotMap.occupied & (1L << id.context->idInCore))) return;
     id.context->joinCV.wait(id.context->joinLock);
     return;
@@ -381,14 +382,24 @@ mainThreadJoinPool() {
   * a command line, and adjusts the values of argc and argv to eliminate the
   * arguments that the thread library consumed.
   *
-  * Here are valid sequences of arguments in argv.
+  * Here are valid sequences of arguments in argv, and the final state of argv.
   *
   * 1. Library options followed by '--' followed by application options.
-  *        <libraryOptionA> <libraryOptionB> -- <applicationOptionA>...
+  *        ApplicationName <libraryOptionA> <libraryOptionB> -- <applicationOptionA>...
+  *
+  *    Argv after the call:
+  *        ApplicationName <applicationOptionA>...
+  *
   * 2. Library options only.
-  *        <libraryOptionA> <libraryOptionB>
+  *        ApplicationName <libraryOptionA> <libraryOptionB>
+  *
+  *    Argv after the call:
+  *        ApplicationName
+  *
   * 3. Application options only.
-  *        <applicationOptionA> <applicationOptionB>...
+  *        ApplicationName <applicationOptionA> <applicationOptionB>...
+  *    Argv after the call:
+  *        ApplicationName <applicationOptionA> <applicationOptionB>...
  */
 void
 parseOptions(int* argcp, const char*** argvp) {
@@ -414,8 +425,8 @@ parseOptions(int* argcp, const char*** argvp) {
         if (option == -1)
             break;
         if (option == '?') { // Unrecognized option, let application handle it
-            // Reverse the increment of optind which still happens when we
-            // encounter an unrecognized option
+            // Reverse the increment of optind, which still happens when we
+            // encounter an unrecognized option.
             optind--;
             break;
         }
@@ -435,7 +446,7 @@ parseOptions(int* argcp, const char*** argvp) {
     *argvp += optind - 1;
     // Move the program's name to one position before the unparsed options, so
     // the application's argument parser will be able to look at an argc, argv
-    // pair that looks like it was not already processed.
+    // pair that looks like it never contained Arachne options.
     **argvp = *argv;
 
     // Reset optind to 0, so that the application can have a clean state in
