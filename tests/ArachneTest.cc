@@ -305,10 +305,8 @@ TEST_F(ArachneTest, yield_allThreadsRan) {
     createThread(0, bitSetter, 0);
     createThread(0, bitSetter, 1);
     createThread(0, bitSetter, 2);
-    usleep(100);
-
+    limitedTimeWait([]()->bool {return flag == 7;});
     keepYielding = false;
-    EXPECT_EQ(7, flag);
 }
 
 using PerfUtils::Cycles;
