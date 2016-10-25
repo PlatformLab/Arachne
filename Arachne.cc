@@ -41,7 +41,7 @@ bool initialized = false;
 // The following configuration options can be passed into threadInit.
 
 /**
-  * The degree of parallelism between user threads. If this is set higher
+  * The degree of parallelism between Arachne threads. If this is set higher
   * than the number of physical cores, the kernel will multiplex, which is
   * usually undesirable except when running unit tests on a single-core
   * system.
@@ -80,10 +80,10 @@ std::vector<ThreadContext*> activeLists;
 thread_local ThreadContext* activeList;
 
 /**
-  * This variable provides the position in global data structures which
-  * corresponds to a particular kernel thread. This should eventually become a
-  * coreId, when we support multiple kernel threads per core to handle blocking
-  * system calls.
+  * Holds the identifier for the thread in which it is stored: allows each
+  * kernel thread to identify itself. This should eventually become a coreId,
+  * when we support multiple kernel threads per core to handle blocking system
+  * calls.
   */
 thread_local int kernelThreadId;
 
@@ -100,7 +100,8 @@ thread_local std::atomic<MaskAndCount> *localOccupiedAndCount;
 
 /**
   * This variable holds the index into the current kernel thread's activeList
-  * that it will check first the next time it looks for a thread to run.
+  * that it will check first the next time it looks for a thread to run. It is
+  * used to implement round-robin scheduling of Arachne threads.
   */
 thread_local size_t nextCandidateIndex = 0;
 
@@ -131,8 +132,6 @@ cacheAlignAlloc(size_t size) {
  */
 void
 threadMain(int kId) {
-    // Switch to a user stack so that we are always running user code on a
-    // stack controlled by Arachne.
     kernelThreadId = kId;
     localOccupiedAndCount = &occupiedAndCount[kernelThreadId];
     activeList = activeLists[kernelThreadId];
@@ -169,10 +168,12 @@ swapcontext(void **saved, void **target) {
     // Alternative approaches tend to run into conflicts with compiler register
     // use.
 
-    // Save the registers and store the stack pointer
-    // NB: The space used by the pushed and popped registers must equal the
-    // value of SpaceForSavedRegisters, which should be updated atomically with
-    // this assembly.
+    // Save the registers that the compiler expects to persist across method
+    // calls and store the stack pointer's location after saving these
+    // registers.
+    // NB: The space used by the pushed and
+    // popped registers must equal the value of SpaceForSavedRegisters, which
+    // should be updated atomically with this assembly.
     asm("pushq %r12\n\t"
         "pushq %r13\n\t"
         "pushq %r14\n\t"
@@ -203,7 +204,7 @@ schedulerMainLoop() {
         // been assigned a new Arachne thread.
         block();
         // If the termination flag is set by threadDestroy and we are finished
-        // executing user threads on this kernel thread, we swap back to the
+        // executing Arachne threads on this kernel thread, we swap back to the
         // original context of the kernel thread facilitate joining with the
         // main kernel thread.
         if (threadsShouldTerminate &&
@@ -282,8 +283,9 @@ getThreadId() {
 }
 
 /**
-  * Deschedule the current thread until it is signaled. All direct and indirect
-  * callers of this function must ensure that spurious wakeups are safe.
+  * Deschedule the current thread until its wakeup time is reached (which may
+  * have already happened). All direct and indirect callers of this function
+  * must ensure that spurious wakeups are safe.
   */
 void
 block() {
@@ -351,9 +353,8 @@ signal(ThreadId id) {
 void
 join(ThreadId id) {
     std::lock_guard<SpinLock> joinGuard(id.context->joinLock);
+    // Thread has already exited.
     if (id.generation != id.context->generation) return;
-    // If the thread has already exited, we should not block, since doing so
-    // may result in blocking forever.
     MaskAndCount slotMap = *localOccupiedAndCount;
     // The thread we are waiting for has already exited, so we can return
     // immediately.
@@ -366,14 +367,15 @@ join(ThreadId id) {
  * This is a special function to allow the main kernel thread to join the
  * thread pool after seeding at least one initial Arachne thread. It must be
  * the last statement in the main function since it never returns.
- *
- * An alternative way of enabling the main thread to join the pool is to change
- * threadInit to take a real main function as an argument, and have the
- * standard main invoke only threadInit. Under such an implementation,
- * threadInit would never return.
  */
 void
 mainThreadJoinPool() {
+    /*
+     * An alternative way of enabling the main thread to join the pool is to change
+     * threadInit to take a real main function as an argument, and have the
+     * standard main invoke only threadInit. Under such an implementation,
+     * threadInit would never return.
+     */
     threadMain(numCores - 1);
 }
 
@@ -405,9 +407,9 @@ void
 parseOptions(int* argcp, const char*** argvp) {
     if (argcp == NULL) return;
 
-    // Disable printing to stderr when we see an unrecognized option, since we
-    // expect to see unrecognized options when the application was invoked
-    // without arguments for Arachne.
+    // Disable printing to stderr when we see an unrecognized option, since
+    // options that aren't recognized by us may still be recognized by the
+    // application.
     opterr = 0;
 
     int argc = *argcp;
@@ -502,7 +504,7 @@ threadInit(int* argcp, const char*** argvp) {
                 reinterpret_cast<char*>(freshContext->stack) + stackSize -
                 2*sizeof(void*);
             freshContext->wakeupTimeInCycles = ~0L;
-            freshContext->generation = 0;
+            freshContext->generation = 1;
             new (&freshContext->joinLock) SpinLock;
             new (&freshContext->joinCV) ConditionVariable;
             freshContext->idInCore = static_cast<uint8_t>(k);
@@ -599,7 +601,7 @@ ConditionVariable::~ConditionVariable() { }
 
 /**
   * Awaken one of the threads waiting on this condition variable.
-  * The caller should hold the mutex that waiting threads held when they called
+  * The caller must hold the mutex that waiting threads held when they called
   * wait().
   */
 void
@@ -612,7 +614,7 @@ ConditionVariable::notifyOne() {
 
 /**
   * Awaken all of the threads waiting on this condition variable.
-  * The caller should hold the mutex that waiting threads held when they called
+  * The caller must hold the mutex that waiting threads held when they called
   * wait().
   */
 void
@@ -625,7 +627,7 @@ ConditionVariable::notifyAll() {
   * Block the current thread until the condition variable is notified.
   *
   * \param lock
-  *     The mutex associated with this condition variable; should be held by
+  *     The mutex associated with this condition variable; must be held by
   *     caller before calling wait. This function releases the mutex before
   *     blocking, and re-acquires it before returning to the user.
   
