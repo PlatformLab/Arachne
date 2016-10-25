@@ -35,8 +35,13 @@ struct ThreadContext;
 // This is used in createThread.
 extern volatile uint32_t numCores;
 
+/**
+  * This structure is used to identify an Arachne thread to methods of the Arachne API.
+  */
 struct ThreadId {
+    // The storage where this thread's state is held.
     ThreadContext* context;
+    // Differentiates this Arachne thread from others that use the same context.
     uint32_t generation;
 
     ThreadId(ThreadContext* context, uint32_t generation)
@@ -59,25 +64,33 @@ struct ThreadId {
 };
 
 /**
- * A simple SpinLock based on std::atomic.
+ * A resource that can be acquired by only one thread at a time.
  */
 class SpinLock {
  public:
+    // Constructor and destructor for spinlock.
     SpinLock() : state(false) {}
     ~SpinLock(){}
-    void
+
+    // Repeatedly try to acquire this resource until success.
+    inline void
     lock() {
         while (state.exchange(true, std::memory_order_acquire) != false);
     }
 
-    bool
+    // Attempt to acquire this resource once.
+    //
+    // \return
+    //    Whether or not the acquisition succeeded.  inline bool
+    inline bool
     try_lock() {
         // If the original value was false, then we successfully acquired the
         // lock. Otherwise we failed.
         return !state.exchange(true, std::memory_order_acquire);
     }
 
-    void
+    // Release resource
+    inline void
     unlock() {
         state.store(false, std::memory_order_release);
     }
@@ -88,8 +101,8 @@ class SpinLock {
 };
 
 /**
-  * This class implements a subset of the functionality of
-  * std::condition_variable.
+  * This class enables one or more threads to block until a condition is true,
+  * and then be awoken when the condition might be true.
   */
 class ConditionVariable {
  public:
@@ -99,19 +112,24 @@ class ConditionVariable {
     void notifyAll();
     void wait(SpinLock& lock);
  private:
-    // Collection of threads that are waiting on this condition variable.
+    // Ordered collection of threads that are waiting on this condition
+    // variable. Threads are processed from this list in FIFO order when a
+    // notifyOne() is called.
     std::deque<ThreadId> blockedThreads;
     DISALLOW_COPY_AND_ASSIGN(ConditionVariable);
 };
 
 /**
-  * This value is returned by createThread when there are not enough resources
-  * to create a new thread.
+  * This value represents the non-existence of a thread and can be returned by
+  * any Arachne function that would normally return a ThreadId.
+  *
+  * One example is createThread when there are not enough resources to create a
+  * new thread.
   */
 const Arachne::ThreadId NullThread;
 
 ////////////////////////////////////////////////////////////////////////////////
-// The code in following section is private to the thread library.
+// The declarations in following section are private to the thread library.
 ////////////////////////////////////////////////////////////////////////////////
 
 /**
@@ -139,7 +157,7 @@ struct ThreadInvocationEnabler {
   */
 template<typename F>
 struct ThreadInvocation : public ThreadInvocationEnabler {
-    // The top-level function of the user thread.
+    // The top-level function of the Arachne thread.
     F mainFunction;
     explicit ThreadInvocation(F mainFunction)
         : mainFunction(mainFunction) {
@@ -147,7 +165,8 @@ struct ThreadInvocation : public ThreadInvocationEnabler {
                 "Arachne requires the function and arguments for a thread to "
                 "fit within one cache line.");
     }
-    // This is invoked exactly once for each thread to begin its execution.
+    // This is invoked exactly once for each Arachne thread to begin its
+    // execution.
     void
     runThread() {
         mainFunction();
@@ -155,17 +174,18 @@ struct ThreadInvocation : public ThreadInvocationEnabler {
 };
 
 /*
- * This class holds all the state for managing a user thread.
+ * This class holds all the state for managing an Arachne thread.
  */
 struct ThreadContext {
-    // This holds the value that rsp will be set to when this thread is swapped
-    // in.
+    // This holds the value that rsp, the stack pointer register, will be set
+    // to when this thread is swapped in.
     void* sp;
 
-    // Keep a reference to a original allocation so that we can release the
-    // memory in threadDestroy.
+    // Keep a reference to the original memory allocation for the stack used by
+    // this threadContext so that we can release the memory in threadDestroy.
     void* stack;
 
+    // TODO(hq6): Rewrite this comment.
     // When a thread blocks due to calling sleep(), it will keep its wakeup
     // time in rdtsc cycles here.
     // 0 is a signal that this thread should run at the next opportunity.
@@ -173,14 +193,12 @@ struct ThreadContext {
     // awaken as long as wakeupTimeInCycles has this value.
     volatile uint64_t wakeupTimeInCycles;
 
-    // This variable is incremented whenever a new thread finishes execution
-    // execution in this ThreadContext. It is used to differentiate between
-    // threads which existed at different points in time , and ensure that
-    // thread joins do not inadvertently join a new thread living at the same
-    // ThreadContext as the original thread they were waiting for.
+    // Used as part of ThreadIds to differentiate Arachne threads that use this
+    // ThreadContext; incremented whenever an Arachne thread finishes execution
+    // in this ThreadContext.
     uint32_t generation;
 
-    // This lock and condition variable is used for synchronizing threads that
+    // This lock and condition variable are used for synchronizing threads that
     // attempt to join this thread.
     SpinLock joinLock;
     ConditionVariable joinCV;
@@ -202,10 +220,12 @@ struct ThreadContext {
     ThreadContext(ThreadContext&) = delete;
 };
 
+// Largest number of Arachne threads that can be simultaneously created on each
+// core.
 const int maxThreadsPerCore = 56;
 
 /**
-  * This is the amount of space needed on the stack to store the callee-saved
+  * This is the number of bytes needed on the stack to store the callee-saved
   * registers that are defined by the current processor and operating system's
   * calling convention.
   */
@@ -266,15 +286,18 @@ random(void) {
   * does not perform load balancing.
   *
   * \param kId
-  *     Pass in -1 to use the creator's kernel thread. This can be useful if
-  *     the created thread will share a lot of state with the current thread,
-  *     since it will improve locality.
+  *     The id for the kernel thread to put the new Arachne thread on. Pass in
+  *     -1 to use the creator's kernel thread. This can be useful if the
+  *     created thread will share a lot of state with the current thread, since
+  *     it will improve locality.
   * \param __f
   *     The main function for the new thread.
   * \param __args
   *     The arguments for __f.
   * \return
-  *     The return value is an identifier for the newly created thread.
+  *     The return value is an identifier for the newly created thread. If
+  *     there are insufficient resources for creating a new thread, then
+  *     NullThread will be returned.
   */
 template<typename _Callable, typename... _Args>
 ThreadId
@@ -288,7 +311,9 @@ createThread(int kId, _Callable&& __f, _Args&&... __args) {
     bool success;
     uint32_t index;
     do {
-        // Attempt to enqueue the task to the specified core.
+        // Each iteration through this loop makes one attempt to enqueue the
+        // task to the specified core. Multiple iterations are required only if
+        // there is contention for the core's state variables.
         MaskAndCount slotMap = occupiedAndCount[kId];
         MaskAndCount oldSlotMap = slotMap;
 
@@ -331,13 +356,15 @@ createThread(int kId, _Callable&& __f, _Args&&... __args) {
   *     bytes, and arguments are taken by value, so any reference must be
   *     wrapped with std::ref.
   * \return
-  *     The return value is an identifier for the newly created thread.
+  *     The return value is an identifier for the newly created thread. If
+  *     there are insufficient resources for creating a new thread, then
+  *     NullThread will be returned.
   */
 template<typename _Callable, typename... _Args>
 ThreadId
 createThread(_Callable&& __f, _Args&&... __args) {
     // Find a kernel thread to enqueue to by picking two at random and choosing
-    // the one with the fewest threads.
+    // the one with the fewest Arachne threads.
     int kId;
     int choice1 = static_cast<int>(random()) % numCores;
     int choice2 = static_cast<int>(random()) % numCores;

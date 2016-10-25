@@ -67,6 +67,8 @@ TEST_F(ArachneTest, spinLock_exclusion) {
     createThread(0, lockTaker);
     limitedTimeWait([]() -> bool {return flag;});
     EXPECT_EQ(1, flag);
+    usleep(1);
+    EXPECT_EQ(1, flag);
     mutex.unlock();
     limitedTimeWait([]() -> bool {return !flag;});
     EXPECT_EQ(0, flag);
