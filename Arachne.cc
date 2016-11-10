@@ -65,7 +65,7 @@ std::vector<void*> kernelThreadStacks;
   * Alert the kernel threads that they should exit if there are no further
   * threads to run.
   */
-volatile bool threadsShouldTerminate;
+volatile bool shutdown;
 
 /**
   * The collection of possibly runnable contexts for each kernel thread.
@@ -202,16 +202,7 @@ schedulerMainLoop() {
     while (true) {
         // No thread to execute yet. This call will not return until we have
         // been assigned a new Arachne thread.
-        block();
-        // If the termination flag is set by threadDestroy and we are finished
-        // executing Arachne threads on this kernel thread, we swap back to the
-        // original context of the kernel thread facilitate joining with the
-        // main kernel thread.
-        if (threadsShouldTerminate &&
-                localOccupiedAndCount->load().numOccupied == 0) {
-            swapcontext(
-                    &kernelThreadStacks[kernelThreadId], &runningContext->sp);
-        }
+        dispatch();
         reinterpret_cast<ThreadInvocationEnabler*>(
                 &runningContext->threadInvocation)->runThread();
         // The thread has exited.
@@ -231,9 +222,9 @@ schedulerMainLoop() {
         // The code below clears the occupied flag for the current
         // ThreadContext.
         //
-        // While this logically comes before block(), it is here to prevent it
-        // from racing against thread creations that come before the start of
-        // the outer loop, since the occupied flags for such creations would
+        // While this logically comes before dispatch(), it is here to prevent
+        // it from racing against thread creations that come before the start
+        // of the outer loop, since the occupied flags for such creations would
         // get wiped out by this code.
         bool success;
         do {
@@ -260,7 +251,7 @@ void
 yield() {
     // This thread is still runnable since it is merely yielding.
     runningContext->wakeupTimeInCycles = 0;
-    block();
+    dispatch();
 }
 
 /**
@@ -270,7 +261,7 @@ void
 sleep(uint64_t ns) {
     runningContext->wakeupTimeInCycles =
         Cycles::rdtsc() + Cycles::fromNanoseconds(ns);
-    block();
+    dispatch();
 }
 
 /**
@@ -284,11 +275,12 @@ getThreadId() {
 
 /**
   * Deschedule the current thread until its wakeup time is reached (which may
-  * have already happened). All direct and indirect callers of this function
-  * must ensure that spurious wakeups are safe.
+  * have already happened) and find another thread to run. All direct and
+  * indirect callers of this function must ensure that spurious wakeups are
+  * safe.
   */
 void
-block() {
+dispatch() {
     // Find a thread to switch to
     size_t currentIndex = nextCandidateIndex;
     uint64_t mask = localOccupiedAndCount->load().occupied >> currentIndex;
@@ -303,8 +295,10 @@ block() {
             currentCycles = Cycles::rdtsc();
 
             // Check for termination
-            if (threadsShouldTerminate && !mask)
-                return;
+            if (shutdown)
+                swapcontext(
+                        &kernelThreadStacks[kernelThreadId],
+                        &runningContext->sp);
         }
         // Optimize to eliminate unoccupied contexts
         if (!(mask & 1))
@@ -458,6 +452,40 @@ parseOptions(int* argcp, const char*** argvp) {
     opterr = 1;
 }
 
+ThreadContext::ThreadContext(uint8_t idInCore)
+    : stack(malloc(stackSize))
+    , sp(reinterpret_cast<char*>(stack) +
+            stackSize - 2*sizeof(void*))
+    , wakeupTimeInCycles(~0L)
+    , generation(1)
+    , joinLock()
+    , joinCV()
+    , idInCore(idInCore)
+{
+    // Immediately before schedulerMainLoop gains control, we want the
+    // stack to look like this, so that the swapcontext call will
+    // transfer control to schedulerMainLoop.
+    //           +-----------------------+
+    //           |                       |
+    //           +-----------------------+
+    //           |     Return Address    |
+    //           +-----------------------+
+    //     sp->  |       Registers       |
+    //           +-----------------------+
+    //           |                       |
+    //           |                       |
+    //
+    // Set up the stack so that the first time we switch context to
+    // this thread, we enter schedulerMainLoop.
+    *reinterpret_cast<void**>(sp) = reinterpret_cast<void*>(schedulerMainLoop);
+
+    /**
+     * Decrement the stack pointer by the amount of space needed to
+     * store the registers in swapcontext.
+     */
+    sp = reinterpret_cast<char*>(sp) - SpaceForSavedRegisters;
+}
+
 /**
  * This function sets up state needed by the thread library, and must be
  * invoked before any other function in the thread library is invoked. It is
@@ -485,47 +513,15 @@ threadInit(int* argcp, const char*** argvp) {
         // Here we will allocate all the thread contexts and stacks
         ThreadContext *contexts = reinterpret_cast<ThreadContext*>(
                 cacheAlignAlloc(sizeof(ThreadContext) * maxThreadsPerCore));
-        for (int k = 0; k < maxThreadsPerCore; k++) {
-            ThreadContext *freshContext = &contexts[k];
-            freshContext->stack = malloc(stackSize);
-            // When schedulerMainLoop gains control, we want the stack to look
-            // like this.
-            //           +-----------------------+
-            //      sp-> |                       |
-            //           +-----------------------+
-            //           |     Return Address    |
-            //           +-----------------------+
-            //           |       Registers       |
-            //           +-----------------------+
-            //           |                       |
-            //           |                       |
-
-            freshContext->sp =
-                reinterpret_cast<char*>(freshContext->stack) + stackSize -
-                2*sizeof(void*);
-            freshContext->wakeupTimeInCycles = ~0L;
-            freshContext->generation = 1;
-            new (&freshContext->joinLock) SpinLock;
-            new (&freshContext->joinCV) ConditionVariable;
-            freshContext->idInCore = static_cast<uint8_t>(k);
-
-            // Set up the stack so that the first time we switch context to
-            // this thread, we enter schedulerMainLoop.
-            *reinterpret_cast<void**>(freshContext->sp) =
-                reinterpret_cast<void*>(schedulerMainLoop);
-            /**
-              * Decrement the stack pointer by the amount of space needed to
-              * store the registers in swapcontext.
-              */
-            freshContext->sp = reinterpret_cast<char*>(freshContext->sp) -
-                SpaceForSavedRegisters;
+        for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
+            new (&contexts[k]) ThreadContext(k);
         }
         activeLists.push_back(contexts);
     }
 
     // Allocate space to store all the original kernel pointers
     kernelThreadStacks.reserve(numCores);
-    threadsShouldTerminate = false;
+    shutdown = false;
 
     // Ensure that data structure and stack allocation completes before we
     // begin to use it in a new thread.
@@ -571,7 +567,7 @@ threadDestroy() {
             break;
     }
     // Join the kernel threads.
-    threadsShouldTerminate = true;
+    shutdown = true;
     for (size_t i = 0; i < kernelThreads.size(); i++) {
         kernelThreads[i].join();
     }
@@ -640,7 +636,7 @@ ConditionVariable::wait(SpinLock& lock) {
     blockedThreads.push_back(
             ThreadId(runningContext, runningContext->generation));
     lock.unlock();
-    block();
+    dispatch();
 #if TIME_TRACE
     TimeTrace::record("About to acquire lock after waking up");
 #endif

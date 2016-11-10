@@ -61,7 +61,7 @@ lockTaker() {
     flag = 0;
 }
 
-TEST_F(ArachneTest, spinLock_exclusion) {
+TEST_F(ArachneTest, SpinLock_lockUnlock) {
     flag = 0;
     mutex.lock();
     createThread(0, lockTaker);
@@ -74,7 +74,8 @@ TEST_F(ArachneTest, spinLock_exclusion) {
     EXPECT_EQ(0, flag);
 }
 
-TEST_F(ArachneTest, spinLock_tryLock) {
+//TODO: Change class names in locks to Capital
+TEST_F(ArachneTest, SpinLock_tryLock) {
     mutex.lock();
     EXPECT_FALSE(mutex.try_lock());
     mutex.unlock();
@@ -92,6 +93,7 @@ waiter() {
     mutex.unlock();
 }
 
+// TODO: For isomorphism, move these to match locations of implementation, not declaration.
 TEST_F(ArachneTest, conditionVariable_notifyOne) {
     numWaitedOn = 0;
     createThread(0, waiter);
@@ -179,6 +181,9 @@ TEST_F(ArachneTest, createThread_withArgs) {
     threadCreationIndicator = 0;
 }
 
+// TODO: Add a test for searching for an unoccupied slot. Make sure it finds the expected slot.
+// Where numOccupied starts out greater than 0.
+
 TEST_F(ArachneTest, createThread_maxThreadsExceeded) {
     for (int i = 0; i < Arachne::maxThreadsPerCore; i++)
         EXPECT_NE(Arachne::NullThread, createThread(0, clearFlag));
@@ -190,10 +195,15 @@ TEST_F(ArachneTest, createThread_maxThreadsExceeded) {
     threadCreationIndicator = 0;
 }
 
+// TODO: Test to make sure that the public createThread picks the right core.
+// Can test 223 case with RNG.
+
 void* cacheAlignAlloc(size_t size);
 
 TEST_F(ArachneTest, cacheAlignAlloc) {
     // Multiple of alignment size
+    // TODO: Do not give it CACHE_LINE_SIZE in this test.
+    // Pick arguments that reduce the likelihood of broken code getting lucky.
     void* ptr = cacheAlignAlloc(CACHE_LINE_SIZE);
     EXPECT_EQ(0, reinterpret_cast<uint64_t>(ptr) & (CACHE_LINE_SIZE - 1));
     free(ptr);
@@ -220,12 +230,13 @@ TEST_F(ArachneTest, threadMain) {
     *localOccupiedAndCount = {0, 0};
 }
 
+// TODO: Comment briefly on why these exist .
 static const size_t testStackSize = 256;
 static char stack[testStackSize];
 static void* stackPointer;
 static void *oldStackPointer;
 
-static bool swapContextSuccess;
+static bool swapContextSuccess = 0;
 
 void
 swapContextHelper() {
@@ -256,6 +267,8 @@ checkSchedulerState() {
     EXPECT_EQ(1, localOccupiedAndCount->load().occupied);
 }
 
+// TODO: Check a few more state variables after the thread has exited.
+// We can poll on the occupied flag before checking state variables.
 TEST_F(ArachneTest, schedulerMainLoop) {
     createThread(0, checkSchedulerState);
 }
@@ -350,7 +363,7 @@ blocker() {
     Arachne::block();
 }
 
-TEST_F(ArachneTest, blockSignal) {
+TEST_F(ArachneTest, block_basics) {
     Arachne::ThreadId id = createThread(0, blocker);
     EXPECT_EQ(1, Arachne::occupiedAndCount[0].load().numOccupied);
     EXPECT_EQ(1, Arachne::occupiedAndCount[0].load().occupied);
