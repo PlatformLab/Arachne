@@ -177,17 +177,16 @@ struct ThreadInvocation : public ThreadInvocationEnabler {
  * This class holds all the state for managing an Arachne thread.
  */
 struct ThreadContext {
-    // This holds the value that rsp, the stack pointer register, will be set
-    // to when this thread is swapped in.
-    void* sp;
-
     // Keep a reference to the original memory allocation for the stack used by
     // this threadContext so that we can release the memory in threadDestroy.
     void* stack;
 
-    // TODO(hq6): Rewrite this comment.
-    // When a thread blocks due to calling sleep(), it will keep its wakeup
-    // time in rdtsc cycles here.
+    // This holds the value that rsp, the stack pointer register, will be set
+    // to when this thread is swapped in.
+    void* sp;
+
+    // This variable holds the minimum value of the cycle counter for which
+    // this thread can run.
     // 0 is a signal that this thread should run at the next opportunity.
     // ~0 is used as an infinitely large time: a sleeping thread will not
     // awaken as long as wakeupTimeInCycles has this value.
@@ -218,6 +217,8 @@ struct ThreadContext {
 
     ThreadContext() = delete;
     ThreadContext(ThreadContext&) = delete;
+
+    explicit ThreadContext(uint8_t idInCore);
 };
 
 // Largest number of Arachne threads that can be simultaneously created on each
@@ -260,6 +261,9 @@ extern thread_local std::atomic<MaskAndCount> *localOccupiedAndCount;
   */
 inline uint64_t
 random(void) {
+    // TODO(hq6): Add an #ifdef TEST and read "random" values out of a vector if
+    // there are any under testing circumstances.
+
     // This function came from the following site.
     // http://stackoverflow.com/a/1640399/391161
     //
@@ -385,10 +389,14 @@ void threadDestroy();
 void mainThreadJoinPool();
 void yield();
 void sleep(uint64_t ns);
-void block();
+void dispatch();
 void signal(ThreadId id);
 void join(ThreadId id);
 ThreadId getThreadId();
+
+inline void block() {
+    dispatch();
+}
 
 } // namespace Arachne
 
