@@ -13,17 +13,17 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "Arachne.h"
 #include <thread>
 #include "Cycles.h"
 #include "gtest/gtest.h"
+#include "Arachne.h"
 
 namespace Arachne {
 
 struct ArachneTest : public ::testing::Test {
     virtual void SetUp()
     {
-        Arachne::numCores = 2;
+        Arachne::numCores = 3;
         Arachne::threadInit();
     }
 
@@ -74,61 +74,11 @@ TEST_F(ArachneTest, SpinLock_lockUnlock) {
     EXPECT_EQ(0, flag);
 }
 
-//TODO: Change class names in locks to Capital
 TEST_F(ArachneTest, SpinLock_tryLock) {
     mutex.lock();
     EXPECT_FALSE(mutex.try_lock());
     mutex.unlock();
     EXPECT_TRUE(mutex.try_lock());
-    mutex.unlock();
-}
-
-// Helper function for condition variable tests.
-static void
-waiter() {
-    mutex.lock();
-    while (!numWaitedOn)
-        cv.wait(mutex);
-    numWaitedOn--;
-    mutex.unlock();
-}
-
-// TODO: For isomorphism, move these to match locations of implementation, not declaration.
-TEST_F(ArachneTest, conditionVariable_notifyOne) {
-    numWaitedOn = 0;
-    createThread(0, waiter);
-    createThread(0, waiter);
-    EXPECT_EQ(2, Arachne::occupiedAndCount[0].load().numOccupied);
-    EXPECT_EQ(3, Arachne::occupiedAndCount[0].load().occupied);
-    numWaitedOn = 2;
-    mutex.lock();
-    cv.notifyOne();
-    mutex.unlock();
-    limitedTimeWait([]() -> bool {return numWaitedOn != 2;});
-    // We test for GE here because it is possible that one of the two threads
-    // ran after numWaitedOn = 2 was set, which means it would not wait at all.
-    EXPECT_GE(1, numWaitedOn);
-    mutex.lock();
-    cv.notifyOne();
-    mutex.unlock();
-    limitedTimeWait([]() -> bool {return numWaitedOn != 1;});
-    EXPECT_EQ(0, numWaitedOn);
-}
-
-TEST_F(ArachneTest, conditionVariable_notifyAll) {
-    mutex.lock();
-    numWaitedOn = 0;
-    for (int i = 0; i < 10; i++)
-        createThread(0, waiter);
-    numWaitedOn = 5;
-    cv.notifyAll();
-    mutex.unlock();
-    limitedTimeWait([]()-> bool {
-            return Arachne::occupiedAndCount[0].load().numOccupied <= 5;});
-    mutex.lock();
-    EXPECT_EQ(0, numWaitedOn);
-    numWaitedOn = 5;
-    cv.notifyAll();
     mutex.unlock();
 }
 
@@ -181,8 +131,27 @@ TEST_F(ArachneTest, createThread_withArgs) {
     threadCreationIndicator = 0;
 }
 
-// TODO: Add a test for searching for an unoccupied slot. Make sure it finds the expected slot.
-// Where numOccupied starts out greater than 0.
+TEST_F(ArachneTest, createThread_findCorrectSlot) {
+    // Seed the occupiedAndCount with some values first
+    occupiedAndCount[0] = {0b1011, 3};
+    EXPECT_EQ(3, Arachne::occupiedAndCount[0].load().numOccupied);
+    EXPECT_EQ(0b1011, Arachne::occupiedAndCount[0].load().occupied);
+
+    createThread(0, setFlagForCreation, 2);
+    EXPECT_EQ(4, Arachne::occupiedAndCount[0].load().numOccupied);
+    EXPECT_EQ(0b1111, Arachne::occupiedAndCount[0].load().occupied);
+    EXPECT_EQ(0, threadCreationIndicator);
+    threadCreationIndicator = 1;
+    limitedTimeWait([]()->bool { return threadCreationIndicator != 1; });
+    EXPECT_EQ(2, threadCreationIndicator);
+    threadCreationIndicator = 0;
+
+    limitedTimeWait(
+            []()->bool { return occupiedAndCount[0].load().numOccupied != 4; });
+
+    // Clear out the seeded occupiedAndCount
+    occupiedAndCount[0] = {0, 0};
+}
 
 TEST_F(ArachneTest, createThread_maxThreadsExceeded) {
     for (int i = 0; i < Arachne::maxThreadsPerCore; i++)
@@ -195,22 +164,37 @@ TEST_F(ArachneTest, createThread_maxThreadsExceeded) {
     threadCreationIndicator = 0;
 }
 
-// TODO: Test to make sure that the public createThread picks the right core.
-// Can test 223 case with RNG.
+TEST_F(ArachneTest, createThread_pickLeastLoaded) {
+    mockRandomValues.push_back(0);
+    mockRandomValues.push_back(0);
+    mockRandomValues.push_back(1);
+    createThread(clearFlag);
+    EXPECT_EQ(1, Arachne::occupiedAndCount[1].load().numOccupied);
+    EXPECT_EQ(1, Arachne::occupiedAndCount[1].load().occupied);
+    threadCreationIndicator = 1;
+
+    limitedTimeWait(
+            []()->bool { return occupiedAndCount[1].load().numOccupied == 0; });
+
+    mockRandomValues.push_back(0);
+    mockRandomValues.push_back(1);
+    occupiedAndCount[1] = {0b1011, 3};
+    createThread(clearFlag);
+    EXPECT_EQ(1, Arachne::occupiedAndCount[0].load().numOccupied);
+    EXPECT_EQ(1, Arachne::occupiedAndCount[0].load().occupied);
+    threadCreationIndicator = 1;
+    occupiedAndCount[1] = {0, 0};
+}
 
 void* cacheAlignAlloc(size_t size);
 
 TEST_F(ArachneTest, cacheAlignAlloc) {
-    // Multiple of alignment size
-    // TODO: Do not give it CACHE_LINE_SIZE in this test.
-    // Pick arguments that reduce the likelihood of broken code getting lucky.
-    void* ptr = cacheAlignAlloc(CACHE_LINE_SIZE);
+    void* ptr = cacheAlignAlloc(7);
     EXPECT_EQ(0, reinterpret_cast<uint64_t>(ptr) & (CACHE_LINE_SIZE - 1));
     free(ptr);
     ptr = cacheAlignAlloc(63);
     EXPECT_EQ(0, reinterpret_cast<uint64_t>(ptr) & (CACHE_LINE_SIZE - 1));
     free(ptr);
-
 }
 
 extern std::vector<void*> kernelThreadStacks;
@@ -230,7 +214,7 @@ TEST_F(ArachneTest, threadMain) {
     *localOccupiedAndCount = {0, 0};
 }
 
-// TODO: Comment briefly on why these exist .
+// These file-scope variables are used to test swapcontext.
 static const size_t testStackSize = 256;
 static char stack[testStackSize];
 static void* stackPointer;
@@ -267,10 +251,15 @@ checkSchedulerState() {
     EXPECT_EQ(1, localOccupiedAndCount->load().occupied);
 }
 
-// TODO: Check a few more state variables after the thread has exited.
-// We can poll on the occupied flag before checking state variables.
 TEST_F(ArachneTest, schedulerMainLoop) {
     createThread(0, checkSchedulerState);
+    limitedTimeWait(
+            []()->bool { return occupiedAndCount[0].load().numOccupied == 0; });
+
+    //TODO(hq6): Update this test to check for the new sentinel value on a dead
+    //thread instead.
+    EXPECT_EQ(~0L, activeLists[0]->wakeupTimeInCycles);
+    EXPECT_EQ(2, activeLists[0]->generation);
 }
 
 static volatile int keepYielding;
@@ -442,7 +431,7 @@ TEST_F(ArachneTest, parseOptions_noOptions) {
     Arachne::threadInit(&argc, &argv);
     EXPECT_EQ(3, argc);
     EXPECT_EQ(originalArgv, argv);
-    EXPECT_EQ(2, numCores);
+    EXPECT_EQ(3, numCores);
     EXPECT_EQ(1024 * 1024, stackSize);
 }
 
@@ -500,6 +489,54 @@ TEST_F(ArachneTest, parseOptions_appOptionsOnly) {
     Arachne::threadInit(&argc, &argv);
     EXPECT_EQ(3, argc);
     EXPECT_EQ(originalArgv, argv);
+}
+
+// Helper function for condition variable tests.
+static void
+waiter() {
+    mutex.lock();
+    while (!numWaitedOn)
+        cv.wait(mutex);
+    numWaitedOn--;
+    mutex.unlock();
+}
+
+TEST_F(ArachneTest, ConditionVariable_notifyOne) {
+    numWaitedOn = 0;
+    createThread(0, waiter);
+    createThread(0, waiter);
+    EXPECT_EQ(2, Arachne::occupiedAndCount[0].load().numOccupied);
+    EXPECT_EQ(3, Arachne::occupiedAndCount[0].load().occupied);
+    numWaitedOn = 2;
+    mutex.lock();
+    cv.notifyOne();
+    mutex.unlock();
+    limitedTimeWait([]() -> bool {return numWaitedOn != 2;});
+    // We test for GE here because it is possible that one of the two threads
+    // ran after numWaitedOn = 2 was set, which means it would not wait at all.
+    EXPECT_GE(1, numWaitedOn);
+    mutex.lock();
+    cv.notifyOne();
+    mutex.unlock();
+    limitedTimeWait([]() -> bool {return numWaitedOn != 1;});
+    EXPECT_EQ(0, numWaitedOn);
+}
+
+TEST_F(ArachneTest, ConditionVariable_notifyAll) {
+    mutex.lock();
+    numWaitedOn = 0;
+    for (int i = 0; i < 10; i++)
+        createThread(0, waiter);
+    numWaitedOn = 5;
+    cv.notifyAll();
+    mutex.unlock();
+    limitedTimeWait([]()-> bool {
+            return Arachne::occupiedAndCount[0].load().numOccupied <= 5;});
+    mutex.lock();
+    EXPECT_EQ(0, numWaitedOn);
+    numWaitedOn = 5;
+    cv.notifyAll();
+    mutex.unlock();
 }
 
 } // namespace Arachne
