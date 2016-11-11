@@ -255,14 +255,22 @@ struct MaskAndCount{
 extern std::atomic<MaskAndCount> *occupiedAndCount;
 extern thread_local std::atomic<MaskAndCount> *localOccupiedAndCount;
 
+#ifdef TEST
+std::deque<uint64_t> mockRandomValues;
+#endif
 /**
   * A random number generator from the Internet that returns 64-bit integers.
   * It is used for selecting candidate cores to create threads on.
   */
 inline uint64_t
 random(void) {
-    // TODO(hq6): Add an #ifdef TEST and read "random" values out of a vector if
-    // there are any under testing circumstances.
+#ifdef TEST
+    if (!mockRandomValues.empty()) {
+        uint64_t returnValue = mockRandomValues.front();
+        mockRandomValues.pop_front();
+        return returnValue;
+    }
+#endif
 
     // This function came from the following site.
     // http://stackoverflow.com/a/1640399/391161
