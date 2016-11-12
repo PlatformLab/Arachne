@@ -90,7 +90,7 @@ thread_local int kernelThreadId;
 /**
   * This is the context that a given kernel thread is currently executing.
   */
-thread_local ThreadContext *runningContext;
+thread_local ThreadContext *loadedContext;
 
 /**
   * See documentation for MaskAndCount.
@@ -138,7 +138,7 @@ threadMain(int kId) {
 
     PerfUtils::Util::pinThreadToCore(kId);
 
-    runningContext = activeList;
+    loadedContext = activeList;
 
     // Transfers control to the Arachne dispatcher.
     // This context has been pre-initialized by threadInit so it will "return"
@@ -146,7 +146,7 @@ threadMain(int kId) {
     // This call will return iff threadDestroy is called from the main thread
     // and the main thread never joined the Arachne thread pool. This situation
     // normally occurs only in unit tests.
-    swapcontext(&runningContext->sp, &kernelThreadStacks[kId]);
+    swapcontext(&loadedContext->sp, &kernelThreadStacks[kId]);
 }
 
 /**
@@ -204,19 +204,19 @@ schedulerMainLoop() {
         // been assigned a new Arachne thread.
         dispatch();
         reinterpret_cast<ThreadInvocationEnabler*>(
-                &runningContext->threadInvocation)->runThread();
+                &loadedContext->threadInvocation)->runThread();
         // The thread has exited.
         // Cancel any wakeups the thread may have scheduled for itself before
         // exiting.
-        runningContext->wakeupTimeInCycles = ~0L;
+        loadedContext->wakeupTimeInCycles = UNOCCUPIED;
+
+        // Bump the generation number for the next newborn thread.
+        loadedContext->generation++;
         {
+
             // Handle joins
-            std::lock_guard<SpinLock> joinGuard(runningContext->joinLock);
-            runningContext->joinCV.notifyAll();
-            // Bump the generation number for the next newborn thread.
-            // This should logically be done inside createThread, but by
-            // putting it here, we can take the joinLock in only one place.
-            runningContext->generation++;
+            std::lock_guard<SpinLock> joinGuard(loadedContext->joinLock);
+            loadedContext->joinCV.notifyAll();
         }
 
         // The code below clears the occupied flag for the current
@@ -234,7 +234,7 @@ schedulerMainLoop() {
             slotMap.numOccupied--;
 
             slotMap.occupied &=
-                ~(1L << runningContext->idInCore) & 0x00FFFFFFFFFFFFFF;
+                ~(1L << loadedContext->idInCore) & 0x00FFFFFFFFFFFFFF;
             success = localOccupiedAndCount->compare_exchange_strong(
                     oldSlotMap,
                     slotMap);
@@ -250,7 +250,7 @@ schedulerMainLoop() {
 void
 yield() {
     // This thread is still runnable since it is merely yielding.
-    runningContext->wakeupTimeInCycles = 0;
+    loadedContext->wakeupTimeInCycles = 0L;
     dispatch();
 }
 
@@ -259,7 +259,7 @@ yield() {
   */
 void
 sleep(uint64_t ns) {
-    runningContext->wakeupTimeInCycles =
+    loadedContext->wakeupTimeInCycles =
         Cycles::rdtsc() + Cycles::fromNanoseconds(ns);
     dispatch();
 }
@@ -270,7 +270,7 @@ sleep(uint64_t ns) {
   */
 ThreadId
 getThreadId() {
-    return ThreadId(runningContext, runningContext->generation);
+    return ThreadId(loadedContext, loadedContext->generation);
 }
 
 /**
@@ -298,7 +298,7 @@ dispatch() {
             if (shutdown)
                 swapcontext(
                         &kernelThreadStacks[kernelThreadId],
-                        &runningContext->sp);
+                        &loadedContext->sp);
         }
         // Optimize to eliminate unoccupied contexts
         if (!(mask & 1))
@@ -309,16 +309,16 @@ dispatch() {
             nextCandidateIndex = currentIndex + 1;
             if (nextCandidateIndex == maxThreadsPerCore) nextCandidateIndex = 0;
 
-            if (currentContext == runningContext) {
-                runningContext->wakeupTimeInCycles = ~0L;
+            if (currentContext == loadedContext) {
+                loadedContext->wakeupTimeInCycles = BLOCKED;
                 return;
             }
-            void** saved = &runningContext->sp;
-            runningContext = currentContext;
-            swapcontext(&runningContext->sp, saved);
+            void** saved = &loadedContext->sp;
+            loadedContext = currentContext;
+            swapcontext(&loadedContext->sp, saved);
             // After the old context is swapped out above, this line executes
             // in the new context.
-            runningContext->wakeupTimeInCycles = ~0L;
+            loadedContext->wakeupTimeInCycles = BLOCKED;
             return;
         }
     }
@@ -333,8 +333,15 @@ dispatch() {
  */
 void
 signal(ThreadId id) {
-    if (id.generation == id.context->generation)
-        id.context->wakeupTimeInCycles = 0L;
+    uint64_t oldWakeupTime = id.context->wakeupTimeInCycles;
+    if (oldWakeupTime != UNOCCUPIED) {
+        // We do the CAS in assembly because we do not want to pay for the
+        // extra memory fences for ordinary stores that std::atomic adds.
+        uint64_t newValue = 0L;
+        __asm__ __volatile__("lock; cmpxchgq %0,%1" : "=r" (newValue), 
+                "=m" (id.context->wakeupTimeInCycles),
+                "=a" (oldWakeupTime) : "0" (newValue), "2" (oldWakeupTime));
+    }
 }
 
 /**
@@ -456,7 +463,7 @@ ThreadContext::ThreadContext(uint8_t idInCore)
     : stack(malloc(stackSize))
     , sp(reinterpret_cast<char*>(stack) +
             stackSize - 2*sizeof(void*))
-    , wakeupTimeInCycles(~0L)
+    , wakeupTimeInCycles(UNOCCUPIED)
     , generation(1)
     , joinLock()
     , joinCV()
@@ -634,7 +641,7 @@ ConditionVariable::wait(SpinLock& lock) {
     TimeTrace::record("Wait on Core %d", kernelThreadId);
 #endif
     blockedThreads.push_back(
-            ThreadId(runningContext, runningContext->generation));
+            ThreadId(loadedContext, loadedContext->generation));
     lock.unlock();
     dispatch();
 #if TIME_TRACE
