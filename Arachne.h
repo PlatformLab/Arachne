@@ -232,12 +232,23 @@ const int maxThreadsPerCore = 56;
   */
 const size_t SpaceForSavedRegisters = 48;
 
+/**
+  * This is the value for wakeupTimeInCycles when a live thread is blocked.
+  */
+const uint64_t BLOCKED = ~0L;
+
+/**
+  * This is the value for wakeupTimeInCycles when a ThreadContext is not
+  * hosting a thread.
+  */
+const uint64_t UNOCCUPIED = ~0L - 1;
+
 void schedulerMainLoop();
 void swapcontext(void **saved, void **target);
 void threadMain(int id);
 
 extern thread_local int kernelThreadId;
-extern thread_local ThreadContext *runningContext;
+extern thread_local ThreadContext *loadedContext;
 extern thread_local ThreadContext *activeList;
 extern std::vector<ThreadContext*> activeLists;
 

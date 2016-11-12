@@ -201,7 +201,7 @@ extern std::vector<void*> kernelThreadStacks;
 
 void
 threadMainHelper() {
-    swapcontext(&kernelThreadStacks[kernelThreadId], &runningContext->sp);
+    swapcontext(&kernelThreadStacks[kernelThreadId], &loadedContext->sp);
 }
 
 TEST_F(ArachneTest, threadMain) {
@@ -246,7 +246,7 @@ TEST_F(ArachneTest, swapContext) {
 // Helper method for schedulerMainLoop
 void
 checkSchedulerState() {
-    EXPECT_EQ(~0L, runningContext->wakeupTimeInCycles);
+    EXPECT_EQ(BLOCKED, loadedContext->wakeupTimeInCycles);
     EXPECT_EQ(1, localOccupiedAndCount->load().numOccupied);
     EXPECT_EQ(1, localOccupiedAndCount->load().occupied);
 }
@@ -258,7 +258,7 @@ TEST_F(ArachneTest, schedulerMainLoop) {
 
     //TODO(hq6): Update this test to check for the new sentinel value on a dead
     //thread instead.
-    EXPECT_EQ(~0L, activeLists[0]->wakeupTimeInCycles);
+    EXPECT_EQ(UNOCCUPIED, activeLists[0]->wakeupTimeInCycles);
     EXPECT_EQ(2, activeLists[0]->generation);
 }
 
@@ -340,7 +340,7 @@ TEST_F(ArachneTest, sleep_wakeupTimeSetAndCleared) {
     flag = 0;
     createThread(0, simplesleeper);
     limitedTimeWait([]()->bool { return flag; });
-    EXPECT_EQ(~0L, Arachne::activeLists[0]->wakeupTimeInCycles);
+    EXPECT_EQ(BLOCKED, Arachne::activeLists[0]->wakeupTimeInCycles);
     flag = 0;
 }
 
@@ -371,7 +371,7 @@ TEST_F(ArachneTest, signal) {
         reinterpret_cast<ThreadContext*>(
                 malloc(sizeof(Arachne::ThreadContext)));
     tempContext->generation = 0;
-    tempContext->wakeupTimeInCycles = ~0L;
+    tempContext->wakeupTimeInCycles = BLOCKED;
     Arachne::signal(ThreadId(tempContext, 0));
     EXPECT_EQ(0, tempContext->wakeupTimeInCycles);
 }
