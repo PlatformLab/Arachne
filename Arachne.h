@@ -178,7 +178,7 @@ struct ThreadInvocation : public ThreadInvocationEnabler {
  */
 struct ThreadContext {
     // Keep a reference to the original memory allocation for the stack used by
-    // this threadContext so that we can release the memory in threadDestroy.
+    // this threadContext so that we can release the memory in shutDown.
     void* stack;
 
     // This holds the value that rsp, the stack pointer register, will be set
@@ -404,8 +404,8 @@ createThread(_Callable&& __f, _Args&&... __args) {
 }
 
 void threadInit(int* argcp = NULL, const char*** argvp = NULL);
-void threadDestroy();
-void mainThreadJoinPool();
+void shutDown();
+void waitForTermination();
 void yield();
 void sleep(uint64_t ns);
 void dispatch();
