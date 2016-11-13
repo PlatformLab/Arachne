@@ -29,7 +29,8 @@ struct ArachneTest : public ::testing::Test {
 
     virtual void TearDown()
     {
-        Arachne::threadDestroy();
+        shutDown();
+        waitForTermination();
     }
 };
 
@@ -42,7 +43,7 @@ static void limitedTimeWait(std::function<bool()> condition) {
         }
         usleep(1000);
     }
-    // We use assert here because an infinite loop will result in threadDestroy
+    // We use assert here because an infinite loop will result in TearDown
     // not being able to complete, so we might as well terminate the tests here.
     ASSERT_TRUE(condition());
 }
@@ -423,7 +424,8 @@ TEST_F(ArachneTest, parseOptions_noOptions) {
     // Since Google Test requires all tests by the same name to either use or
     // not use the fixture, we must de-initialize so that we can initialize
     // again to test argument parsing.
-    Arachne::threadDestroy();
+    shutDown();
+    waitForTermination();
 
     int argc = 3;
     const char* originalArgv[] = {"ArachneTest", "foo", "bar"};
@@ -437,7 +439,8 @@ TEST_F(ArachneTest, parseOptions_noOptions) {
 
 TEST_F(ArachneTest, parseOptions_shortOptions) {
     // See comment in parseOptions_noOptions
-    Arachne::threadDestroy();
+    shutDown();
+    waitForTermination();
 
     int argc = 5;
     const char* originalArgv[] = {"ArachneTest", "-c", "3", "-s", "2048"};
@@ -451,7 +454,8 @@ TEST_F(ArachneTest, parseOptions_shortOptions) {
 
 TEST_F(ArachneTest, parseOptions_longOptions) {
     // See comment in parseOptions_noOptions
-    Arachne::threadDestroy();
+    shutDown();
+    waitForTermination();
 
     int argc = 5;
     const char* originalArgv[] =
@@ -466,7 +470,8 @@ TEST_F(ArachneTest, parseOptions_longOptions) {
 
 TEST_F(ArachneTest, parseOptions_mixedOptions) {
     // See comment in parseOptions_noOptions
-    Arachne::threadDestroy();
+    shutDown();
+    waitForTermination();
 
     int argc = 8;
     const char* originalArgv[] =
@@ -480,7 +485,8 @@ TEST_F(ArachneTest, parseOptions_mixedOptions) {
 
 TEST_F(ArachneTest, parseOptions_appOptionsOnly) {
     // See comment in parseOptions_noOptions
-    Arachne::threadDestroy();
+    shutDown();
+    waitForTermination();
 
     int argc = 3;
     const char* originalArgv[] =

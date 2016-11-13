@@ -365,19 +365,34 @@ join(ThreadId id) {
 }
 
 /**
- * This is a special function to allow the main kernel thread to join the
- * thread pool after seeding at least one initial Arachne thread. It must be
- * the last statement in the main function since it never returns.
- */
-void
-mainThreadJoinPool() {
-    /*
-     * An alternative way of enabling the main thread to join the pool is to change
-     * threadInit to take a real main function as an argument, and have the
-     * standard main invoke only threadInit. Under such an implementation,
-     * threadInit would never return.
-     */
-    threadMain(numCores - 1);
+  * This function must be called by the main application thread and will block
+  * until Arachne terminates via a call to shutDown().
+  *
+  * Upon termination, this function tears down all state created by threadInit,
+  * and restores the state of the system to the time before threadInit is
+  * called.
+  */
+void waitForTermination() {
+    for (size_t i = 0; i < kernelThreads.size(); i++) {
+        kernelThreads[i].join();
+    }
+    kernelThreads.clear();
+
+    // We now assume that all threads are done executing.
+    PerfUtils::Util::serialize();
+
+    free(occupiedAndCount);
+    for (size_t i = 0; i < numCores; i++) {
+        for (int k = 0; k < maxThreadsPerCore; k++) {
+            free(activeLists[i][k].stack);
+            activeLists[i][k].joinLock.~SpinLock();
+            activeLists[i][k].joinCV.~ConditionVariable();
+        }
+        free(activeLists[i]);
+    }
+    activeLists.clear();
+    PerfUtils::Util::serialize();
+    initialized = false;
 }
 
 /**
@@ -534,67 +549,25 @@ threadInit(int* argcp, const char*** argvp) {
     // begin to use it in a new thread.
     PerfUtils::Util::serialize();
 
-    // We only loop to numCores - 1 to leave one core for the main thread to
-    // run on.
-    for (unsigned int i = 0; i < numCores - 1; i++) {
+    // Note that the main thread is not part of the thread pool.
+    for (unsigned int i = 0; i < numCores; i++) {
         // These threads are started with threadMain instead of
         // schedulerMainLoop because we want schedulerMainLoop to run on a user
         // stack rather than a kernel-provided stack
         kernelThreads.emplace_back(threadMain, i);
     }
-
-    // Set the kernelThreadId for the main thread.
-    // This is necessary to enable the original main function to schedule
-    // Arachne threads onto its own core before the main thread joins the
-    // thread pool.
-    kernelThreadId = numCores - 1;
 }
 
 /**
-  * This function tears down all state created by threadInit, and restores the
-  * state of the system to the time before threadInit is called.
-  *
-  * It is primarily used in testing, and only works in the absence of new
-  * thread creations. It should be invoked only from a thread not managed by
-  * Arachne.
+  * This function asks Arachne to shut down at the earliest opportunity, even
+  * if there are still threads to run. The actual state cleanup is done in
+  * waitForTermination, so this function can be called from any Arachne or
+  * non-Arachne thread.
   */
 void
-threadDestroy() {
-    // Wait for all contexts to finish executing
-    while (true) {
-        bool quiescent = true;
-        for (size_t i = 0; i < numCores; i++) {
-            MaskAndCount slotMap = occupiedAndCount[i];
-            if (slotMap.numOccupied > 0) {
-                quiescent = false;
-                break;
-            }
-        }
-        if (quiescent)
-            break;
-    }
-    // Join the kernel threads.
+shutDown() {
+    // Tell all the kernel threads to terminate at the first opportunity.
     shutdown = true;
-    for (size_t i = 0; i < kernelThreads.size(); i++) {
-        kernelThreads[i].join();
-    }
-    kernelThreads.clear();
-
-    // We now assume that all threads are done executing.
-    PerfUtils::Util::serialize();
-
-    free(occupiedAndCount);
-    for (size_t i = 0; i < numCores; i++) {
-        for (int k = 0; k < maxThreadsPerCore; k++) {
-            free(activeLists[i][k].stack);
-            activeLists[i][k].joinLock.~SpinLock();
-            activeLists[i][k].joinCV.~ConditionVariable();
-        }
-        free(activeLists[i]);
-    }
-    activeLists.clear();
-    PerfUtils::Util::serialize();
-    initialized = false;
 }
 
 ConditionVariable::ConditionVariable()
