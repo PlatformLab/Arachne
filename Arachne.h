@@ -403,7 +403,7 @@ createThread(_Callable&& __f, _Args&&... __args) {
     return createThread(kId, __f, __args...);
 }
 
-void threadInit(int* argcp = NULL, const char*** argvp = NULL);
+void threadInit(int* argcp = NULL, const char** argv = NULL);
 void shutDown();
 void waitForTermination();
 void yield();
