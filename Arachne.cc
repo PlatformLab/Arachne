@@ -398,7 +398,6 @@ void waitForTermination() {
   * This function parses out the arguments intended for the thread library from
   * a command line, and adjusts the values of argc and argv to eliminate the
   * arguments that the thread library consumed.
-  * TODO: Rewrite this argument parsing manually to look for thread library options and ignore library options.
   */
 void
 parseOptions(int* argcp, const char** argv) {
@@ -406,11 +405,19 @@ parseOptions(int* argcp, const char** argv) {
 
     int argc = *argcp;
 
-//    static struct option longOptions[] = {
-//        {"numCores", required_argument, NULL, 'c'},
-//        {"stackSize", required_argument, NULL, 's'},
-//        {0, 0, 0, 0}
-//    };
+    struct OptionSpecifier {
+        // The string that the user uses after `--`.
+        const char* optionName;
+        // The id for the option that is returned when it is recognized.
+        int id;
+        // Does the option take an argument?
+        bool takesArgument;
+    } optionSpecifiers[] = {
+        {"numCores", 'c', true},
+        {"stackSize", 's', true}
+    };
+    const int UNRECOGNIZED = ~0;
+
     int i = 1;
     while (i < argc) {
         if (argv[i][0] != '-' || argv[i][1] != '-') {
@@ -418,28 +425,39 @@ parseOptions(int* argcp, const char** argv) {
             continue;
         }
         const char* optionName = argv[i] + 2;
-        if (strncmp("numCores", optionName, strlen("numCores")) == 0) {
-            if (i + 1 >= argc) {
-                fprintf(stderr,
-                        "Mandatory argument to numCores option missing!\n");
+        int optionId = UNRECOGNIZED;
+        const char* optionArgument = NULL;
+
+        for (size_t k = 0; k < sizeof(optionSpecifiers) / sizeof(OptionSpecifier); k++) {
+            const char* candidateName = optionSpecifiers[k].optionName;
+            bool needsArg = optionSpecifiers[k].takesArgument;
+            if (strncmp(candidateName, optionName, strlen(candidateName)) == 0) {
+                if (needsArg) {
+                    if (i + 1 >= argc) {
+                        fprintf(stderr, "Missing argument to option %s!\n", candidateName);
+                        break;
+                    }
+                    optionArgument = argv[i+1];
+                    optionId = optionSpecifiers[k].id;
+                    argc -= 2;
+                    memmove(argv + i, argv + i + 2, (argc - i) * sizeof(char*));
+                } else {
+                    optionId = optionSpecifiers[k].id;
+                    argc -= 1;
+                    memmove(argv + i, argv + i + 1, (argc - i) * sizeof(char*));
+                }
                 break;
             }
-            numCores = atoi(argv[i+1]);
-            // TODO(hq6): Refactor it also to avoid duplicated code for options
-            // with arguments.
-            argc -= 2;
-            memmove(argv + i, argv + i + 2, (argc - i) * sizeof(char*));
-        } else if (strncmp("stackSize", optionName, strlen("stackSize")) == 0) {
-            if (i + 1 >= argc) {
-                fprintf(stderr,
-                        "Mandatory argument to stackSize option missing!\n");
+        }
+        switch (optionId) {
+            case 'c':
+                numCores = atoi(optionArgument);
                 break;
-            }
-            stackSize = atoi(argv[i+1]);
-            argc -= 2;
-            memmove(argv + i, argv + i + 2, (argc - i) * sizeof(char*));
-        } else { // Application option
-            i++;
+            case 's':
+                stackSize = atoi(optionArgument);
+                break;
+            case UNRECOGNIZED:
+                i++;
         }
     }
     *argcp = argc;
