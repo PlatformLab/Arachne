@@ -16,7 +16,6 @@
 #include "Arachne.h"
 #include <stdio.h>
 #include <string.h>
-#include <getopt.h>
 #include <thread>
 #include "Cycles.h"
 #include "TimeTrace.h"
@@ -399,79 +398,51 @@ void waitForTermination() {
   * This function parses out the arguments intended for the thread library from
   * a command line, and adjusts the values of argc and argv to eliminate the
   * arguments that the thread library consumed.
-  *
-  * Here are valid sequences of arguments in argv, and the final state of argv.
-  *
-  * 1. Library options followed by '--' followed by application options.
-  *        ApplicationName <libraryOptionA> <libraryOptionB> -- <applicationOptionA>...
-  *
-  *    Argv after the call:
-  *        ApplicationName <applicationOptionA>...
-  *
-  * 2. Library options only.
-  *        ApplicationName <libraryOptionA> <libraryOptionB>
-  *
-  *    Argv after the call:
-  *        ApplicationName
-  *
-  * 3. Application options only.
-  *        ApplicationName <applicationOptionA> <applicationOptionB>...
-  *    Argv after the call:
-  *        ApplicationName <applicationOptionA> <applicationOptionB>...
- */
+  * TODO: Rewrite this argument parsing manually to look for thread library options and ignore library options.
+  */
 void
-parseOptions(int* argcp, const char*** argvp) {
+parseOptions(int* argcp, const char** argv) {
     if (argcp == NULL) return;
 
-    // Disable printing to stderr when we see an unrecognized option, since
-    // options that aren't recognized by us may still be recognized by the
-    // application.
-    opterr = 0;
-
     int argc = *argcp;
-    char* const * argv = const_cast<char* const*>(*argvp);
-    int option;
-    static struct option longOptions[] = {
-        {"numCores", required_argument, NULL, 'c'},
-        {"stackSize", required_argument, NULL, 's'},
-        {0, 0, 0, 0}
-    };
-    while (1) {
-        /* getopt_long stores the option index here. */
-        int optionIndex = 0;
-        option = getopt_long(argc, argv, "+c:s:", longOptions, &optionIndex);
-        if (option == -1)
-            break;
-        if (option == '?') { // Unrecognized option, let application handle it
-            // Reverse the increment of optind, which still happens when we
-            // encounter an unrecognized option.
-            optind--;
-            break;
+
+//    static struct option longOptions[] = {
+//        {"numCores", required_argument, NULL, 'c'},
+//        {"stackSize", required_argument, NULL, 's'},
+//        {0, 0, 0, 0}
+//    };
+    int i = 1;
+    while (i < argc) {
+        if (argv[i][0] != '-' || argv[i][1] != '-') {
+            i++;
+            continue;
         }
-        switch (option) {
-            case 'c':
-                numCores = atoi(optarg);
+        const char* optionName = argv[i] + 2;
+        if (strncmp("numCores", optionName, strlen("numCores")) == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr,
+                        "Mandatory argument to numCores option missing!\n");
                 break;
-            case 's':
-                stackSize = atoi(optarg);
+            }
+            numCores = atoi(argv[i+1]);
+            // TODO(hq6): Refactor it also to avoid duplicated code for options
+            // with arguments.
+            argc -= 2;
+            memmove(argv + i, argv + i + 2, (argc - i) * sizeof(char*));
+        } else if (strncmp("stackSize", optionName, strlen("stackSize")) == 0) {
+            if (i + 1 >= argc) {
+                fprintf(stderr,
+                        "Mandatory argument to stackSize option missing!\n");
                 break;
-            default:
-                fprintf(stderr, "Unrecognized option %d found!\n", option);
-                abort();
+            }
+            stackSize = atoi(argv[i+1]);
+            argc -= 2;
+            memmove(argv + i, argv + i + 2, (argc - i) * sizeof(char*));
+        } else { // Application option
+            i++;
         }
     }
-    *argcp -= optind - 1;
-    *argvp += optind - 1;
-    // Move the program's name to one position before the unparsed options, so
-    // the application's argument parser will be able to look at an argc, argv
-    // pair that looks like it never contained Arachne options.
-    **argvp = *argv;
-
-    // Reset optind to 0, so that the application can have a clean state in
-    // case it wants to use getopt also.
-    optind = 0;
-    // Restore error reporting to getopts
-    opterr = 1;
+    *argcp = argc;
 }
 
 ThreadContext::ThreadContext(uint8_t idInCore)
@@ -518,15 +489,14 @@ ThreadContext::ThreadContext(uint8_t idInCore)
  * remaining arguments.
  */
 void
-threadInit(int* argcp, const char*** argvp) {
+threadInit(int* argcp, const char** argv) {
     if (initialized)
         return;
     initialized = true;
-    parseOptions(argcp, argvp);
+    parseOptions(argcp, argv);
 
     if (numCores == 0)
         numCores = std::thread::hardware_concurrency();
-
     occupiedAndCount = reinterpret_cast<std::atomic<Arachne::MaskAndCount>* >(
             cacheAlignAlloc(sizeof(MaskAndCount) * numCores));
     memset(occupiedAndCount, 0, sizeof(MaskAndCount) * numCores);

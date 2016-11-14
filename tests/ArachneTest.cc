@@ -430,26 +430,11 @@ TEST_F(ArachneTest, parseOptions_noOptions) {
     int argc = 3;
     const char* originalArgv[] = {"ArachneTest", "foo", "bar"};
     const char** argv = originalArgv;
-    Arachne::threadInit(&argc, &argv);
+    Arachne::threadInit(&argc, argv);
     EXPECT_EQ(3, argc);
     EXPECT_EQ(originalArgv, argv);
     EXPECT_EQ(3, numCores);
     EXPECT_EQ(1024 * 1024, stackSize);
-}
-
-TEST_F(ArachneTest, parseOptions_shortOptions) {
-    // See comment in parseOptions_noOptions
-    shutDown();
-    waitForTermination();
-
-    int argc = 5;
-    const char* originalArgv[] = {"ArachneTest", "-c", "3", "-s", "2048"};
-    const char** argv = originalArgv;
-    Arachne::threadInit(&argc, &argv);
-    EXPECT_EQ(1, argc);
-    EXPECT_EQ(originalArgv + 4, argv);
-    EXPECT_EQ(3, numCores);
-    EXPECT_EQ(stackSize, 2048);
 }
 
 TEST_F(ArachneTest, parseOptions_longOptions) {
@@ -458,14 +443,13 @@ TEST_F(ArachneTest, parseOptions_longOptions) {
     waitForTermination();
 
     int argc = 5;
-    const char* originalArgv[] =
+    const char* argv[] =
         {"ArachneTest", "--numCores", "5", "--stackSize", "4096"};
-    const char** argv = originalArgv;
-    Arachne::threadInit(&argc, &argv);
+    Arachne::threadInit(&argc, argv);
     EXPECT_EQ(1, argc);
-    EXPECT_EQ(originalArgv + 4, argv);
     EXPECT_EQ(5, numCores);
     EXPECT_EQ(stackSize, 4096);
+    EXPECT_EQ(numCores, 5);
 }
 
 TEST_F(ArachneTest, parseOptions_mixedOptions) {
@@ -473,14 +457,16 @@ TEST_F(ArachneTest, parseOptions_mixedOptions) {
     shutDown();
     waitForTermination();
 
-    int argc = 8;
+    int argc = 7;
     const char* originalArgv[] =
-        {"ArachneTest", "-c", "2", "--stackSize", "2048", "--",
+        {"ArachneTest", "--appOptionB", "2", "--stackSize", "2048",
             "--appOptionA", "Argument"};
     const char** argv = originalArgv;
-    Arachne::threadInit(&argc, &argv);
-    EXPECT_EQ(3, argc);
-    EXPECT_EQ(originalArgv + 5, argv);
+    Arachne::threadInit(&argc, argv);
+    EXPECT_EQ(5, argc);
+    EXPECT_EQ(stackSize, 2048);
+    EXPECT_EQ("--appOptionB", argv[1]);
+    EXPECT_EQ("--appOptionA", argv[3]);
 }
 
 TEST_F(ArachneTest, parseOptions_appOptionsOnly) {
@@ -489,12 +475,9 @@ TEST_F(ArachneTest, parseOptions_appOptionsOnly) {
     waitForTermination();
 
     int argc = 3;
-    const char* originalArgv[] =
-        {"ArachneTest", "--appOptionA", "Argument"};
-    const char** argv = originalArgv;
-    Arachne::threadInit(&argc, &argv);
+    const char* argv[] = {"ArachneTest", "--appOptionA", "Argument"};
+    Arachne::threadInit(&argc, argv);
     EXPECT_EQ(3, argc);
-    EXPECT_EQ(originalArgv, argv);
 }
 
 // Helper function for condition variable tests.
