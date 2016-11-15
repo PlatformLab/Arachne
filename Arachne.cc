@@ -69,14 +69,14 @@ volatile bool shutdown;
 /**
   * The collection of possibly runnable contexts for each kernel thread.
   */
-std::vector<ThreadContext*> activeLists;
+std::vector<ThreadContext*> allThreadContexts;
 
 /**
-  * This pointer allows fast access to the current kernel thread's activeList
-  * without computing an offset from the global activeLists vector on each
+  * This pointer allows fast access to the current kernel thread's localThreadContexts
+  * without computing an offset from the global allThreadContexts vector on each
   * access.
   */
-thread_local ThreadContext* activeList;
+thread_local ThreadContext* localThreadContexts;
 
 /**
   * Holds the identifier for the thread in which it is stored: allows each
@@ -98,7 +98,7 @@ std::atomic<MaskAndCount> *occupiedAndCount;
 thread_local std::atomic<MaskAndCount> *localOccupiedAndCount;
 
 /**
-  * This variable holds the index into the current kernel thread's activeList
+  * This variable holds the index into the current kernel thread's localThreadContexts
   * that it will check first the next time it looks for a thread to run. It is
   * used to implement round-robin scheduling of Arachne threads.
   */
@@ -133,11 +133,11 @@ void
 threadMain(int kId) {
     kernelThreadId = kId;
     localOccupiedAndCount = &occupiedAndCount[kernelThreadId];
-    activeList = activeLists[kernelThreadId];
+    localThreadContexts = allThreadContexts[kernelThreadId];
 
     PerfUtils::Util::pinThreadToCore(kId);
 
-    loadedContext = activeList;
+    loadedContext = localThreadContexts;
 
     // Transfers control to the Arachne dispatcher.
     // This context has been pre-initialized by threadInit so it will "return"
@@ -303,7 +303,7 @@ dispatch() {
         if (!(mask & 1))
             continue;
 
-        ThreadContext* currentContext = &activeList[currentIndex];
+        ThreadContext* currentContext = &localThreadContexts[currentIndex];
         if (currentCycles >= currentContext->wakeupTimeInCycles) {
             nextCandidateIndex = currentIndex + 1;
             if (nextCandidateIndex == maxThreadsPerCore) nextCandidateIndex = 0;
@@ -383,13 +383,13 @@ void waitForTermination() {
     free(occupiedAndCount);
     for (size_t i = 0; i < numCores; i++) {
         for (int k = 0; k < maxThreadsPerCore; k++) {
-            free(activeLists[i][k].stack);
-            activeLists[i][k].joinLock.~SpinLock();
-            activeLists[i][k].joinCV.~ConditionVariable();
+            free(allThreadContexts[i][k].stack);
+            allThreadContexts[i][k].joinLock.~SpinLock();
+            allThreadContexts[i][k].joinCV.~ConditionVariable();
         }
-        free(activeLists[i]);
+        free(allThreadContexts[i]);
     }
-    activeLists.clear();
+    allThreadContexts.clear();
     PerfUtils::Util::serialize();
     initialized = false;
 }
@@ -428,13 +428,17 @@ parseOptions(int* argcp, const char** argv) {
         int optionId = UNRECOGNIZED;
         const char* optionArgument = NULL;
 
-        for (size_t k = 0; k < sizeof(optionSpecifiers) / sizeof(OptionSpecifier); k++) {
+        for (size_t k = 0;
+                k < sizeof(optionSpecifiers) / sizeof(OptionSpecifier); k++) {
             const char* candidateName = optionSpecifiers[k].optionName;
             bool needsArg = optionSpecifiers[k].takesArgument;
-            if (strncmp(candidateName, optionName, strlen(candidateName)) == 0) {
+            if (strncmp(candidateName,
+                        optionName, strlen(candidateName)) == 0) {
                 if (needsArg) {
                     if (i + 1 >= argc) {
-                        fprintf(stderr, "Missing argument to option %s!\n", candidateName);
+                        fprintf(stderr,
+                                "Missing argument to option %s!\n",
+                                candidateName);
                         break;
                     }
                     optionArgument = argv[i+1];
@@ -526,7 +530,7 @@ threadInit(int* argcp, const char** argv) {
         for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
             new (&contexts[k]) ThreadContext(k);
         }
-        activeLists.push_back(contexts);
+        allThreadContexts.push_back(contexts);
     }
 
     // Allocate space to store all the original kernel pointers
