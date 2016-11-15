@@ -391,7 +391,7 @@ createThread(_Callable&& __f, _Args&&... __args) {
     int kId;
     int choice1 = static_cast<int>(random()) % numCores;
     int choice2 = static_cast<int>(random()) % numCores;
-    while (choice2 == choice1)
+    while (choice2 == choice1 && numCores > 1)
         choice2 = static_cast<int>(random()) % numCores;
 
     if (occupiedAndCount[choice1].load().numOccupied <
