@@ -249,8 +249,8 @@ void threadMain(int id);
 
 extern thread_local int kernelThreadId;
 extern thread_local ThreadContext *loadedContext;
-extern thread_local ThreadContext *activeList;
-extern std::vector<ThreadContext*> activeLists;
+extern thread_local ThreadContext *localThreadContexts;
+extern std::vector<ThreadContext*> allThreadContexts;
 
 // This structure tracks the live threads on a single core.
 struct MaskAndCount{
@@ -358,11 +358,11 @@ createThread(int kId, _Callable&& __f, _Args&&... __args) {
     } while (!success);
 
     // Copy the thread invocation into the byte array.
-    new (&activeLists[kId][index].threadInvocation)
+    new (&allThreadContexts[kId][index].threadInvocation)
         Arachne::ThreadInvocation<decltype(task)>(task);
-    activeLists[kId][index].wakeupTimeInCycles = 0;
-    return ThreadId(&activeLists[kId][index],
-            activeLists[kId][index].generation);
+    allThreadContexts[kId][index].wakeupTimeInCycles = 0;
+    return ThreadId(&allThreadContexts[kId][index],
+            allThreadContexts[kId][index].generation);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
