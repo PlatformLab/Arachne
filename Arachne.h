@@ -267,7 +267,7 @@ extern std::atomic<MaskAndCount> *occupiedAndCount;
 extern thread_local std::atomic<MaskAndCount> *localOccupiedAndCount;
 
 #ifdef TEST
-std::deque<uint64_t> mockRandomValues;
+static std::deque<uint64_t> mockRandomValues;
 #endif
 /**
   * A random number generator from the Internet that returns 64-bit integers.
