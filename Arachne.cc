@@ -135,8 +135,6 @@ threadMain(int kId) {
     localOccupiedAndCount = &occupiedAndCount[kernelThreadId];
     localThreadContexts = allThreadContexts[kernelThreadId];
 
-    PerfUtils::Util::pinThreadToCore(kId);
-
     loadedContext = localThreadContexts;
 
     // Transfers control to the Arachne dispatcher.
