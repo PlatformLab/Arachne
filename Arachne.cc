@@ -17,8 +17,8 @@
 #include <stdio.h>
 #include <string.h>
 #include <thread>
-#include "TimeTrace.h"
-#include "Util.h"
+#include "../PerfUtils/TimeTrace.h"
+#include "../PerfUtils/Util.h"
 
 namespace Arachne {
 
