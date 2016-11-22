@@ -352,6 +352,15 @@ join(ThreadId id) {
     std::lock_guard<SpinLock> joinGuard(id.context->joinLock);
     // Thread has already exited.
     if (id.generation != id.context->generation) return;
+
+    // In order to satisfy unit tests where join is NOT called from an Arachne
+    // thread, we use a busy wait. Ideally, we should compile this out except
+    // during tests, but we do not currently have a mechanism for this.
+    if (localOccupiedAndCount == NULL) {
+        while (id.generation != id.context->generation);
+        return;
+    }
+
     id.context->joinCV.wait(id.context->joinLock);
 }
 
