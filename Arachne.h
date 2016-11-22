@@ -410,6 +410,8 @@ createThread(_Callable&& __f, _Args&&... __args) {
 void threadInit(int* argcp = NULL, const char** argv = NULL);
 void shutDown();
 void waitForTermination();
+void testInit();
+void testDestroy();
 void yield();
 void sleep(uint64_t ns);
 void dispatch();
