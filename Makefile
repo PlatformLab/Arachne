@@ -16,7 +16,7 @@ libArachne.a: Arachne.o
 Arachne.o:  Arachne.h
 
 %.o: %.cc
-	g++ $(CCFLAGS)  -O3 $(DEBUG) $(LIBS) -c -std=c++11 -o $@ $<
+	g++ $(CCFLAGS)  -O3 $(DEBUG) $(LIBS) -fPIC -c -std=c++11 -o $@ $<
 
 clean:
 	rm -f *.o *.a
