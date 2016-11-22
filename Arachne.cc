@@ -565,6 +565,7 @@ testInit() {
         // be used, and it can be optimized out if it turns out to be too
         // expensive.
         new (&localThreadContexts[k]) ThreadContext(k);
+        localThreadContexts[k].wakeupTimeInCycles = BLOCKED;
     }
     loadedContext = localThreadContexts;
 }
