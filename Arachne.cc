@@ -352,12 +352,7 @@ join(ThreadId id) {
     std::lock_guard<SpinLock> joinGuard(id.context->joinLock);
     // Thread has already exited.
     if (id.generation != id.context->generation) return;
-    MaskAndCount slotMap = *localOccupiedAndCount;
-    // The thread we are waiting for has already exited, so we can return
-    // immediately.
-    if (!(slotMap.occupied & (1L << id.context->idInCore))) return;
     id.context->joinCV.wait(id.context->joinLock);
-    return;
 }
 
 /**
