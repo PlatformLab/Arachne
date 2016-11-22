@@ -24,7 +24,7 @@
 #include <atomic>
 #include <queue>
 
-#include "Cycles.h"
+#include "../PerfUtils/Cycles.h"
 #include "Common.h"
 
 namespace Arachne {
