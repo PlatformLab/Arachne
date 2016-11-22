@@ -111,6 +111,7 @@ class ConditionVariable {
     void notifyOne();
     void notifyAll();
     void wait(SpinLock& lock);
+    void waitFor(SpinLock& lock, uint64_t ns);
  private:
     // Ordered collection of threads that are waiting on this condition
     // variable. Threads are processed from this list in FIFO order when a

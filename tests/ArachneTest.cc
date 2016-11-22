@@ -528,4 +528,17 @@ TEST_F(ArachneTest, ConditionVariable_notifyAll) {
     mutex.unlock();
 }
 
+static void
+timedWaiter() {
+    mutex.lock();
+    cv.waitFor(mutex, 80000);
+    numWaitedOn--;
+}
+
+TEST_F(ArachneTest, ConditionVariable_waitFor) {
+    numWaitedOn = 1;
+    createThread(0, timedWaiter);
+    limitedTimeWait([]() -> bool {return numWaitedOn != 1;});
+    EXPECT_EQ(0, numWaitedOn);
+}
 } // namespace Arachne

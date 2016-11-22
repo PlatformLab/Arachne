@@ -612,4 +612,24 @@ ConditionVariable::wait(SpinLock& lock) {
 #endif
     lock.lock();
 }
+
+/**
+  * Block the current thread until the condition variable is notified or at
+  * least ns nanoseconds has passed.
+  *
+  * \param lock
+  *     The mutex associated with this condition variable; must be held by
+  *     caller before calling wait. This function releases the mutex before
+  *     blocking, and re-acquires it before returning to the user.
+  */
+void
+ConditionVariable::waitFor(SpinLock& lock, uint64_t ns) {
+    blockedThreads.push_back(
+            ThreadId(loadedContext, loadedContext->generation));
+    lock.unlock();
+    loadedContext->wakeupTimeInCycles =
+        Cycles::rdtsc() + Cycles::fromNanoseconds(ns);
+    dispatch();
+    lock.lock();
+}
 } // namespace Arachne
