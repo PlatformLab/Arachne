@@ -543,6 +543,47 @@ threadInit(int* argcp, const char** argv) {
 }
 
 /**
+  * This function should be invoked in unit test setup to make Arachne
+  * functions callable from the unit test, which is not an Arachne thread.
+  *
+  * This function sets up just enough state to allow the current thread to
+  * execute unit tests which call Arachne functions.
+  * We assume that the unit tests are run from the main kernel thread which
+  * will never swap out when running the dispatch() loop.
+  */
+void
+testInit() {
+    kernelThreadId = numCores;
+    localOccupiedAndCount = reinterpret_cast<std::atomic<Arachne::MaskAndCount>* >(
+            cacheAlignAlloc(sizeof(MaskAndCount)));
+    memset(occupiedAndCount, 0, sizeof(MaskAndCount));
+
+    localThreadContexts = reinterpret_cast<ThreadContext*>(
+            cacheAlignAlloc(sizeof(ThreadContext) * maxThreadsPerCore));
+    for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
+        // Technically, this allocates a bunch of user stacks which will never
+        // be used, and it can be optimized out if it turns out to be too
+        // expensive.
+        new (&localThreadContexts[k]) ThreadContext(k);
+    }
+    loadedContext = localThreadContexts;
+}
+
+/**
+  * This function should be invoked in unit test teardown to clean up the state
+  * that makes Arachne functions callable from the unit test.
+  */
+void testDestroy() {
+    free(localOccupiedAndCount);
+    for (int k = 0; k < maxThreadsPerCore; k++) {
+        free(localThreadContexts[k].stack);
+        localThreadContexts[k].joinLock.~SpinLock();
+        localThreadContexts[k].joinCV.~ConditionVariable();
+    }
+    free(localThreadContexts);
+}
+
+/**
   * This function asks Arachne to shut down at the earliest opportunity, even
   * if there are still threads to run. The actual state cleanup is done in
   * waitForTermination, so this function can be called from any Arachne or
