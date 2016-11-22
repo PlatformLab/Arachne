@@ -568,6 +568,7 @@ testInit() {
         localThreadContexts[k].wakeupTimeInCycles = BLOCKED;
     }
     loadedContext = localThreadContexts;
+    *localOccupiedAndCount = {1,1};
 }
 
 /**
