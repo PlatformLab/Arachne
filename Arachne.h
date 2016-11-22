@@ -24,9 +24,12 @@
 #include <atomic>
 #include <queue>
 
+#include "Cycles.h"
 #include "Common.h"
 
 namespace Arachne {
+
+using PerfUtils::Cycles;
 
 // Forward declare to break circular dependency between ThreadContext and
 // ConditionVariable
@@ -110,8 +113,8 @@ class ConditionVariable {
     ~ConditionVariable();
     void notifyOne();
     void notifyAll();
-    void wait(SpinLock& lock);
-    void waitFor(SpinLock& lock, uint64_t ns);
+    template <typename LockType> void wait(LockType& lock);
+    template <typename LockType> void waitFor(LockType& lock, uint64_t ns);
  private:
     // Ordered collection of threads that are waiting on this condition
     // variable. Threads are processed from this list in FIFO order when a
@@ -416,6 +419,50 @@ ThreadId getThreadId();
 
 inline void block() {
     dispatch();
+}
+
+/**
+  * Block the current thread until the condition variable is notified.
+  *
+  * \param lock
+  *     The mutex associated with this condition variable; must be held by
+  *     caller before calling wait. This function releases the mutex before
+  *     blocking, and re-acquires it before returning to the user.
+  
+  */
+template <typename LockType> void
+ConditionVariable::wait(LockType& lock) {
+#if TIME_TRACE
+    TimeTrace::record("Wait on Core %d", kernelThreadId);
+#endif
+    blockedThreads.push_back(
+            ThreadId(loadedContext, loadedContext->generation));
+    lock.unlock();
+    dispatch();
+#if TIME_TRACE
+    TimeTrace::record("About to acquire lock after waking up");
+#endif
+    lock.lock();
+}
+
+/**
+  * Block the current thread until the condition variable is notified or at
+  * least ns nanoseconds has passed.
+  *
+  * \param lock
+  *     The mutex associated with this condition variable; must be held by
+  *     caller before calling wait. This function releases the mutex before
+  *     blocking, and re-acquires it before returning to the user.
+  */
+template <typename LockType> void
+ConditionVariable::waitFor(LockType& lock, uint64_t ns) {
+    blockedThreads.push_back(
+            ThreadId(loadedContext, loadedContext->generation));
+    lock.unlock();
+    loadedContext->wakeupTimeInCycles =
+        Cycles::rdtsc() + Cycles::fromNanoseconds(ns);
+    dispatch();
+    lock.lock();
 }
 
 } // namespace Arachne

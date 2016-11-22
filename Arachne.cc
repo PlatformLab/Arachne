@@ -17,7 +17,6 @@
 #include <stdio.h>
 #include <string.h>
 #include <thread>
-#include "Cycles.h"
 #include "TimeTrace.h"
 #include "Util.h"
 
@@ -587,49 +586,5 @@ void
 ConditionVariable::notifyAll() {
     while (!blockedThreads.empty())
         notifyOne();
-}
-
-/**
-  * Block the current thread until the condition variable is notified.
-  *
-  * \param lock
-  *     The mutex associated with this condition variable; must be held by
-  *     caller before calling wait. This function releases the mutex before
-  *     blocking, and re-acquires it before returning to the user.
-  
-  */
-void
-ConditionVariable::wait(SpinLock& lock) {
-#if TIME_TRACE
-    TimeTrace::record("Wait on Core %d", kernelThreadId);
-#endif
-    blockedThreads.push_back(
-            ThreadId(loadedContext, loadedContext->generation));
-    lock.unlock();
-    dispatch();
-#if TIME_TRACE
-    TimeTrace::record("About to acquire lock after waking up");
-#endif
-    lock.lock();
-}
-
-/**
-  * Block the current thread until the condition variable is notified or at
-  * least ns nanoseconds has passed.
-  *
-  * \param lock
-  *     The mutex associated with this condition variable; must be held by
-  *     caller before calling wait. This function releases the mutex before
-  *     blocking, and re-acquires it before returning to the user.
-  */
-void
-ConditionVariable::waitFor(SpinLock& lock, uint64_t ns) {
-    blockedThreads.push_back(
-            ThreadId(loadedContext, loadedContext->generation));
-    lock.unlock();
-    loadedContext->wakeupTimeInCycles =
-        Cycles::rdtsc() + Cycles::fromNanoseconds(ns);
-    dispatch();
-    lock.lock();
 }
 } // namespace Arachne
