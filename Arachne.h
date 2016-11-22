@@ -460,9 +460,9 @@ template <typename LockType> void
 ConditionVariable::waitFor(LockType& lock, uint64_t ns) {
     blockedThreads.push_back(
             ThreadId(loadedContext, loadedContext->generation));
-    lock.unlock();
     loadedContext->wakeupTimeInCycles =
         Cycles::rdtsc() + Cycles::fromNanoseconds(ns);
+    lock.unlock();
     dispatch();
     lock.lock();
 }
