@@ -39,7 +39,8 @@ struct ThreadContext;
 extern volatile uint32_t numCores;
 
 /**
-  * This structure is used to identify an Arachne thread to methods of the Arachne API.
+  * This structure is used to identify an Arachne thread to methods of the
+  * Arachne API.
   */
 struct ThreadId {
     // The storage where this thread's state is held.

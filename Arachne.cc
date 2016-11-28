@@ -71,9 +71,9 @@ volatile bool shutdown;
 std::vector<ThreadContext*> allThreadContexts;
 
 /**
-  * This pointer allows fast access to the current kernel thread's localThreadContexts
-  * without computing an offset from the global allThreadContexts vector on each
-  * access.
+  * This pointer allows fast access to the current kernel thread's
+  * localThreadContexts without computing an offset from the global
+  * allThreadContexts vector on each access.
   */
 thread_local ThreadContext* localThreadContexts;
 
@@ -97,9 +97,10 @@ std::atomic<MaskAndCount> *occupiedAndCount;
 thread_local std::atomic<MaskAndCount> *localOccupiedAndCount;
 
 /**
-  * This variable holds the index into the current kernel thread's localThreadContexts
-  * that it will check first the next time it looks for a thread to run. It is
-  * used to implement round-robin scheduling of Arachne threads.
+  * This variable holds the index into the current kernel thread's
+  * localThreadContexts that it will check first the next time it looks for a
+  * thread to run. It is used to implement round-robin scheduling of Arachne
+  * threads.
   */
 thread_local size_t nextCandidateIndex = 0;
 
@@ -554,7 +555,8 @@ threadInit(int* argcp, const char** argv) {
 void
 testInit() {
     kernelThreadId = numCores;
-    localOccupiedAndCount = reinterpret_cast<std::atomic<Arachne::MaskAndCount>* >(
+    localOccupiedAndCount =
+        reinterpret_cast<std::atomic<Arachne::MaskAndCount>* >(
             cacheAlignAlloc(sizeof(MaskAndCount)));
     memset(occupiedAndCount, 0, sizeof(MaskAndCount));
 
@@ -568,7 +570,7 @@ testInit() {
         localThreadContexts[k].wakeupTimeInCycles = BLOCKED;
     }
     loadedContext = localThreadContexts;
-    *localOccupiedAndCount = {1,1};
+    *localOccupiedAndCount = {1, 1};
 }
 
 /**
