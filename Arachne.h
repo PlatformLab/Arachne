@@ -24,6 +24,7 @@
 #include <deque>
 #include <atomic>
 #include <queue>
+#include <string>
 
 
 #include "../PerfUtils/Cycles.h"
@@ -96,14 +97,28 @@ inline void block() {
 class SpinLock {
  public:
     // Constructor and destructor for spinlock.
-    SpinLock() : state(false) {}
+    explicit SpinLock(std::string name) : state(false), name(name) {}
+    SpinLock() : state(false), name("unnamed") {}
     ~SpinLock(){}
 
     // Repeatedly try to acquire this resource until success.
     inline void
     lock() {
-        while (state.exchange(true, std::memory_order_acquire) != false)
+        uint64_t startOfContention = 0;
+        while (state.exchange(true, std::memory_order_acquire) != false) {
+            if (startOfContention == 0) {
+                startOfContention = Cycles::rdtsc();
+            } else {
+                uint64_t now = Cycles::rdtsc();
+                if (Cycles::toSeconds(now - startOfContention) > 1.0) {
+                    fprintf(errorStream,
+                            "%s SpinLock locked for one second; deadlock?\n",
+                            name.c_str());
+                    startOfContention = now;
+                }
+            }
             yield();
+        }
     }
 
     // Attempt to acquire this resource once.
@@ -126,6 +141,12 @@ class SpinLock {
  private:
     // Implements the lock: false means free, true means locked
     std::atomic<bool> state;
+
+    // Descriptive name for this SpinLock. Used to identify the purpose of
+    // the lock, what it protects, where it exists in the codebase, etc.
+    //
+    // Used to identify the lock when reporting a potential deadlock.
+    std::string name;
 };
 
 /**

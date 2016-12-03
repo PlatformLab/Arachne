@@ -75,6 +75,35 @@ TEST_F(ArachneTest, SpinLock_lockUnlock) {
     EXPECT_EQ(0, flag);
 }
 
+static void
+lockContender(SpinLock& lock) {
+    lock.lock();
+    lock.unlock();
+}
+
+TEST_F(ArachneTest, SpinLock_printWarning) {
+    Arachne::testInit();
+    char *str;
+    size_t size;
+    FILE* newStream = open_memstream(&str, &size);
+    setErrorStream(newStream);
+
+
+    SpinLock lock("SpinLockTest");
+    lock.lock();
+    Arachne::ThreadId contender = createThread(lockContender, std::ref(lock));
+    sleep(1E9 + 300);
+    lock.unlock();
+    join(contender);
+    Arachne::testDestroy();
+
+    fflush(newStream);
+    setErrorStream(stderr);
+    EXPECT_EQ("SpinLockTest SpinLock locked for one second; deadlock?\n",
+            std::string(str));
+    free(str);
+}
+
 TEST_F(ArachneTest, SpinLock_tryLock) {
     mutex.lock();
     EXPECT_FALSE(mutex.try_lock());
