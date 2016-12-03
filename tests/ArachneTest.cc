@@ -541,4 +541,16 @@ TEST_F(ArachneTest, ConditionVariable_waitFor) {
     limitedTimeWait([]() -> bool {return numWaitedOn != 1;});
     EXPECT_EQ(0, numWaitedOn);
 }
+
+TEST_F(ArachneTest, setErrorStream) {
+    char *str;
+    size_t size;
+    FILE* newStream = open_memstream(&str, &size);
+    setErrorStream(newStream);
+    fprintf(errorStream, "FooBar");
+    fflush(newStream);
+    setErrorStream(stderr);
+    EXPECT_EQ("FooBar", std::string(str));
+    free(str);
+}
 } // namespace Arachne

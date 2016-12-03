@@ -17,12 +17,14 @@
 #define ARACHNE_H_
 
 #include <assert.h>
+#include <stdio.h>
 #include <functional>
 #include <vector>
 #include <mutex>
 #include <deque>
 #include <atomic>
 #include <queue>
+
 
 #include "../PerfUtils/Cycles.h"
 #include "Common.h"
@@ -37,6 +39,9 @@ struct ThreadContext;
 
 // This is used in createThread.
 extern volatile uint32_t numCores;
+
+// Used in inline functions.
+extern FILE* errorStream;
 
 /**
   * This structure is used to identify an Arachne thread to methods of the
@@ -67,6 +72,7 @@ struct ThreadId {
     }
 };
 
+void setErrorStream(FILE* ptr);
 void threadInit(int* argcp = NULL, const char** argv = NULL);
 void shutDown();
 void waitForTermination();
