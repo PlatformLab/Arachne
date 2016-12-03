@@ -246,6 +246,7 @@ schedulerMainLoop() {
   */
 void
 yield() {
+    if (!loadedContext) return;
     // This thread is still runnable since it is merely yielding.
     loadedContext->wakeupTimeInCycles = 0L;
     dispatch();

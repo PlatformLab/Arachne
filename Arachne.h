@@ -67,6 +67,23 @@ struct ThreadId {
     }
 };
 
+void threadInit(int* argcp = NULL, const char** argv = NULL);
+void shutDown();
+void waitForTermination();
+void testInit();
+void testDestroy();
+void yield();
+void sleep(uint64_t ns);
+void dispatch();
+void signal(ThreadId id);
+void join(ThreadId id);
+ThreadId getThreadId();
+
+inline void block() {
+    dispatch();
+}
+
+
 /**
  * A resource that can be acquired by only one thread at a time.
  */
@@ -79,7 +96,8 @@ class SpinLock {
     // Repeatedly try to acquire this resource until success.
     inline void
     lock() {
-        while (state.exchange(true, std::memory_order_acquire) != false);
+        while (state.exchange(true, std::memory_order_acquire) != false)
+            yield();
     }
 
     // Attempt to acquire this resource once.
@@ -406,22 +424,6 @@ createThread(_Callable&& __f, _Args&&... __args) {
         kId = choice2;
 
     return createThread(kId, __f, __args...);
-}
-
-void threadInit(int* argcp = NULL, const char** argv = NULL);
-void shutDown();
-void waitForTermination();
-void testInit();
-void testDestroy();
-void yield();
-void sleep(uint64_t ns);
-void dispatch();
-void signal(ThreadId id);
-void join(ThreadId id);
-ThreadId getThreadId();
-
-inline void block() {
-    dispatch();
 }
 
 /**
