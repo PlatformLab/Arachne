@@ -138,6 +138,11 @@ class SpinLock {
         state.store(false, std::memory_order_release);
     }
 
+    inline void
+    setName(std::string name) {
+        this->name = name;
+    }
+
  private:
     // Implements the lock: false means free, true means locked
     std::atomic<bool> state;
