@@ -395,14 +395,13 @@ createThread(int kId, _Callable&& __f, _Args&&... __args) {
         MaskAndCount slotMap = occupiedAndCount[kId];
         MaskAndCount oldSlotMap = slotMap;
 
+        if (slotMap.numOccupied >= maxThreadsPerCore)
+            return NullThread;
+
         // Search for a non-occupied slot and attempt to reserve the slot
         index = 0;
         while ((slotMap.occupied & (1L << index)) && index < maxThreadsPerCore)
             index++;
-
-        if (index == maxThreadsPerCore) {
-            return NullThread;
-        }
 
         slotMap.occupied =
             (slotMap.occupied | (1L << index)) & 0x00FFFFFFFFFFFFFF;
