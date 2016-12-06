@@ -563,7 +563,6 @@ testInit() {
     localOccupiedAndCount =
         reinterpret_cast<std::atomic<Arachne::MaskAndCount>* >(
             cacheAlignAlloc(sizeof(MaskAndCount)));
-    memset(occupiedAndCount, 0, sizeof(MaskAndCount));
 
     localThreadContexts = reinterpret_cast<ThreadContext**>(
             cacheAlignAlloc(sizeof(ThreadContext*) * maxThreadsPerCore));
