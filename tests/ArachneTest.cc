@@ -92,7 +92,7 @@ TEST_F(ArachneTest, SpinLock_printWarning) {
     SpinLock lock("SpinLockTest");
     lock.lock();
     Arachne::ThreadId contender = createThread(lockContender, std::ref(lock));
-    sleep(1E9 + 300);
+    sleep(1E9 + 1000);
     lock.unlock();
     join(contender);
     Arachne::testDestroy();
@@ -138,7 +138,7 @@ TEST_F(ArachneTest, createThread_noArgs) {
     // structure of std::function
     EXPECT_EQ(reinterpret_cast<uint64_t>(clearFlag),
             *(reinterpret_cast<uint64_t*>(
-                    &Arachne::allThreadContexts[0]->threadInvocation) + 1));
+                    &Arachne::allThreadContexts[0][0]->threadInvocation) + 1));
     EXPECT_EQ(1, Arachne::occupiedAndCount[0].load().numOccupied);
     EXPECT_EQ(1, Arachne::occupiedAndCount[0].load().occupied);
     threadCreationIndicator = 1;
@@ -288,8 +288,8 @@ TEST_F(ArachneTest, schedulerMainLoop) {
 
     //TODO(hq6): Update this test to check for the new sentinel value on a dead
     //thread instead.
-    EXPECT_EQ(UNOCCUPIED, allThreadContexts[0]->wakeupTimeInCycles);
-    EXPECT_EQ(2, allThreadContexts[0]->generation);
+    EXPECT_EQ(UNOCCUPIED, allThreadContexts[0][0]->wakeupTimeInCycles);
+    EXPECT_EQ(2, allThreadContexts[0][0]->generation);
 }
 
 static volatile int keepYielding;
@@ -370,7 +370,7 @@ TEST_F(ArachneTest, sleep_wakeupTimeSetAndCleared) {
     flag = 0;
     createThread(0, simplesleeper);
     limitedTimeWait([]()->bool { return flag; });
-    EXPECT_EQ(BLOCKED, Arachne::allThreadContexts[0]->wakeupTimeInCycles);
+    EXPECT_EQ(BLOCKED, Arachne::allThreadContexts[0][0]->wakeupTimeInCycles);
     flag = 0;
 }
 
