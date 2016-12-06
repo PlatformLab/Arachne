@@ -71,14 +71,14 @@ volatile bool shutdown;
 /**
   * The collection of possibly runnable contexts for each kernel thread.
   */
-std::vector<ThreadContext*> allThreadContexts;
+std::vector<ThreadContext**> allThreadContexts;
 
 /**
   * This pointer allows fast access to the current kernel thread's
   * localThreadContexts without computing an offset from the global
   * allThreadContexts vector on each access.
   */
-thread_local ThreadContext* localThreadContexts;
+thread_local ThreadContext** localThreadContexts;
 
 /**
   * Holds the identifier for the thread in which it is stored: allows each
@@ -138,7 +138,7 @@ threadMain(int kId) {
     localOccupiedAndCount = &occupiedAndCount[kernelThreadId];
     localThreadContexts = allThreadContexts[kernelThreadId];
 
-    loadedContext = localThreadContexts;
+    loadedContext = localThreadContexts[0];
 
     // Transfers control to the Arachne dispatcher.
     // This context has been pre-initialized by threadInit so it will "return"
@@ -305,7 +305,7 @@ dispatch() {
         if (!(mask & 1))
             continue;
 
-        ThreadContext* currentContext = &localThreadContexts[currentIndex];
+        ThreadContext* currentContext = localThreadContexts[currentIndex];
         if (currentCycles >= currentContext->wakeupTimeInCycles) {
             nextCandidateIndex = currentIndex + 1;
             if (nextCandidateIndex == maxThreadsPerCore) nextCandidateIndex = 0;
@@ -380,9 +380,10 @@ void waitForTermination() {
     free(occupiedAndCount);
     for (size_t i = 0; i < numCores; i++) {
         for (int k = 0; k < maxThreadsPerCore; k++) {
-            free(allThreadContexts[i][k].stack);
-            allThreadContexts[i][k].joinLock.~SpinLock();
-            allThreadContexts[i][k].joinCV.~ConditionVariable();
+            free(allThreadContexts[i][k]->stack);
+            free(allThreadContexts[i][k]);
+            allThreadContexts[i][k]->joinLock.~SpinLock();
+            allThreadContexts[i][k]->joinCV.~ConditionVariable();
         }
         free(allThreadContexts[i]);
     }
@@ -522,10 +523,10 @@ threadInit(int* argcp, const char** argv) {
 
     for (unsigned int i = 0; i < numCores; i++) {
         // Here we will allocate all the thread contexts and stacks
-        ThreadContext *contexts = reinterpret_cast<ThreadContext*>(
-                cacheAlignAlloc(sizeof(ThreadContext) * maxThreadsPerCore));
+        ThreadContext **contexts = reinterpret_cast<ThreadContext**>(
+                cacheAlignAlloc(sizeof(ThreadContext*) * maxThreadsPerCore));
         for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
-            new (&contexts[k]) ThreadContext(k);
+            contexts[k] = new ThreadContext(k);
         }
         allThreadContexts.push_back(contexts);
     }
@@ -564,16 +565,16 @@ testInit() {
             cacheAlignAlloc(sizeof(MaskAndCount)));
     memset(occupiedAndCount, 0, sizeof(MaskAndCount));
 
-    localThreadContexts = reinterpret_cast<ThreadContext*>(
-            cacheAlignAlloc(sizeof(ThreadContext) * maxThreadsPerCore));
+    localThreadContexts = reinterpret_cast<ThreadContext**>(
+            cacheAlignAlloc(sizeof(ThreadContext*) * maxThreadsPerCore));
     for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
         // Technically, this allocates a bunch of user stacks which will never
         // be used, and it can be optimized out if it turns out to be too
         // expensive.
-        new (&localThreadContexts[k]) ThreadContext(k);
-        localThreadContexts[k].wakeupTimeInCycles = BLOCKED;
+        localThreadContexts[k] = new ThreadContext(k);
+        localThreadContexts[k]->wakeupTimeInCycles = BLOCKED;
     }
-    loadedContext = localThreadContexts;
+    loadedContext = *localThreadContexts;
     *localOccupiedAndCount = {1, 1};
 }
 
@@ -584,9 +585,10 @@ testInit() {
 void testDestroy() {
     free(localOccupiedAndCount);
     for (int k = 0; k < maxThreadsPerCore; k++) {
-        free(localThreadContexts[k].stack);
-        localThreadContexts[k].joinLock.~SpinLock();
-        localThreadContexts[k].joinCV.~ConditionVariable();
+        free(localThreadContexts[k]->stack);
+        free(localThreadContexts[k]);
+        localThreadContexts[k]->joinLock.~SpinLock();
+        localThreadContexts[k]->joinCV.~ConditionVariable();
     }
     free(localThreadContexts);
 }
