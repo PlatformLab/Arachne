@@ -96,7 +96,7 @@ thread_local ThreadContext *loadedContext;
 /**
   * See documentation for MaskAndCount.
   */
-std::atomic<MaskAndCount> *occupiedAndCount;
+std::vector<std::atomic<MaskAndCount> * > occupiedAndCount;
 thread_local std::atomic<MaskAndCount> *localOccupiedAndCount;
 
 /**
@@ -135,7 +135,7 @@ cacheAlignAlloc(size_t size) {
 void
 threadMain(int kId) {
     kernelThreadId = kId;
-    localOccupiedAndCount = &occupiedAndCount[kernelThreadId];
+    localOccupiedAndCount = occupiedAndCount[kernelThreadId];
     localThreadContexts = allThreadContexts[kernelThreadId];
 
     loadedContext = localThreadContexts[0];
@@ -143,9 +143,7 @@ threadMain(int kId) {
     // Transfers control to the Arachne dispatcher.
     // This context has been pre-initialized by threadInit so it will "return"
     // to the schedulerMainLoop.
-    // This call will return iff threadDestroy is called from the main thread
-    // and the main thread never joined the Arachne thread pool. This situation
-    // normally occurs only in unit tests.
+    // This call will return iff shutDown is called from the main thread.
     swapcontext(&loadedContext->sp, &kernelThreadStacks[kId]);
 }
 
@@ -377,17 +375,18 @@ void waitForTermination() {
     // We now assume that all threads are done executing.
     PerfUtils::Util::serialize();
 
-    free(occupiedAndCount);
     for (size_t i = 0; i < numCores; i++) {
         for (int k = 0; k < maxThreadsPerCore; k++) {
             free(allThreadContexts[i][k]->stack);
-            free(allThreadContexts[i][k]);
             allThreadContexts[i][k]->joinLock.~SpinLock();
             allThreadContexts[i][k]->joinCV.~ConditionVariable();
+            free(allThreadContexts[i][k]);
         }
-        free(allThreadContexts[i]);
+        delete[] allThreadContexts[i];
+        free(occupiedAndCount[i]);
     }
     allThreadContexts.clear();
+    occupiedAndCount.clear();
     PerfUtils::Util::serialize();
     initialized = false;
 }
@@ -517,16 +516,18 @@ threadInit(int* argcp, const char** argv) {
 
     if (numCores == 0)
         numCores = std::thread::hardware_concurrency();
-    occupiedAndCount = reinterpret_cast<std::atomic<Arachne::MaskAndCount>* >(
-            cacheAlignAlloc(sizeof(MaskAndCount) * numCores));
-    memset(occupiedAndCount, 0, sizeof(MaskAndCount) * numCores);
 
     for (unsigned int i = 0; i < numCores; i++) {
+        occupiedAndCount.push_back(
+                reinterpret_cast<std::atomic<Arachne::MaskAndCount>* >(
+                    cacheAlignAlloc(sizeof(MaskAndCount))));
+        memset(occupiedAndCount.back(), 0, sizeof(MaskAndCount));
         // Here we will allocate all the thread contexts and stacks
-        ThreadContext **contexts = reinterpret_cast<ThreadContext**>(
-                cacheAlignAlloc(sizeof(ThreadContext*) * maxThreadsPerCore));
+        ThreadContext **contexts = new ThreadContext*[maxThreadsPerCore];
         for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
-            contexts[k] = new ThreadContext(k);
+            contexts[k] = reinterpret_cast<ThreadContext*>(
+                    cacheAlignAlloc(sizeof(ThreadContext)));
+            new (contexts[k]) ThreadContext(k);
         }
         allThreadContexts.push_back(contexts);
     }
@@ -563,14 +564,16 @@ testInit() {
     localOccupiedAndCount =
         reinterpret_cast<std::atomic<Arachne::MaskAndCount>* >(
             cacheAlignAlloc(sizeof(MaskAndCount)));
+    memset(localOccupiedAndCount, 0, sizeof(MaskAndCount));
 
-    localThreadContexts = reinterpret_cast<ThreadContext**>(
-            cacheAlignAlloc(sizeof(ThreadContext*) * maxThreadsPerCore));
+    localThreadContexts = new ThreadContext*[maxThreadsPerCore];
     for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
         // Technically, this allocates a bunch of user stacks which will never
         // be used, and it can be optimized out if it turns out to be too
         // expensive.
-        localThreadContexts[k] = new ThreadContext(k);
+        localThreadContexts[k] = reinterpret_cast<ThreadContext*>(
+                cacheAlignAlloc(sizeof(ThreadContext)));
+        new (localThreadContexts[k]) ThreadContext(k);
         localThreadContexts[k]->wakeupTimeInCycles = BLOCKED;
     }
     loadedContext = *localThreadContexts;
@@ -585,11 +588,12 @@ void testDestroy() {
     free(localOccupiedAndCount);
     for (int k = 0; k < maxThreadsPerCore; k++) {
         free(localThreadContexts[k]->stack);
-        free(localThreadContexts[k]);
         localThreadContexts[k]->joinLock.~SpinLock();
         localThreadContexts[k]->joinCV.~ConditionVariable();
+
+        free(localThreadContexts[k]);
     }
-    free(localThreadContexts);
+    delete[] localThreadContexts;
 }
 
 /**

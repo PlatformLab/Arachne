@@ -318,7 +318,7 @@ struct MaskAndCount{
     uint8_t numOccupied : 8;
 };
 
-extern std::atomic<MaskAndCount> *occupiedAndCount;
+extern std::vector< std::atomic<MaskAndCount> *> occupiedAndCount;
 extern thread_local std::atomic<MaskAndCount> *localOccupiedAndCount;
 
 #ifdef TEST
@@ -392,7 +392,7 @@ createThread(int kId, _Callable&& __f, _Args&&... __args) {
         // Each iteration through this loop makes one attempt to enqueue the
         // task to the specified core. Multiple iterations are required only if
         // there is contention for the core's state variables.
-        MaskAndCount slotMap = occupiedAndCount[kId];
+        MaskAndCount slotMap = *occupiedAndCount[kId];
         MaskAndCount oldSlotMap = slotMap;
 
         if (slotMap.numOccupied >= maxThreadsPerCore)
@@ -407,7 +407,7 @@ createThread(int kId, _Callable&& __f, _Args&&... __args) {
             (slotMap.occupied | (1L << index)) & 0x00FFFFFFFFFFFFFF;
         slotMap.numOccupied++;
 
-        success = occupiedAndCount[kId].compare_exchange_strong(oldSlotMap,
+        success = occupiedAndCount[kId]->compare_exchange_strong(oldSlotMap,
                 slotMap);
     } while (!success);
 
@@ -448,8 +448,8 @@ createThread(_Callable&& __f, _Args&&... __args) {
     while (choice2 == choice1 && numCores > 1)
         choice2 = static_cast<int>(random()) % numCores;
 
-    if (occupiedAndCount[choice1].load().numOccupied <
-            occupiedAndCount[choice2].load().numOccupied)
+    if (occupiedAndCount[choice1]->load().numOccupied <
+            occupiedAndCount[choice2]->load().numOccupied)
         kId = choice1;
     else
         kId = choice2;
