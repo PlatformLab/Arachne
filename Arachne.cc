@@ -48,6 +48,7 @@ FILE* errorStream = stderr;
   * system.
   */
 volatile uint32_t numCores = 0;
+std::mutex coreChangeMutex;
 
 /**
   * Configurable maximum stack size for all threads.
@@ -371,6 +372,7 @@ void waitForTermination() {
         kernelThreads[i].join();
     }
     kernelThreads.clear();
+    kernelThreadStacks.clear();
 
     // We now assume that all threads are done executing.
     PerfUtils::Util::serialize();
@@ -533,7 +535,7 @@ threadInit(int* argcp, const char** argv) {
     }
 
     // Allocate space to store all the original kernel pointers
-    kernelThreadStacks.reserve(numCores);
+    kernelThreadStacks.resize(numCores);
     shutdown = false;
 
     // Ensure that data structure and stack allocation completes before we
@@ -643,5 +645,53 @@ ConditionVariable::notifyAll() {
   */
 void setErrorStream(FILE* stream) {
     errorStream = stream;
+}
+
+/**
+  * When Arachne needs to scale up its number of cores, this function should be
+  * invoked from the new kernel thread.
+  */
+void joinKernelThreadPool() {
+    // Allocate data structures, assign them to thread-local variable, and then
+    localOccupiedAndCount =
+        reinterpret_cast<std::atomic<Arachne::MaskAndCount>* >(
+            cacheAlignAlloc(sizeof(MaskAndCount)));
+
+    memset(localOccupiedAndCount, 0, sizeof(MaskAndCount));
+
+    localThreadContexts = new ThreadContext*[maxThreadsPerCore];
+    for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
+        // Technically, this allocates a bunch of user stacks which will never
+        // be used, and it can be optimized out if it turns out to be too
+        // expensive.
+        localThreadContexts[k] = reinterpret_cast<ThreadContext*>(
+                cacheAlignAlloc(sizeof(ThreadContext)));
+        new (localThreadContexts[k]) ThreadContext(k);
+    }
+
+    // Ensure that the memory above is properly allocated; prevent pipelining.
+    PerfUtils::Util::serialize();
+
+    // Take a mutex to exclude other threads from simultaneously trying to
+    // change the number of cores.
+    coreChangeMutex.lock();
+    occupiedAndCount.push_back(localOccupiedAndCount);
+    allThreadContexts.push_back(localThreadContexts);
+    kernelThreadStacks.push_back(NULL);
+    kernelThreadId = numCores++;
+    coreChangeMutex.unlock();
+
+    // See documentation in threadMain
+    loadedContext = localThreadContexts[0];
+    swapcontext(&loadedContext->sp, &kernelThreadStacks[kernelThreadId]);
+}
+
+/**
+  * This function can be called from any thread to increase the number of cores
+  * used by Arachne.
+  */
+void incrementCoreCount() {
+    std::lock_guard<std::mutex> _(coreChangeMutex);
+    kernelThreads.emplace_back(joinKernelThreadPool);
 }
 } // namespace Arachne
