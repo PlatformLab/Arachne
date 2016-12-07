@@ -40,6 +40,7 @@ struct ThreadContext;
 
 // This is used in createThread.
 extern volatile uint32_t numCores;
+extern volatile uint32_t maxNumCores;
 
 // Used in inline functions.
 extern FILE* errorStream;
