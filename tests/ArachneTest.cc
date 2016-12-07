@@ -459,7 +459,8 @@ TEST_F(ArachneTest, parseOptions_longOptions) {
 
     int argc = 7;
     const char* argv[] =
-        {"ArachneTest", "--numCores", "5", "--stackSize", "4096", "--maxNumCores", "6"};
+        {"ArachneTest", "--numCores", "5", "--stackSize", "4096",
+            "--maxNumCores", "6"};
     Arachne::threadInit(&argc, argv);
     EXPECT_EQ(1, argc);
     EXPECT_EQ(5, numCores);

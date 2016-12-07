@@ -739,6 +739,8 @@ void joinKernelThreadPool() {
 void incrementCoreCount() {
     std::lock_guard<std::mutex> _(coreChangeMutex);
     if (numCoresPrecursor < maxNumCores) {
+        fprintf(errorStream, "Number of cores increasing from %u to %u\n",
+                numCoresPrecursor, numCoresPrecursor + 1);
         kernelThreads.emplace_back(joinKernelThreadPool);
         numCoresPrecursor++;
     }
