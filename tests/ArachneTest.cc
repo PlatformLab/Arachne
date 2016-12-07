@@ -176,8 +176,8 @@ TEST_F(ArachneTest, createThread_findCorrectSlot) {
     EXPECT_EQ(2, threadCreationIndicator);
     threadCreationIndicator = 0;
 
-    limitedTimeWait(
-            []()->bool { return occupiedAndCount[0]->load().numOccupied != 4; });
+    limitedTimeWait([]()->bool {
+            return occupiedAndCount[0]->load().numOccupied != 4; });
 
     // Clear out the seeded occupiedAndCount
     *occupiedAndCount[0] = {0, 0};
@@ -204,7 +204,7 @@ TEST_F(ArachneTest, createThread_pickLeastLoaded) {
     threadCreationIndicator = 1;
 
     limitedTimeWait(
-            []()->bool { return occupiedAndCount[1]->load().numOccupied == 0; });
+            []()->bool { return occupiedAndCount[1]->load().numOccupied == 0;});
 
     mockRandomValues.push_back(0);
     mockRandomValues.push_back(1);
@@ -228,21 +228,6 @@ TEST_F(ArachneTest, cacheAlignAlloc) {
 }
 
 extern std::vector<void*> kernelThreadStacks;
-
-void
-threadMainHelper() {
-    swapcontext(&kernelThreadStacks[kernelThreadId], &loadedContext->sp);
-}
-
-TEST_F(ArachneTest, threadMain) {
-    createThread(1, threadMainHelper);
-    threadMain(1);
-    EXPECT_EQ(localThreadContexts, allThreadContexts[kernelThreadId]);
-    EXPECT_EQ(localOccupiedAndCount, occupiedAndCount[kernelThreadId]);
-    EXPECT_EQ(1, localOccupiedAndCount->load().numOccupied);
-    // Manually clean up the state that the schedulerMainLoop would do.
-    *localOccupiedAndCount = {0, 0};
-}
 
 // These file-scope variables are used to test swapcontext.
 static const size_t testStackSize = 256;
@@ -283,8 +268,8 @@ checkSchedulerState() {
 
 TEST_F(ArachneTest, schedulerMainLoop) {
     createThread(0, checkSchedulerState);
-    limitedTimeWait(
-            []()->bool { return occupiedAndCount[0]->load().numOccupied == 0; });
+    limitedTimeWait([]()->bool {
+            return occupiedAndCount[0]->load().numOccupied == 0; });
 
     //TODO(hq6): Update this test to check for the new sentinel value on a dead
     //thread instead.
@@ -581,5 +566,16 @@ TEST_F(ArachneTest, setErrorStream) {
     setErrorStream(stderr);
     EXPECT_EQ("FooBar", std::string(str));
     free(str);
+}
+
+TEST_F(ArachneTest, incrementCoreCount) {
+    void incrementCoreCount();
+
+    EXPECT_EQ(3, occupiedAndCount.size());
+    EXPECT_EQ(3, allThreadContexts.size());
+    incrementCoreCount();
+    limitedTimeWait([]() -> bool { return numCores > 3;});
+    EXPECT_EQ(4, occupiedAndCount.size());
+    EXPECT_EQ(4, allThreadContexts.size());
 }
 } // namespace Arachne
