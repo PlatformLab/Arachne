@@ -48,6 +48,31 @@ FILE* errorStream = stderr;
   * system.
   */
 volatile uint32_t numCores = 0;
+
+/**
+  * Since numCores is used during thread creation to select a core, it is not
+  * safe to increment its value until state has been set up for a new core,
+  * which happens asynchronously in a new kernel thread.
+  *
+  * However, there must be a way to prevent multiple threads from
+  * simultaneously attempting to scale up the number of cores before numCores
+  * is incremented. numCoresPrecursor serves this purpose, and represents the
+  * future value of numCores;
+  */
+volatile uint32_t numCoresPrecursor;
+
+/**
+  * The largest number of cores that Arachne is permitted to utilize.
+  * It is an invariant that maxNumCores >= numCores, but if the user explicitly
+  * sets both then numCores will push maxNumCores up to satisfy the invariant.
+  */
+volatile uint32_t maxNumCores = 0;
+
+/**
+  * Protect state related to changes in the number of cores, and prevents
+  * multiple threads from simultaneously attempting to change the number of
+  * cores.
+  */
 std::mutex coreChangeMutex;
 
 /**
@@ -107,6 +132,15 @@ thread_local std::atomic<MaskAndCount> *localOccupiedAndCount;
   * threads.
   */
 thread_local size_t nextCandidateIndex = 0;
+
+/**
+  * This quantity is used in the current heuristic for deciding that we need to
+  * scale up the number of cores.
+  * If we manage to find a runnable thread after less than this many iterations
+  * through the loop, then we should attempt to increase the number of cores.
+  */
+uint64_t CORE_INCREASE_THRESHOLD = 3;
+void incrementCoreCount();
 
 /**
   * Allocate a block of memory aligned at the beginning of a cache line.
@@ -286,7 +320,11 @@ dispatch() {
     uint64_t mask = localOccupiedAndCount->load().occupied >> currentIndex;
     uint64_t currentCycles = Cycles::rdtsc();
 
-    for (;;currentIndex++, mask >>= 1L) {
+    // Count the iterations it took us to find a runnable thread.
+    // Heuristically, if this number is very small, then we may want to ramp up
+    // the number of cores.
+    uint64_t numIterations = 0;
+    for (;;currentIndex++, mask >>= 1L, numIterations++) {
         if (mask == 0) {
             // We have reached the end of the threads, so we should go back to
             // the beginning.
@@ -306,6 +344,8 @@ dispatch() {
 
         ThreadContext* currentContext = localThreadContexts[currentIndex];
         if (currentCycles >= currentContext->wakeupTimeInCycles) {
+            if (numIterations < CORE_INCREASE_THRESHOLD)
+                incrementCoreCount();
             nextCandidateIndex = currentIndex + 1;
             if (nextCandidateIndex == maxThreadsPerCore) nextCandidateIndex = 0;
 
@@ -413,6 +453,7 @@ parseOptions(int* argcp, const char** argv) {
         bool takesArgument;
     } optionSpecifiers[] = {
         {"numCores", 'c', true},
+        {"maxNumCores", 'm', true},
         {"stackSize", 's', true}
     };
     const int UNRECOGNIZED = ~0;
@@ -455,6 +496,9 @@ parseOptions(int* argcp, const char** argv) {
         switch (optionId) {
             case 'c':
                 numCores = atoi(optionArgument);
+                break;
+            case 'm':
+                maxNumCores = atoi(optionArgument);
                 break;
             case 's':
                 stackSize = atoi(optionArgument);
@@ -518,6 +562,8 @@ threadInit(int* argcp, const char** argv) {
 
     if (numCores == 0)
         numCores = std::thread::hardware_concurrency();
+    numCoresPrecursor = numCores;
+    maxNumCores = std::max(numCores, maxNumCores);
 
     for (unsigned int i = 0; i < numCores; i++) {
         occupiedAndCount.push_back(
@@ -692,6 +738,9 @@ void joinKernelThreadPool() {
   */
 void incrementCoreCount() {
     std::lock_guard<std::mutex> _(coreChangeMutex);
-    kernelThreads.emplace_back(joinKernelThreadPool);
+    if (numCoresPrecursor < maxNumCores) {
+        kernelThreads.emplace_back(joinKernelThreadPool);
+        numCoresPrecursor++;
+    }
 }
 } // namespace Arachne

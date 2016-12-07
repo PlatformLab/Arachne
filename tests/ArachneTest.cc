@@ -24,6 +24,7 @@ struct ArachneTest : public ::testing::Test {
     virtual void SetUp()
     {
         Arachne::numCores = 3;
+        Arachne::maxNumCores = 3;
         Arachne::threadInit();
     }
 
@@ -456,14 +457,15 @@ TEST_F(ArachneTest, parseOptions_longOptions) {
     shutDown();
     waitForTermination();
 
-    int argc = 5;
+    int argc = 7;
     const char* argv[] =
-        {"ArachneTest", "--numCores", "5", "--stackSize", "4096"};
+        {"ArachneTest", "--numCores", "5", "--stackSize", "4096", "--maxNumCores", "6"};
     Arachne::threadInit(&argc, argv);
     EXPECT_EQ(1, argc);
     EXPECT_EQ(5, numCores);
     EXPECT_EQ(stackSize, 4096);
     EXPECT_EQ(numCores, 5);
+    EXPECT_EQ(Arachne::maxNumCores, 6);
 }
 
 TEST_F(ArachneTest, parseOptions_mixedOptions) {
@@ -571,6 +573,7 @@ TEST_F(ArachneTest, setErrorStream) {
 TEST_F(ArachneTest, incrementCoreCount) {
     void incrementCoreCount();
 
+    maxNumCores = 4;
     EXPECT_EQ(3, occupiedAndCount.size());
     EXPECT_EQ(3, allThreadContexts.size());
     incrementCoreCount();
