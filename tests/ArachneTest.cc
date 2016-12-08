@@ -574,6 +574,11 @@ TEST_F(ArachneTest, setErrorStream) {
 TEST_F(ArachneTest, incrementCoreCount) {
     void incrementCoreCount();
 
+    char *str;
+    size_t size;
+    FILE* newStream = open_memstream(&str, &size);
+    setErrorStream(newStream);
+
     maxNumCores = 4;
     EXPECT_EQ(3, occupiedAndCount.size());
     EXPECT_EQ(3, allThreadContexts.size());
@@ -581,5 +586,9 @@ TEST_F(ArachneTest, incrementCoreCount) {
     limitedTimeWait([]() -> bool { return numCores > 3;});
     EXPECT_EQ(4, occupiedAndCount.size());
     EXPECT_EQ(4, allThreadContexts.size());
+
+    fflush(newStream);
+    EXPECT_EQ("Number of cores increasing from 3 to 4\n", std::string(str));
+    free(str);
 }
 } // namespace Arachne
