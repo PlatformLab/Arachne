@@ -75,7 +75,7 @@ struct ThreadId {
 };
 
 void setErrorStream(FILE* ptr);
-void threadInit(int* argcp = NULL, const char** argv = NULL);
+void init(int* argcp = NULL, const char** argv = NULL);
 void shutDown();
 void waitForTermination();
 void testInit();
