@@ -25,7 +25,7 @@ struct ArachneTest : public ::testing::Test {
     {
         Arachne::numCores = 3;
         Arachne::maxNumCores = 3;
-        Arachne::threadInit();
+        Arachne::init();
     }
 
     virtual void TearDown()
@@ -301,7 +301,7 @@ bitSetter(int index) {
 
 TEST_F(ArachneTest, yield_secondThreadGotControl) {
     numCores = 2;
-    threadInit();
+    init();
     keepYielding = true;
     createThread(0, yielder);
 
@@ -316,7 +316,7 @@ TEST_F(ArachneTest, yield_secondThreadGotControl) {
 
 TEST_F(ArachneTest, yield_allThreadsRan) {
     Arachne::numCores = 2;
-    Arachne::threadInit();
+    Arachne::init();
     keepYielding = true;
     flag = 0;
 
@@ -346,13 +346,13 @@ simplesleeper() {
 
 TEST_F(ArachneTest, sleep_minimumDelay) {
     numCores = 2;
-    threadInit();
+    init();
     createThread(0, sleeper);
 }
 
 TEST_F(ArachneTest, sleep_wakeupTimeSetAndCleared) {
     Arachne::numCores = 2;
-    Arachne::threadInit();
+    Arachne::init();
     flag = 0;
     createThread(0, simplesleeper);
     limitedTimeWait([]()->bool { return flag; });
@@ -412,7 +412,7 @@ joinee2() {
 
 TEST_F(ArachneTest, join_afterTermination) {
     Arachne::numCores = 2;
-    Arachne::threadInit();
+    Arachne::init();
 
     // Since the joinee does not yield, we know that it terminated before the
     // joiner got a chance to run.
@@ -427,7 +427,7 @@ TEST_F(ArachneTest, join_afterTermination) {
 
 TEST_F(ArachneTest, join_DuringRun) {
     Arachne::numCores = 2;
-    Arachne::threadInit();
+    Arachne::init();
     joineeId = createThread(0, joinee2);
     createThread(0, joiner);
     limitedTimeWait([]() ->bool {
@@ -445,7 +445,7 @@ TEST_F(ArachneTest, parseOptions_noOptions) {
     int argc = 3;
     const char* originalArgv[] = {"ArachneTest", "foo", "bar"};
     const char** argv = originalArgv;
-    Arachne::threadInit(&argc, argv);
+    Arachne::init(&argc, argv);
     EXPECT_EQ(3, argc);
     EXPECT_EQ(originalArgv, argv);
     EXPECT_EQ(3, numCores);
@@ -461,7 +461,7 @@ TEST_F(ArachneTest, parseOptions_longOptions) {
     const char* argv[] =
         {"ArachneTest", "--numCores", "5", "--stackSize", "4096",
             "--maxNumCores", "6"};
-    Arachne::threadInit(&argc, argv);
+    Arachne::init(&argc, argv);
     EXPECT_EQ(1, argc);
     EXPECT_EQ(5, numCores);
     EXPECT_EQ(stackSize, 4096);
@@ -479,7 +479,7 @@ TEST_F(ArachneTest, parseOptions_mixedOptions) {
         {"ArachneTest", "--appOptionB", "2", "--stackSize", "2048",
             "--appOptionA", "Argument"};
     const char** argv = originalArgv;
-    Arachne::threadInit(&argc, argv);
+    Arachne::init(&argc, argv);
     EXPECT_EQ(5, argc);
     EXPECT_EQ(stackSize, 2048);
     EXPECT_EQ("--appOptionB", argv[1]);
@@ -493,7 +493,7 @@ TEST_F(ArachneTest, parseOptions_appOptionsOnly) {
 
     int argc = 3;
     const char* argv[] = {"ArachneTest", "--appOptionA", "Argument"};
-    Arachne::threadInit(&argc, argv);
+    Arachne::init(&argc, argv);
     EXPECT_EQ(3, argc);
 }
 
