@@ -44,7 +44,7 @@ the kernel, but this limitation is expected to go away in the next few months.
 
 2. Build the library with `make` in the top-level directory. 
 
-3. Write your application using the public Arachne API, documented [here](http://platformlab.github.io/Arachne).
+3. Write your application using the public Arachne API, documented [here](https://platformlab.github.io/Arachne/).
    The last call in your main function must be Arachne::waitForTermination() to
    ensure proper cleanup on application termination.
 
