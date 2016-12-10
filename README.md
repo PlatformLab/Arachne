@@ -13,10 +13,9 @@ offered load to a system's available resources by scheduling threads at user
 level, and performing coarse-grained core allocation at operating system level.
 
 Under this approach, the kernel needs not preemptively multiplex between
-threads without any awareness of what the application is doing, avoiding the
-overheads of slow context switches, priority inversion, and cache pollution
-from the threads of other processes.
-
+threads without any awareness of what the application is doing. This enables us
+to avoid the performance degradations caused by slow context switches, priority
+inversion, and cache pollution from the threads of other processes.
 
 ## What is Arachne?
 
