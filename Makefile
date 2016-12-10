@@ -18,12 +18,15 @@ Arachne.o:  Arachne.h
 %.o: %.cc
 	g++ $(CCFLAGS)  -O3 $(DEBUG) $(LIBS) -fPIC -c -std=c++11 -o $@ $<
 
-clean:
-	rm -f *.o *.a
-
 test: libArachne.a
 	make -C tests
 
 check:
 	./cpplint.py --filter=-runtime/threadsafe_fn,-readability/streams,-whitespace/blank_line,-whitespace/braces,-whitespace/comments,-runtime/arrays,-build/include_what_you_use,-whitespace/semicolon $(CHECK_TARGET)
 	! grep '.\{81\}' *.h *.cc
+
+docs:
+	doxygen Doxyfile
+
+clean:
+	rm -f *.o *.a
