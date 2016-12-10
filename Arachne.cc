@@ -364,13 +364,16 @@ dispatch() {
     }
 }
 
-/*
- * Make the thread referred to by ThreadId runnable.
- * If one thread exits and another is created between the check and the setting
- * of the wakeup flag, this signal will result in a spurious wake-up.
- * If this method is invoked on a currently running thread, it will have the
- * effect of causing the thread to immediately unblock the next time it blocks.
- */
+/**
+  * Make the thread referred to by ThreadId runnable.
+  * If one thread exits and another is created between the check and the setting
+  * of the wakeup flag, this signal will result in a spurious wake-up.
+  * If this method is invoked on a currently running thread, it will have the
+  * effect of causing the thread to immediately unblock the next time it blocks.
+  *
+  * \param id
+  *     The id of the thread to signal.
+  */
 void
 signal(ThreadId id) {
     uint64_t oldWakeupTime = id.context->wakeupTimeInCycles;
@@ -552,6 +555,23 @@ ThreadContext::ThreadContext(uint8_t idInCore)
  * Arachne will take configuration options from the command line specified by
  * argc and argv, and then update the values of argv and argc to reflect the
  * remaining arguments.
+ *
+ * Here are the current available options.
+ *
+ *     --numCores
+ *        The starting number of cores the application should use.
+ *     --maxNumCores
+ *        The largest number of core the appliation may use
+ *     --stackSize
+ *        The size of each user stack.
+ *
+ * \param argcp
+ *    The pointer to argc, the number of arguments passed to the application.
+ *    This pointer will be used to update argc after Arachne has consumed its
+ *    arguments.
+ * \param argv
+ *    The pointer to the command line argument array, which will be modiifed to
+ *    remove the options that Arachne recognizes.
  */
 void
 init(int* argcp, const char** argv) {

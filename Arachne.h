@@ -44,17 +44,29 @@ extern volatile uint32_t maxNumCores;
 
 // Used in inline functions.
 extern FILE* errorStream;
+void dispatch();
 
+/**
+ * \addtogroup api Arachne Public API
+ * @{
+ */
 /**
   * This structure is used to identify an Arachne thread to methods of the
   * Arachne API.
   */
 struct ThreadId {
-    // The storage where this thread's state is held.
+    /// The storage where this thread's state is held.
     ThreadContext* context;
-    // Differentiates this Arachne thread from others that use the same context.
+    /// Differentiates this Arachne thread from others that use the same
+    /// context.
     uint32_t generation;
 
+    /// Construct a ThreadId.
+    /// \param context
+    ///    The location where the thread's metadata currently lives.
+    /// \param generation
+    ///    Used to differentiate this thread from others that lived at this
+    ///    context in the past and future.
     ThreadId(ThreadContext* context, uint32_t generation)
         : context(context)
         , generation(generation) { }
@@ -63,46 +75,52 @@ struct ThreadId {
         : context(NULL)
         , generation(0) { }
 
+    /// The equality operator is generally used for comparing against
+    /// Arachne::NullThread.
     bool
     operator==(const ThreadId& other) const {
         return context == other.context && generation == other.generation;
     }
 
+    /// Negation of the function above.
     bool
     operator!=(const ThreadId& other) const {
         return !(*this == other);
     }
 };
 
-void setErrorStream(FILE* ptr);
 void init(int* argcp = NULL, const char** argv = NULL);
 void shutDown();
 void waitForTermination();
-void testInit();
-void testDestroy();
 void yield();
 void sleep(uint64_t ns);
-void dispatch();
+
+/**
+ * Block the current thread until another thread invokes join() with the
+ * current thread's ThreadId.
+ */
+inline void block() {
+    dispatch();
+}
 void signal(ThreadId id);
 void join(ThreadId id);
 ThreadId getThreadId();
 
-inline void block() {
-    dispatch();
-}
-
+void setErrorStream(FILE* ptr);
+void testInit();
+void testDestroy();
 
 /**
  * A resource that can be acquired by only one thread at a time.
  */
 class SpinLock {
  public:
-    // Constructor and destructor for spinlock.
+    /** Constructor and destructor for spinlock. */
     explicit SpinLock(std::string name) : state(false), name(name) {}
     SpinLock() : state(false), name("unnamed") {}
     ~SpinLock(){}
 
-    // Repeatedly try to acquire this resource until success.
+    /** Repeatedly try to acquire this resource until success. */
     inline void
     lock() {
         uint64_t startOfContention = 0;
@@ -122,10 +140,11 @@ class SpinLock {
         }
     }
 
-    // Attempt to acquire this resource once.
-    //
-    // \return
-    //    Whether or not the acquisition succeeded.  inline bool
+    /** 
+     * Attempt to acquire this resource once.
+     * \return
+     *    Whether or not the acquisition succeeded.  inline bool
+     */
     inline bool
     try_lock() {
         // If the original value was false, then we successfully acquired the
@@ -133,12 +152,13 @@ class SpinLock {
         return !state.exchange(true, std::memory_order_acquire);
     }
 
-    // Release resource
+    /** Release resource. */
     inline void
     unlock() {
         state.store(false, std::memory_order_release);
     }
 
+    /** Set the label used for deadlock warning. */
     inline void
     setName(std::string name) {
         this->name = name;
@@ -183,6 +203,7 @@ class ConditionVariable {
   * new thread.
   */
 const Arachne::ThreadId NullThread;
+/**@}*/
 
 ////////////////////////////////////////////////////////////////////////////////
 // The declarations in following section are private to the thread library.
@@ -193,6 +214,8 @@ const Arachne::ThreadId NullThread;
   * been stored in a character array, and this class enables us to do this.
   */
 struct ThreadInvocationEnabler {
+    /// This function allows us to invoke the templated subtype, without
+    /// casting to a pointer of unknown type.
     virtual void runThread() = 0;
     virtual ~ThreadInvocationEnabler() { }
 };
@@ -213,63 +236,75 @@ struct ThreadInvocationEnabler {
   */
 template<typename F>
 struct ThreadInvocation : public ThreadInvocationEnabler {
-    // The top-level function of the Arachne thread.
+    /// The top-level function of the Arachne thread.
     F mainFunction;
+
+    /// Construct a threadInvocation from the type that is returned by
+    /// std::bind.
     explicit ThreadInvocation(F mainFunction)
         : mainFunction(mainFunction) {
         static_assert(sizeof(ThreadInvocation<F>) <= CACHE_LINE_SIZE,
                 "Arachne requires the function and arguments for a thread to "
                 "fit within one cache line.");
     }
-    // This is invoked exactly once for each Arachne thread to begin its
-    // execution.
+
+    /// This is invoked exactly once for each Arachne thread to begin its
+    /// execution.
     void
     runThread() {
         mainFunction();
     }
 };
 
-/*
+/**
  * This class holds all the state for managing an Arachne thread.
  */
 struct ThreadContext {
-    // Keep a reference to the original memory allocation for the stack used by
-    // this threadContext so that we can release the memory in shutDown.
+    /// Keep a reference to the original memory allocation for the stack used by
+    /// this threadContext so that we can release the memory in shutDown.
     void* stack;
 
-    // This holds the value that rsp, the stack pointer register, will be set
-    // to when this thread is swapped in.
+    /// This holds the value that rsp, the stack pointer register, will be set
+    /// to when this thread is swapped in.
     void* sp;
 
-    // This variable holds the minimum value of the cycle counter for which
-    // this thread can run.
-    // 0 is a signal that this thread should run at the next opportunity.
-    // ~0 is used as an infinitely large time: a sleeping thread will not
-    // awaken as long as wakeupTimeInCycles has this value.
+    /// This variable holds the minimum value of the cycle counter for which
+    /// this thread can run.
+    /// 0 is a signal that this thread should run at the next opportunity.
+    /// ~0 is used as an infinitely large time: a sleeping thread will not
+    /// awaken as long as wakeupTimeInCycles has this value.
     volatile uint64_t wakeupTimeInCycles;
 
-    // Used as part of ThreadIds to differentiate Arachne threads that use this
-    // ThreadContext; incremented whenever an Arachne thread finishes execution
-    // in this ThreadContext.
+    /// Used as part of ThreadIds to differentiate Arachne threads that use this
+    /// ThreadContext; incremented whenever an Arachne thread finishes execution
+    /// in this ThreadContext.
     uint32_t generation;
 
-    // This lock and condition variable are used for synchronizing threads that
-    // attempt to join this thread.
+    /// This lock is used for synchronizing threads that attempt to join this
+    /// thread.
     SpinLock joinLock;
+
+    /// Threads attempting to join the thread that currently occupies this
+    /// context shall wait on this CV.
     ConditionVariable joinCV;
 
-    // Unique identifier for this thread among those on the same core.
-    // Used to index into various core-specific arrays.
-    // This is read-only after Arachne initialization.
+    /// Unique identifier for this thread among those on the same core.
+    /// Used to index into various core-specific arrays.
+    /// This is read-only after Arachne initialization.
     uint8_t idInCore;
 
-    // Storage for the ThreadInvocation object that contains the function and
-    // arguments for a new thread.
-    // We wrap the char buffer in a struct to enable aligning to a cache line
-    // boundary, which eliminates false sharing of cache lines.
+    /// \var threadInvocation
+    /// Storage for the ThreadInvocation object that contains the function and
+    /// arguments for a new thread.
+    /// We wrap the char buffer in a struct to enable aligning to a cache line
+    /// boundary, which eliminates false sharing of cache lines.
+
+    /// \cond SuppressDoxygen
     struct alignas(CACHE_LINE_SIZE) {
         char data[CACHE_LINE_SIZE];
-    } threadInvocation;
+    }
+    /// \endcond
+    threadInvocation;
 
     ThreadContext() = delete;
     ThreadContext(ThreadContext&) = delete;
@@ -308,14 +343,14 @@ extern thread_local ThreadContext *loadedContext;
 extern thread_local ThreadContext** localThreadContexts;
 extern std::vector<ThreadContext**> allThreadContexts;
 
-// This structure tracks the live threads on a single core.
+/// This structure tracks the live threads on a single core.
 struct MaskAndCount{
-    // Each bit corresponds to a particular ThreadContext which has the
-    // idInCore corresponding to its index.
-    // 0 means this context is available for a new thread.
-    // 1 means this context is in use by a live thread.
+    /// Each bit corresponds to a particular ThreadContext which has the
+    /// idInCore corresponding to its index.
+    /// 0 means this context is available for a new thread.
+    /// 1 means this context is in use by a live thread.
     uint64_t occupied : 56;
-    // The number of 1 bits in occupied.
+    /// The number of 1 bits in occupied.
     uint8_t numOccupied : 8;
 };
 
@@ -426,7 +461,7 @@ createThread(int kId, _Callable&& __f, _Args&&... __args) {
 
 /**
   * Spawn a new thread with a function and arguments.
-  *
+  * 
   * \param __f
   *     The main function for the new thread.
   * \param __args
@@ -437,6 +472,8 @@ createThread(int kId, _Callable&& __f, _Args&&... __args) {
   *     The return value is an identifier for the newly created thread. If
   *     there are insufficient resources for creating a new thread, then
   *     NullThread will be returned.
+  * 
+  * \ingroup api
   */
 template<typename _Callable, typename... _Args>
 ThreadId
@@ -490,6 +527,9 @@ ConditionVariable::wait(LockType& lock) {
   *     The mutex associated with this condition variable; must be held by
   *     caller before calling wait. This function releases the mutex before
   *     blocking, and re-acquires it before returning to the user.
+  * \param ns
+  *     The time in nanoseconds this thread should wait before returning in the
+  *     absence of a signal.
   */
 template <typename LockType> void
 ConditionVariable::waitFor(LockType& lock, uint64_t ns) {

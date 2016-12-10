@@ -34,7 +34,7 @@ the kernel, but this limitation is expected to go away in the next few months.
 
 ## How do I use it?
 
-0. Clone and build [PerfUtils](https://github.com/PlatformLab/PerfUtils) in a
+1. Clone and build [PerfUtils](https://github.com/PlatformLab/PerfUtils) in a
    directory structure parallel to this one, so the overall directory structure
    looks like the following.
 
@@ -42,10 +42,9 @@ the kernel, but this limitation is expected to go away in the next few months.
 			Arachne/
 			PerfUtils
 
-1. Build the library with `make` in the top-level directory. 
+2. Build the library with `make` in the top-level directory. 
 
-2. Write your application using the public Arachne API, documented [here]().
-	- TODO: Generate documentation and link it.
+3. Write your application using the public Arachne API, documented [here](http://platformlab.github.io/Arachne).
    The last call in your main function must be Arachne::waitForTermination() to
    ensure proper cleanup on application termination.
 
@@ -64,7 +63,7 @@ the kernel, but this limitation is expected to go away in the next few months.
 		}
 
 
-3. Link your application against `-lArachne`.
+4. Link your application against `-lArachne`.
 
     g++ -std=c++11 -o MyApp -IArachne MyApp.cc  -LArachne -lArachne -LPerfUtils -lPerfUtils -pthread
 
