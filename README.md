@@ -12,7 +12,8 @@ Core-aware scheduling is the notion that we can balance an application's
 offered load to a system's available resources by scheduling threads at user
 level, and performing coarse-grained core allocation at operating system level.
 
-Under this approach, the kernel needs not preemptively multiplex between
+
+Under this approach, the kernel no longer preemptively multiplexes between
 threads without any awareness of what the application is doing. This enables us
 to avoid the performance degradations caused by slow context switches, priority
 inversion, and cache pollution from the threads of other processes.
