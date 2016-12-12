@@ -40,7 +40,7 @@ the kernel, but this limitation is expected to go away in the next few months.
 
 		application_directory/
 			Arachne/
-			PerfUtils
+			PerfUtils/
 
 2. Build the library with `make` in the top-level directory. 
 
@@ -65,7 +65,7 @@ the kernel, but this limitation is expected to go away in the next few months.
 
 4. Link your application against `-lArachne`.
 
-    g++ -std=c++11 -o MyApp -IArachne MyApp.cc  -LArachne -lArachne -LPerfUtils -lPerfUtils -pthread
+        g++ -std=c++11 -o MyApp -IArachne MyApp.cc  -LArachne -lArachne -LPerfUtils -lPerfUtils -pthread
 
 ## What is on the roadmap?
 
