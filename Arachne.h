@@ -48,6 +48,13 @@ void dispatch();
 
 /**
  * \addtogroup api Arachne Public API
+ * Most of the functions in this API, with the exception of Arachne::init(),
+ * Arachne::shutDown(), Arachne::waitForTermination(), and
+ * Arachne::createThread(), should only be called from within Arachne threads.
+ *
+ * In order to allow unit tests in non-Arachne threads to run,
+ * Arachne::testInit() should be called once before all unit tests run, and
+ * Arachne::testDestroy() should be called once after all unit tests finish.
  * @{
  */
 /**

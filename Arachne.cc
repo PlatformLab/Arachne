@@ -289,7 +289,8 @@ yield() {
 }
 
 /**
-  * Sleep for at least ns nanoseconds.
+  * Sleep for at least ns nanoseconds. The amount of additional delay may be
+  * impacted by other threads' activities such as blocking and yielding.
   */
 void
 sleep(uint64_t ns) {
@@ -301,10 +302,14 @@ sleep(uint64_t ns) {
 /**
   * Return a thread handle for the currently executing thread, identical to the
   * one returned by the createThread call that initially created this thread.
+  *
+  * When invoked from a non-Arachne thread, this function returns
+  * Arachne::NullThread.
   */
 ThreadId
 getThreadId() {
-    return ThreadId(loadedContext, loadedContext->generation);
+    return loadedContext ? ThreadId(loadedContext, loadedContext->generation)
+        : Arachne::NullThread;
 }
 
 /**
@@ -404,7 +409,7 @@ join(ThreadId id) {
 
 /**
   * This function must be called by the main application thread and will block
-  * until Arachne terminates via a call to shutDown().
+  * until Arachne is terminated via a call to shutDown().
   *
   * Upon termination, this function tears down all state created by init,
   * and restores the state of the system to the time before init is
@@ -665,10 +670,14 @@ void testDestroy() {
 }
 
 /**
-  * This function asks Arachne to shut down at the earliest opportunity, even
-  * if there are still threads to run. The actual state cleanup is done in
-  * waitForTermination, so this function can be called from any Arachne or
-  * non-Arachne thread.
+  * This call will cause all Arachne threads to terminate, and cause
+  * waitForTermination() to return.
+  *
+  * It is typically used only for an application's unit tests, where the global
+  * teardown function in the unit test would call Arachne::shutDown() followed
+  * immediately by Arachne::waitForTermination().
+  *
+  * This function can be called from any Arachne or non-Arachne thread.
   */
 void
 shutDown() {
