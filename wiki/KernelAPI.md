@@ -17,17 +17,17 @@ When a blocking system call returns, the kernel will communicate to the substitu
 
 ## Arachne Library (Userspace)
 The Arachne library creates n+k kernel threads (using `std::thread`), where n is the number of cores and k is some extra number of cores to have in reserve in case of blocking system calls. It adds more threads to the pool if it ever runs out. We are creating threads in userspace under the assumption that it is easier to deal with them there than in the kernel. Each thread will have the following main loop:
-```
-while (true):
-    blockUntilCoreAvailable()
-    if we are the first thread running on this core (check shared memory):
-        initialize state
-        run normally
-    else:
-        // There was a blocking system call on this core
-        increment counter for the threads running on this core
-        run until the kernel tells us via shared memory that we should yield
-```
+
+    while (true):
+        blockUntilCoreAvailable()
+        if we are the first thread running on this core (check shared memory):
+            initialize state
+            run normally
+        else:
+            // There was a blocking system call on this core
+            increment counter for the threads running on this core
+            run until the kernel tells us via shared memory that we should yield
+
 
 When the application notices via the `yieldInfoSharedMemoryPtr` that it needs to give back some number of cores, it will choose which cores to give up and then call `blockUntilCoreAvailable` on all threads running on that core.
 
