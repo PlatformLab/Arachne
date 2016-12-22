@@ -45,25 +45,34 @@ the kernel, but this limitation is expected to go away in the next few months.
 2. Build the library with `make` in the top-level directory. 
 
 3. Write your application using the public Arachne API, documented [here](https://platformlab.github.io/Arachne/group__api.html).
-   The last call in your main function must be Arachne::waitForTermination() to
-   ensure proper cleanup on application termination.
 
+        #include <stdio.h>
+        #include "Arachne.h"
 
-		#include <stdio.h>
-		#include "Arachne.h"
+        void numberPrinter(int n) {
+            printf("NumberPrinter says %d\n", n);
+        }
 
-		void helloWorld() {
-			printf("Arachne says hello world and terminates\n");
-			Arachne::shutDown();
-		}
-		int main(int argc, const char** argv){
-			Arachne::init(&argc, argv);
-			Arachne::createThread(helloWorld);
-			Arachne::waitForTermination();
-		}
+        // This is where user code should start running.
+        void AppMain(int argc, const char** argv) {
+            printf("Arachne says hello world and creates a thread.\n");
+            auto tid = Arachne::createThread(numberPrinter, 5);
+            Arachne::join(tid);
+        }
 
+        // The following bootstrapping code should be copied verbatim into most Arachne
+        // applications.
+        void AppMainWrapper(int argc, const char** argv) {
+            AppMain(argc, argv);
+            Arachne::shutDown();
+        }
+        int main(int argc, const char** argv){
+            Arachne::init(&argc, argv);
+            Arachne::createThread(&AppMainWrapper, argc, argv);
+            Arachne::waitForTermination();
+        }
 
-4. Link your application against `-lArachne`.
+4. Link your application against Arachne.
 
         g++ -std=c++11 -o MyApp -IArachne MyApp.cc  -LArachne -lArachne -LPerfUtils -lPerfUtils -pthread
 
