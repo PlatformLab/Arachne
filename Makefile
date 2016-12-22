@@ -28,7 +28,7 @@ check:
 docs:
 	doxygen Doxyfile
 
-update-pages: docs
+site: docs
 	git fetch origin gh-pages:gh-pages
 	./git-replace-branch html gh-pages "Updating website on $(shell date) from commit $(shell git rev-parse HEAD)."
 	git push origin gh-pages
