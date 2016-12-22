@@ -94,12 +94,32 @@ var searchBox = new SearchBox("searchBox", "search",false,'Search');
      PerfUtils/
 </pre></li>
 <li>Build the library with <code>make</code> in the top-level directory.</li>
-<li><p class="startli">Write your application using the public Arachne API, documented <a href="https://platformlab.github.io/Arachne/group__api.html">here</a>.</p>
-<p class="startli">#include &lt;stdio.h&gt; #include "Arachne.h"</p>
-<p class="startli">void numberPrinter(int n) { printf("NumberPrinter says %d\n", n); }</p>
-<p class="startli">// This is where user code should start running. void AppMain(int argc, const char** argv) { printf("Arachne says hello world and creates a thread.\n"); auto tid = Arachne::createThread(numberPrinter, 5); Arachne::join(tid); }</p>
-<p class="startli">// The following bootstrapping code should be copied verbatim into most Arachne // applications. void AppMainWrapper(int argc, const char** argv) { AppMain(argc, argv); <a class="el" href="group__api.html#gaf382f9c6509ffc8f1d3be42485311711">Arachne::shutDown()</a>; } int main(int argc, const char** argv){ Arachne::init(&amp;argc, argv); Arachne::createThread(&amp;AppMainWrapper, argc, argv); <a class="el" href="group__api.html#ga2d1d6e02a5b1043b1a432bf176530f03">Arachne::waitForTermination()</a>; }</p>
-</li>
+<li>Write your application using the public Arachne API, documented <a href="https://platformlab.github.io/Arachne/group__api.html">here</a>. <pre class="fragment"> #include &lt;stdio.h&gt;
+ #include "Arachne.h"
+
+ void numberPrinter(int n) {
+     printf("NumberPrinter says %d\n", n);
+ }
+
+ // This is where user code should start running.
+ void AppMain(int argc, const char** argv) {
+     printf("Arachne says hello world and creates a thread.\n");
+     auto tid = Arachne::createThread(numberPrinter, 5);
+     Arachne::join(tid);
+ }
+
+ // The following bootstrapping code should be copied verbatim into most Arachne
+ // applications.
+ void AppMainWrapper(int argc, const char** argv) {
+     AppMain(argc, argv);
+     Arachne::shutDown();
+ }
+ int main(int argc, const char** argv){
+     Arachne::init(&amp;argc, argv);
+     Arachne::createThread(&amp;AppMainWrapper, argc, argv);
+     Arachne::waitForTermination();
+ }
+</pre></li>
 <li>Link your application against Arachne. <pre class="fragment"> g++ -std=c++11 -o MyApp -IArachne MyApp.cc  -LArachne -lArachne -LPerfUtils -lPerfUtils -pthread
 </pre></li>
 </ol>
