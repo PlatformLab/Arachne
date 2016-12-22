@@ -1,0 +1,62 @@
+#!/bin/bash
+
+# This script will take a directory and replace the contents of a non-current
+# branch with it.
+if [ "$#" -ne 3 ]; then
+    echo \
+    "Usage:  replace-branch <top level directory> <branchname> <commit message>"
+    exit
+fi
+
+root="$1"
+branch="$2"
+msg="$3"
+
+# Check if the branch that we are committing to is the current branch and abort
+# if it is, since this violates our desired property that the index state is
+# exactly the same before and after the script runs.
+if [[ "$branch" == "$(git rev-parse --abbrev-ref HEAD)" ]];
+then
+    echo "Branch $branch is currently checked out branch. Please use an"\
+         "ordinary git-commit to handle this case."
+    exit
+fi
+
+# Check if the target branch exists, and abort if it does not exist.
+git rev-parse "$branch" > /dev/null 2>&1
+if [[ $? -ne 0 ]]; then
+    echo "Branch $branch does not exist. Please create the branch first."
+    exit
+fi
+
+# First check if the index is polluted, since we will be using it.
+save=HEAD
+indexDiverges=$(git diff-index --cached  $(git rev-parse HEAD))
+if [[ -n "$indexDiverges" ]]; then
+    save=$(git write-tree)
+fi
+
+# Create a new index
+git read-tree --empty
+GIT_WORK_TREE=$root git add .
+
+# Check whether the index is actually different from the target.
+isDuplicateCommit=$(git diff-index --cached  $(git rev-parse $branch))
+if [[ ! -n "$isDuplicateCommit" ]]; then
+    echo "The branch already matches the state we are trying to commit!"
+    git read-tree $save
+    exit
+fi
+
+# Write the index out to a new tree
+tree=$(git write-tree)
+
+# Commit with the given commit message to the other branch
+commithash=$(echo "$msg" | git commit-tree $tree -p $(git rev-parse $branch))
+
+# Move the branch pointer.
+git update-ref $(git show-ref --heads "$branch"  | awk '{print $2}') \
+    "$commithash"
+
+# Restore the index to its previous state
+git read-tree $save
