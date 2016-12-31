@@ -80,7 +80,7 @@ var searchBox = new SearchBox("searchBox", "search",false,'Search');
 <div class="contents">
 <div class="textblock"><h2>System calls</h2>
 <ol type="1">
-<li><code>initArachne(yieldInfoSharedMemoryPtr)</code>: Called at Arachne startup to establish a shared memory pointer for communication with ther kernel about how many threads the application should give up (this shared memory pointer is <em>not</em> thread local).</li>
+<li><code>initArachne(yieldInfoSharedMemoryPtr)</code>: Called at Arachne startup to establish a shared memory pointer for communication with ther kernel about how many threads the application should continue to run (this shared memory pointer is <em>not</em> thread local).</li>
 <li><code>blockUntilCoreAvailable(coreInfoSharedMemoryPtr)</code>: Adds the calling thread to the kernel's internal list of sleeping threads that it will wake up and run when a core becomes available. The shared memory pointer is used to tell the application which core this thread is running on (it should point to a thread local variable) after this call returns.</li>
 <li><code>setNumCores(priorityArray[])</code>: Given an array of the number of cores to allocate at each priority, the kernel will asynchronously wake up the requested number of threads from their calls to <code>blockUntilCoreAvailable</code> and allow them to run on individual cores.</li>
 </ol>
