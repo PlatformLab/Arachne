@@ -1,7 +1,7 @@
 # Arachne Kernel API Design
 
 ## System calls
-1. `initArachne(yieldInfoSharedMemoryPtr)`: Called at Arachne startup to establish a shared memory pointer for communication with ther kernel about how many threads the application should give up (this shared memory pointer is *not* thread local).
+1. `initArachne(yieldInfoSharedMemoryPtr)`: Called at Arachne startup to establish a shared memory pointer for communication with ther kernel about how many threads the application should continue to run (this shared memory pointer is *not* thread local).
 2. `blockUntilCoreAvailable(coreInfoSharedMemoryPtr)`: Adds the calling thread to the kernel's internal list of sleeping threads that it will wake up and run when a core becomes available. The shared memory pointer is used to tell the application which core this thread is running on (it should point to a thread local variable) after this call returns.
 3. `setNumCores(priorityArray[])`: Given an array of the number of cores to allocate at each priority, the kernel will asynchronously wake up the requested number of threads from their calls to `blockUntilCoreAvailable` and allow them to run on individual cores.
 
