@@ -6,7 +6,7 @@
 3. `setNumCores(priorityArray[])`: Given an array of the number of cores to allocate at each priority, the kernel will asynchronously wake up the requested number of threads from their calls to `blockUntilCoreAvailable` and allow them to run on individual cores.
 
 ## Kernel Scheduler
-The kernel will have a new high-priority scheduling class that only allows one thread on its run queue at a time. It keeps track of the treads that have called `blockUntilCoreAvailable` and chooses which threads to wake up and add to a run queue when the application calls `setNumCores`. The kernel communicates via the `coreInfoSharedMemoryPtr` (provided by `blockUntilCoreAvailable`) which core this thread is running on.
+The kernel will have a new high-priority scheduling class that only allows one thread on its run queue at a time. It keeps track of the threads that have called `blockUntilCoreAvailable` and chooses which threads to wake up and add to a run queue when the application calls `setNumCores`. The kernel communicates via the `coreInfoSharedMemoryPtr` (provided by `blockUntilCoreAvailable`) which core this thread is running on.
 
 When the kernel needs to communicate to the application that it wants a core back, it will write the number of cores it wants *the application* to have to the `yieldInfoSharedMemoryPtr` (provided by `init`). It does not communicate how many cores it wants back because that would require the application to write to the shared memory and create a race.
 
