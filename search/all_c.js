@@ -1,13 +1,12 @@
 var searchData=
 [
-  ['testdestroy',['testDestroy',['../group__api.html#gadcbfc4a2842e4ea651010b69c8e551a7',1,'Arachne']]],
-  ['testinit',['testInit',['../group__api.html#ga8f9d479b2b8098d401021d0994e16c63',1,'Arachne']]],
-  ['threadcontext',['ThreadContext',['../structArachne_1_1ThreadContext.html#ae1af124cfa11cbe97b3e1d921244d819',1,'Arachne::ThreadContext']]],
-  ['threadcontext',['ThreadContext',['../structArachne_1_1ThreadContext.html',1,'Arachne']]],
-  ['threadid',['ThreadId',['../structArachne_1_1ThreadId.html',1,'Arachne']]],
-  ['threadid',['ThreadId',['../structArachne_1_1ThreadId.html#aacd6e558a06052d646bc17b73bdf21cc',1,'Arachne::ThreadId']]],
-  ['threadinvocation',['ThreadInvocation',['../structArachne_1_1ThreadInvocation.html#a8a281fbad44c3dd8e8cea1c51b14c742',1,'Arachne::ThreadInvocation::ThreadInvocation()'],['../structArachne_1_1ThreadContext.html#a0c6e1251aaf5d1fbb7c247ab39d2fbf3',1,'Arachne::ThreadContext::threadInvocation()']]],
-  ['threadinvocation',['ThreadInvocation',['../structArachne_1_1ThreadInvocation.html',1,'Arachne']]],
-  ['threadinvocationenabler',['ThreadInvocationEnabler',['../structArachne_1_1ThreadInvocationEnabler.html',1,'Arachne']]],
-  ['try_5flock',['try_lock',['../classArachne_1_1SpinLock.html#a624c1139a39f3106511b9b5133e33cc8',1,'Arachne::SpinLock']]]
+  ['seterrorstream',['setErrorStream',['../group__api.html#gad5756fe8aa1c368a4c0d32c0601f6616',1,'Arachne']]],
+  ['setname',['setName',['../classArachne_1_1SpinLock.html#a69679f3db6962577368bc6eb69e918bf',1,'Arachne::SpinLock']]],
+  ['shutdown',['shutDown',['../group__api.html#gaf382f9c6509ffc8f1d3be42485311711',1,'Arachne']]],
+  ['signal',['signal',['../group__api.html#gac378920f57c297f4f55a8654c8216855',1,'Arachne']]],
+  ['sleep',['sleep',['../group__api.html#gad678d8be2d336471f2db46152596e59f',1,'Arachne']]],
+  ['sp',['sp',['../structArachne_1_1ThreadContext.html#a0353178e35e073f218a005b846123129',1,'Arachne::ThreadContext']]],
+  ['spinlock',['SpinLock',['../classArachne_1_1SpinLock.html',1,'Arachne']]],
+  ['spinlock',['SpinLock',['../classArachne_1_1SpinLock.html#a3342cc92a10e5e9dd6bbb53b6af26a0e',1,'Arachne::SpinLock']]],
+  ['stack',['stack',['../structArachne_1_1ThreadContext.html#af9b8afa071fa9218b7756f4bbc4474f9',1,'Arachne::ThreadContext']]]
 ];
