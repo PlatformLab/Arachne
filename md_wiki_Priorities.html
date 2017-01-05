@@ -4,7 +4,7 @@
 <meta http-equiv="Content-Type" content="text/xhtml;charset=UTF-8"/>
 <meta http-equiv="X-UA-Compatible" content="IE=9"/>
 <meta name="generator" content="Doxygen 1.8.8"/>
-<title>Arachne: Arachne Design Wiki</title>
+<title>Arachne: Open Questions</title>
 <link href="tabs.css" rel="stylesheet" type="text/css"/>
 <script type="text/javascript" src="jquery.js"></script>
 <script type="text/javascript" src="dynsections.js"></script>
@@ -75,15 +75,19 @@ var searchBox = new SearchBox("searchBox", "search",false,'Search');
 </div><!-- top -->
 <div class="header">
   <div class="headertitle">
-<div class="title">Arachne Design Wiki </div>  </div>
+<div class="title">Open Questions </div>  </div>
 </div><!--header-->
 <div class="contents">
-<div class="textblock"><p>This wiki will be used to record design discussions, decisions, and open questions related to both the user and kernel sides of the Arachne system.</p>
-<h1>Current Topics</h1>
-<ul>
-<li>Kernel API &amp; Core Negotiation Protocol</li>
-<li>Priorities &amp; Starvation </li>
+<div class="textblock"><ul>
+<li>Are priorities necessary for good performance within an application in addition to between applications?</li>
+<li>What is a reasonable policy concerning starvation?</li>
+<li>What is the performance cost of having arbitrary priority levels?</li>
 </ul>
+<h2>Ideas for preventing starvation</h2>
+<ol type="1">
+<li>Require that the number of CPU-bound high priority threads is lower than the number of cores.</li>
+<li>Ensure there is at least one core to run only low priority threads, even if that means putting more than one high-priority thread on the same core. </li>
+</ol>
 </div></div><!-- contents -->
 <!-- start footer part -->
 <hr class="footer"/><address class="footer"><small>
