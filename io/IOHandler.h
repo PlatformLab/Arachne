@@ -22,11 +22,12 @@
 #include <vector>
 #include <sys/socket.h>
 #include <mutex>
+#include <thread>
 #include "../Arachne.h"
 #include "../generic/IntrusiveContainers.h"
 
-#define POLL_READY  ((uThread*)1)
-#define POLL_WAIT   ((uThread*)2)
+#define POLL_READY  ((Arachne::ThreadId*)1)
+#define POLL_WAIT   ((Arachne::ThreadId*)2)
 
 class Connection;
 class IOHandler;
@@ -66,8 +67,8 @@ private:
      * 4- uThread*: uThread is parked and is waiting on fd to become ready
      *              for read/write
      */
-    uThread* rut = nullptr;
-    uThread* wut = nullptr;
+    Arachne::ThreadId* rut = nullptr;
+    Arachne::ThreadId* wut = nullptr;
 
     /** Whether the fd is closing or not */
     bool closing;
@@ -185,9 +186,10 @@ protected:
 
     std::atomic_flag isPolling;
 
-    semaphore sem;
+//    semaphore sem;
 
-    kThread    ioKT;               //IO kThread
+//    kThread    ioKT;               //IO kThread
+    std::thread* ioKT;
 
     PollCache pollCache;
 

@@ -15,18 +15,17 @@
  *     along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *******************************************************************************/
 
-#include <runtime/schedulers/Scheduler.h>
 #include "IOHandler.h"
 #include "Network.h"
-#include "runtime/kThread.h"
 #include <unistd.h>
 #include <sys/types.h>
 #include <iostream>
 #include <sstream>
 #include <time.h>
 
+IOHandler IOHandler::iohandler;
 IOHandler::IOHandler(): unblockCounter(0),
-                        ioKT(Cluster::defaultCluster, &IOHandler::pollerFunc, (ptr_t)this),
+                        ioKT(new std::thread(&IOHandler::pollerFunc, (ptr_t)this)),
                         poller(*this), isPolling(ATOMIC_FLAG_INIT){}
 
 void IOHandler::open(PollData &pd){
@@ -56,9 +55,9 @@ void IOHandler::wait(PollData& pd, int flag){
 void IOHandler::block(PollData &pd, bool isRead){
 
     if(!pd.opened) open(pd);
-    uThread** utp = isRead ? &pd.rut : &pd.wut;
+    Arachne::ThreadId** utp = isRead ? &pd.rut : &pd.wut;
 
-    uThread* ut = *utp;
+    Arachne::ThreadId* ut = *utp;
 
     if(ut == POLL_READY)
     {
@@ -73,34 +72,34 @@ void IOHandler::block(PollData &pd, bool isRead){
     //will access it before and after blocking
     pd.isBlockingOnRead = isRead;
 
-    kThread::currentKT->currentUT->suspend((funcvoid2_t)IOHandler::postSwitchFunc, (void*)&pd);
-    //ask for immediate suspension so the possible closing/notifications do not get lost
-    //when epoll returns this ut will be back on readyQueue and pick up from here
-}
-void IOHandler::postSwitchFunc(void* ut, void* args){
-    assert(args != nullptr);
-    assert(ut != nullptr);
+    // We do not require immediate suspension because Arachne's block() works
+    // correctly even if notifications occur while we are running.
+    Arachne::ThreadId *old, *expected;
 
-    uThread* utold = (uThread*)ut;
-    PollData* pd = (PollData*) args;
-    if(pd->closing) return;
-    uThread** utp = pd->isBlockingOnRead ? &pd->rut : &pd->wut;
+    // It is fine to store this on the stack because we expect that this ID
+    // will no longer be necessary once this function returns, since that means
+    // we will have unblocked.
+    Arachne::ThreadId utold = Arachne::getThreadId();
 
-    uThread *old, *expected ;
     while(true){
         old = *utp;
         expected = nullptr;
         if(old == POLL_READY){
-            *utp = nullptr;         //consume the notification and resume
-            utold->resume();
+            *utp = nullptr;         //consume the notification do not block
             return;
         }
-        if(old != nullptr)
+        if(old != nullptr) // Perhaps someone else is using our pd?
             std::cerr << "Exception on rut"<< std::endl;
 
-        if(__atomic_compare_exchange_n(utp, &expected, utold, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED ))
+        if(__atomic_compare_exchange_n(utp, &expected, &utold, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED ))
             break;
     }
+
+    Arachne::block();
+
+//    kThread::currentKT->currentUT->suspend((funcvoid2_t)IOHandler::postSwitchFunc, (void*)&pd);
+    //ask for immediate suspension so the possible closing/notifications do not get lost
+    //when epoll returns this ut will be back on readyQueue and pick up from here
 }
 int IOHandler::close(PollData &pd){
 
@@ -125,15 +124,8 @@ int IOHandler::close(PollData &pd){
 }
 
 ssize_t IOHandler::poll(int timeout, int flag){
-    unblockCounter=0;
     if( poller._Poll(timeout) < 0) return -1;
-#ifndef NPOLLBULKPUSH
-    if(unblockCounter >0){
-        //Bulk push everything to the related cluster ready Queue
-        Scheduler::bulkPush();
-    }
-#endif //NPOLLBULKPUSH
-    return unblockCounter;
+    return 0;
 }
 
 void IOHandler::reset(PollData& pd){
@@ -145,22 +137,18 @@ bool IOHandler::unblock(PollData &pd, bool isRead){
     //if it's closing no need to process
     if(pd.closing) return false;
 
-    uThread** utp = isRead ? &pd.rut : &pd.wut;
-    uThread* old;
+    Arachne::ThreadId** utp = isRead ? &pd.rut : &pd.wut;
+    Arachne::ThreadId* old;
 
     while(true){
         old = *utp;
         if(old == POLL_READY) return false;
         //For now only if io is ready we call the unblock
-        uThread* utnew = nullptr;
+        Arachne::ThreadId* utnew = nullptr;
         if(old == nullptr || old == POLL_WAIT) utnew = POLL_READY;
         if(__atomic_compare_exchange_n(utp, &old, utnew, false, __ATOMIC_RELAXED, __ATOMIC_RELAXED)){
             if(old > POLL_WAIT){
-#ifdef NPOLLBULKPUSH
-                old->resume();
-#else
-                Scheduler::prepareBulkPush(old);
-#endif //NPOLLBULKPUSH
+                Arachne::signal(*old);
                 return true;
             }
             break;
@@ -189,41 +177,8 @@ ssize_t IOHandler::nonblockingPoll(){
 
 void IOHandler::pollerFunc(void* ioh){
     IOHandler* cioh = (IOHandler*)ioh;
-    struct timespec ts;
-    clock_gettime(CLOCK_REALTIME, &ts);
-
-    const long BILLION = 1000000000;
-    const long MS = 1000000;
-
     while(true){
-
-       /*
-        * This sequence of wait and post makes sure the poller thread
-        * only polls if  there is a blocked kThread, otherwise it waits
-        * on the semaphore. This works along with post and wait in
-        * the scheduler.
-        */
-
-       if( !(cioh->sem.timedwait(ts)) )
-            cioh->sem.post();
-       else{
-            ts.tv_nsec = ts.tv_nsec + MS;
-            if slowpath(ts.tv_nsec >= BILLION) {
-                ts.tv_sec = ts.tv_sec + 1;
-                ts.tv_nsec = ts.tv_nsec - BILLION;
-            }
-       }
-
-#if defined(NPOLLNONBLOCKING)
         //do a blocking poll
         cioh->poll(-1, 0);
-#else
-        if(!cioh->isPolling.test_and_set(std::memory_order_acquire)){
-            //do a blocking poll
-            cioh->poll(-1, 0);
-            cioh->isPolling.clear(std::memory_order_release);
-        }
-#endif //NPOLLNONBLOCKING
-
-  }
+    }
 }
