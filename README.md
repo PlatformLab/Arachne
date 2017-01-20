@@ -12,13 +12,17 @@ Core-aware scheduling is the notion that we can balance an application's
 offered load to a system's available resources by scheduling threads at user
 level, and performing coarse-grained core allocation at operating system level.
 
-
 Under this approach, the kernel no longer preemptively multiplexes between
 threads without any awareness of what the application is doing. This enables us
 to avoid the performance degradations caused by slow context switches, priority
 inversion, and cache pollution from the threads of other processes.
 
 ## What is Arachne?
+
+According to Greek mythology, [Arachne](https://en.wikipedia.org/wiki/Arachne)
+was a mortal weaver who challenged the goddess Athena to a weaving competition.
+Similarly, the Arachne user threading system attempts to challenge the current
+dominance of kernel threads in the C++ world.
 
 Arachne is the first step towards core-aware scheduling, allowing an
 application to run only as many threads in parallel as cores available to it.
@@ -78,6 +82,16 @@ the kernel, but this limitation is expected to go away in the next few months.
 
 ## What is on the roadmap?
 
- - A kernel patch to enable core exclusivity.
- - A kernel patch to handle blocking IO.
+ - A core arbiter to enable core exclusivity.
  - One or more heuristics for determining when to scale up and scale down the number of cores.
+
+## User Threading vs Kernel Threadpool
+
+For those who are unfamiliar with the benefits of user threading, it may seem
+that a simple kernel thread pool would achieve the same result as a user
+threading library. However, tasks running in a kernel thread pool generally
+should not block at user level, so they must run to completion without blocking.
+
+[Here](http://stackoverflow.com/questions/41276552/wait-in-forkjoin-pool-java/41277690#41277690)
+is an example of a use case that would require manual stack ripping in a thread
+pool, but could be implemented as a single function under Arachne.
