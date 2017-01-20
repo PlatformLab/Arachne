@@ -1,4 +1,4 @@
 var searchData=
 [
-  ['load_20balancing',['Load Balancing',['../md_wiki_LoadBalancing.html',1,'']]]
+  ['priorities_20and_20starvation',['Priorities and Starvation',['../md_wiki_Priorities.html',1,'']]]
 ];
