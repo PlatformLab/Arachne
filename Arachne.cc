@@ -770,6 +770,7 @@ void incrementCoreCount() {
     if (numCoresPrecursor < maxNumCores) {
         fprintf(errorStream, "Number of cores increasing from %u to %u\n",
                 numCoresPrecursor, numCoresPrecursor + 1);
+        fflush(errorStream);
         kernelThreads.emplace_back(joinKernelThreadPool);
         numCoresPrecursor++;
     }
