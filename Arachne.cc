@@ -169,6 +169,7 @@ cacheAlignAlloc(size_t size) {
  */
 void
 threadMain(int kId) {
+    PerfUtils::Util::pinAvailableCore();
     kernelThreadId = kId;
     localOccupiedAndCount = occupiedAndCount[kernelThreadId];
     localThreadContexts = allThreadContexts[kernelThreadId];
@@ -727,6 +728,7 @@ void setErrorStream(FILE* stream) {
   * invoked from the new kernel thread.
   */
 void joinKernelThreadPool() {
+    PerfUtils::Util::pinAvailableCore();
     // Allocate data structures, assign them to thread-local variable, and then
     localOccupiedAndCount =
         reinterpret_cast<std::atomic<Arachne::MaskAndCount>* >(
