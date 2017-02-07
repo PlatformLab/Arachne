@@ -46,6 +46,9 @@ extern volatile uint32_t maxNumCores;
 extern FILE* errorStream;
 void dispatch();
 
+// Used for user per-core data structure initialization.
+extern std::function<void()> initCore;
+
 /**
  * \addtogroup api Arachne Public API
  * Most of the functions in this API, with the exception of Arachne::init(),
