@@ -353,7 +353,8 @@ dispatch() {
 
         ThreadContext* currentContext = localThreadContexts[currentIndex];
         if (currentCycles >= currentContext->wakeupTimeInCycles) {
-            if (numIterations < CORE_INCREASE_THRESHOLD)
+            if (numIterations < CORE_INCREASE_THRESHOLD &&
+                    numCoresPrecursor < maxNumCores)
                 incrementCoreCount();
             nextCandidateIndex = currentIndex + 1;
             if (nextCandidateIndex == maxThreadsPerCore) nextCandidateIndex = 0;
