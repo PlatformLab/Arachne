@@ -97,6 +97,11 @@ struct ThreadId {
     operator!=(const ThreadId& other) const {
         return !(*this == other);
     }
+
+    bool
+    operator!() const {
+        return *this == ThreadId();
+    }
 };
 
 void init(int* argcp = NULL, const char** argv = NULL);
