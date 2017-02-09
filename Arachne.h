@@ -49,6 +49,12 @@ void dispatch();
 // Used for user per-core data structure initialization.
 extern std::function<void()> initCore;
 
+extern thread_local int kernelThreadId;
+extern thread_local ThreadContext *loadedContext;
+extern thread_local ThreadContext** localThreadContexts;
+extern std::vector<ThreadContext**> allThreadContexts;
+
+
 /**
  * \addtogroup api Arachne Public API
  * Most of the functions in this API, with the exception of Arachne::init(),
@@ -132,7 +138,7 @@ class SpinLock {
  public:
     /** Constructor and destructor for spinlock. */
     explicit SpinLock(std::string name) : state(false), name(name) {}
-    SpinLock() : state(false), name("unnamed") {}
+    SpinLock() : state(false), owner(NULL), name("unnamed") {}
     ~SpinLock(){}
 
     /** Repeatedly try to acquire this resource until success. */
@@ -153,6 +159,7 @@ class SpinLock {
             }
             yield();
         }
+        owner = loadedContext;
     }
 
     /** 
@@ -164,7 +171,11 @@ class SpinLock {
     try_lock() {
         // If the original value was false, then we successfully acquired the
         // lock. Otherwise we failed.
-        return !state.exchange(true, std::memory_order_acquire);
+        if (!state.exchange(true, std::memory_order_acquire)) {
+            owner = loadedContext;
+            return true;
+        }
+        return false;
     }
 
     /** Release resource. */
@@ -182,6 +193,9 @@ class SpinLock {
  private:
     // Implements the lock: false means free, true means locked
     std::atomic<bool> state;
+
+    // Used to identify the owning context for this lock.
+    ThreadContext* owner;
 
     // Descriptive name for this SpinLock. Used to identify the purpose of
     // the lock, what it protects, where it exists in the codebase, etc.
@@ -352,11 +366,6 @@ const uint64_t UNOCCUPIED = ~0L - 1;
 void schedulerMainLoop();
 void swapcontext(void **saved, void **target);
 void threadMain(int id);
-
-extern thread_local int kernelThreadId;
-extern thread_local ThreadContext *loadedContext;
-extern thread_local ThreadContext** localThreadContexts;
-extern std::vector<ThreadContext**> allThreadContexts;
 
 /// This structure tracks the live threads on a single core.
 struct MaskAndCount{

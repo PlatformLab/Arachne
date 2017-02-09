@@ -16,6 +16,8 @@
 #include <thread>
 #include "Cycles.h"
 #include "gtest/gtest.h"
+
+#define private public
 #include "Arachne.h"
 
 namespace Arachne {
@@ -59,11 +61,13 @@ static void
 lockTaker() {
     flag = 1;
     mutex.lock();
+    EXPECT_EQ(loadedContext, mutex.owner);
     mutex.unlock();
     flag = 0;
 }
 
 TEST_F(ArachneTest, SpinLock_lockUnlock) {
+    EXPECT_EQ(NULL, loadedContext);
     flag = 0;
     mutex.lock();
     createThread(0, lockTaker);
@@ -71,6 +75,7 @@ TEST_F(ArachneTest, SpinLock_lockUnlock) {
     EXPECT_EQ(1, flag);
     usleep(1);
     EXPECT_EQ(1, flag);
+    EXPECT_EQ(NULL, mutex.owner);
     mutex.unlock();
     limitedTimeWait([]() -> bool {return !flag;});
     EXPECT_EQ(0, flag);
@@ -93,7 +98,7 @@ TEST_F(ArachneTest, SpinLock_printWarning) {
     SpinLock lock("SpinLockTest");
     lock.lock();
     Arachne::ThreadId contender = createThread(lockContender, std::ref(lock));
-    sleep(1E9 + 2000);
+    sleep(1E9 + 3000);
     lock.unlock();
     join(contender);
     Arachne::testDestroy();
