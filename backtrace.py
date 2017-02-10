@@ -9,6 +9,7 @@ class BackTraceArachneCommand (gdb.Command):
     super (BackTraceArachneCommand, self).__init__ ("backtrace-arachne",
                          gdb.COMMAND_STACK,
                          gdb.COMPLETE_SYMBOL, True)
+    gdb.execute("alias -a bta = backtrace-arachne", True)
   def invoke(self, arg, from_tty):
     arg = arg.strip()
     if arg == "":
