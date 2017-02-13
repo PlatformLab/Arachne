@@ -353,6 +353,12 @@ const int maxThreadsPerCore = 56;
 const size_t SpaceForSavedRegisters = 48;
 
 /**
+  * This value is placed at the lowest allocated address of the stack to detect
+  * stack overflows.
+  */
+const uint64_t StackCanary = 0xDEADBAAD;
+
+/**
   * This is the value for wakeupTimeInCycles when a live thread is blocked.
   */
 const uint64_t BLOCKED = ~0L;
