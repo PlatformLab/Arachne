@@ -324,6 +324,14 @@ getThreadId() {
   */
 void
 dispatch() {
+    // Check the stack canary on the current context.
+    if (*reinterpret_cast<uint64_t*>(loadedContext->stack) != StackCanary) {
+        fprintf(errorStream, "Stack overflow detected on %p. Aborting...\n",
+                loadedContext);
+        fflush(errorStream);
+        abort();
+    }
+
     // Find a thread to switch to
     size_t currentIndex = nextCandidateIndex;
     uint64_t mask = localOccupiedAndCount->load().occupied >> currentIndex;
@@ -555,6 +563,11 @@ ThreadContext::ThreadContext(uint8_t idInCore)
      * store the registers in swapcontext.
      */
     sp = reinterpret_cast<char*>(sp) - SpaceForSavedRegisters;
+
+    /**
+     * Set the stack canary value to detect stack overflows.
+     */
+    *reinterpret_cast<uint64_t*>(stack) = StackCanary;
 }
 
 /**
