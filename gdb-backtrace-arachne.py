@@ -46,13 +46,16 @@ class BackTraceArachneCommand (gdb.Command):
            if (bitmask >> i) & 1:
                threadContext = gdb.parse_and_eval("Arachne::localThreadContexts[{0}]".format(i))
                print "Arachne Thread {0}: {1}".format(i, threadContext)
-               self.backtrace(threadContext, from_tty)
+               try:
+                   self.backtrace(threadContext, from_tty)
+               except:
+                   pass
 
         return
 
     # Verify that the type is correct
-    typestring=gdb.execute("whatis {0}".format(arg), from_tty, True)
-    if typestring.strip() != "type = Arachne::ThreadContext *":
+    typestring=str(gdb.parse_and_eval(arg).type)
+    if typestring.strip() != "Arachne::ThreadContext *":
         print "Please pass an Arachne::ThreadContext*"
         return
 
