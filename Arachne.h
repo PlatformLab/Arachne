@@ -42,6 +42,8 @@ struct ThreadContext;
 extern volatile uint32_t numCores;
 extern volatile uint32_t maxNumCores;
 
+extern int stackSize;
+
 // Used in inline functions.
 extern FILE* errorStream;
 void dispatch();
