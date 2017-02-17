@@ -136,8 +136,8 @@ setFlagForCreation(int a) {
 }
 
 TEST_F(ArachneTest, createThread_noArgs) {
-    EXPECT_EQ(0, Arachne::occupiedAndCount[0]->load().numOccupied);
-    EXPECT_EQ(0, Arachne::occupiedAndCount[0]->load().occupied);
+    EXPECT_EQ(0U, Arachne::occupiedAndCount[0]->load().numOccupied);
+    EXPECT_EQ(0U, Arachne::occupiedAndCount[0]->load().occupied);
     createThread(0, clearFlag);
 
     // This test may be a little fragile since it depends on the internal
@@ -145,21 +145,21 @@ TEST_F(ArachneTest, createThread_noArgs) {
     EXPECT_EQ(reinterpret_cast<uint64_t>(clearFlag),
             *(reinterpret_cast<uint64_t*>(
                     &Arachne::allThreadContexts[0][0]->threadInvocation) + 1));
-    EXPECT_EQ(1, Arachne::occupiedAndCount[0]->load().numOccupied);
-    EXPECT_EQ(1, Arachne::occupiedAndCount[0]->load().occupied);
+    EXPECT_EQ(1U, Arachne::occupiedAndCount[0]->load().numOccupied);
+    EXPECT_EQ(1U, Arachne::occupiedAndCount[0]->load().occupied);
     threadCreationIndicator = 1;
 
     // Wait for thread to exit
     limitedTimeWait([]()-> bool {
             return Arachne::occupiedAndCount[0]->load().numOccupied != 1;});
-    EXPECT_EQ(0, Arachne::occupiedAndCount[0]->load().numOccupied);
-    EXPECT_EQ(0, Arachne::occupiedAndCount[0]->load().occupied);
+    EXPECT_EQ(0U, Arachne::occupiedAndCount[0]->load().numOccupied);
+    EXPECT_EQ(0U, Arachne::occupiedAndCount[0]->load().occupied);
 }
 
 TEST_F(ArachneTest, createThread_withArgs) {
     createThread(0, setFlagForCreation, 2);
-    EXPECT_EQ(1, Arachne::occupiedAndCount[0]->load().numOccupied);
-    EXPECT_EQ(1, Arachne::occupiedAndCount[0]->load().occupied);
+    EXPECT_EQ(1U, Arachne::occupiedAndCount[0]->load().numOccupied);
+    EXPECT_EQ(1U, Arachne::occupiedAndCount[0]->load().occupied);
     EXPECT_EQ(0, threadCreationIndicator);
     threadCreationIndicator = 1;
     limitedTimeWait([]()->bool { return threadCreationIndicator != 1; });
@@ -170,12 +170,12 @@ TEST_F(ArachneTest, createThread_withArgs) {
 TEST_F(ArachneTest, createThread_findCorrectSlot) {
     // Seed the occupiedAndCount with some values first
     *occupiedAndCount[0] = {0b1011, 3};
-    EXPECT_EQ(3, Arachne::occupiedAndCount[0]->load().numOccupied);
-    EXPECT_EQ(0b1011, Arachne::occupiedAndCount[0]->load().occupied);
+    EXPECT_EQ(3U, Arachne::occupiedAndCount[0]->load().numOccupied);
+    EXPECT_EQ(0b1011U, Arachne::occupiedAndCount[0]->load().occupied);
 
     createThread(0, setFlagForCreation, 2);
-    EXPECT_EQ(4, Arachne::occupiedAndCount[0]->load().numOccupied);
-    EXPECT_EQ(0b1111, Arachne::occupiedAndCount[0]->load().occupied);
+    EXPECT_EQ(4U, Arachne::occupiedAndCount[0]->load().numOccupied);
+    EXPECT_EQ(0b1111U, Arachne::occupiedAndCount[0]->load().occupied);
     EXPECT_EQ(0, threadCreationIndicator);
     threadCreationIndicator = 1;
     limitedTimeWait([]()->bool { return threadCreationIndicator != 1; });
@@ -205,8 +205,8 @@ TEST_F(ArachneTest, createThread_pickLeastLoaded) {
     mockRandomValues.push_back(0);
     mockRandomValues.push_back(1);
     createThread(clearFlag);
-    EXPECT_EQ(1, Arachne::occupiedAndCount[1]->load().numOccupied);
-    EXPECT_EQ(1, Arachne::occupiedAndCount[1]->load().occupied);
+    EXPECT_EQ(1U, Arachne::occupiedAndCount[1]->load().numOccupied);
+    EXPECT_EQ(1U, Arachne::occupiedAndCount[1]->load().occupied);
     threadCreationIndicator = 1;
 
     limitedTimeWait(
@@ -216,8 +216,8 @@ TEST_F(ArachneTest, createThread_pickLeastLoaded) {
     mockRandomValues.push_back(1);
     *occupiedAndCount[1] = {0b1011, 3};
     createThread(clearFlag);
-    EXPECT_EQ(1, Arachne::occupiedAndCount[0]->load().numOccupied);
-    EXPECT_EQ(1, Arachne::occupiedAndCount[0]->load().occupied);
+    EXPECT_EQ(1U, Arachne::occupiedAndCount[0]->load().numOccupied);
+    EXPECT_EQ(1U, Arachne::occupiedAndCount[0]->load().occupied);
     threadCreationIndicator = 1;
     *occupiedAndCount[1] = {0, 0};
 }
@@ -226,10 +226,10 @@ void* cacheAlignAlloc(size_t size);
 
 TEST_F(ArachneTest, cacheAlignAlloc) {
     void* ptr = cacheAlignAlloc(7);
-    EXPECT_EQ(0, reinterpret_cast<uint64_t>(ptr) & (CACHE_LINE_SIZE - 1));
+    EXPECT_EQ(0U, reinterpret_cast<uint64_t>(ptr) & (CACHE_LINE_SIZE - 1));
     free(ptr);
     ptr = cacheAlignAlloc(63);
-    EXPECT_EQ(0, reinterpret_cast<uint64_t>(ptr) & (CACHE_LINE_SIZE - 1));
+    EXPECT_EQ(0U, reinterpret_cast<uint64_t>(ptr) & (CACHE_LINE_SIZE - 1));
     free(ptr);
 }
 
@@ -268,8 +268,8 @@ TEST_F(ArachneTest, swapContext) {
 void
 checkSchedulerState() {
     EXPECT_EQ(BLOCKED, loadedContext->wakeupTimeInCycles);
-    EXPECT_EQ(1, localOccupiedAndCount->load().numOccupied);
-    EXPECT_EQ(1, localOccupiedAndCount->load().occupied);
+    EXPECT_EQ(1U, localOccupiedAndCount->load().numOccupied);
+    EXPECT_EQ(1U, localOccupiedAndCount->load().occupied);
 }
 
 TEST_F(ArachneTest, schedulerMainLoop) {
@@ -277,10 +277,8 @@ TEST_F(ArachneTest, schedulerMainLoop) {
     limitedTimeWait([]()->bool {
             return occupiedAndCount[0]->load().numOccupied == 0; });
 
-    //TODO(hq6): Update this test to check for the new sentinel value on a dead
-    //thread instead.
     EXPECT_EQ(UNOCCUPIED, allThreadContexts[0][0]->wakeupTimeInCycles);
-    EXPECT_EQ(2, allThreadContexts[0][0]->generation);
+    EXPECT_EQ(2U, allThreadContexts[0][0]->generation);
 }
 
 static volatile int keepYielding;
@@ -339,7 +337,7 @@ sleeper() {
     uint64_t before = Cycles::rdtsc();
     Arachne::sleep(1000);
     uint64_t delta = Cycles::toNanoseconds(Cycles::rdtsc() - before);
-    EXPECT_LE(1000, delta);
+    EXPECT_LE(1000UL, delta);
 }
 
 void
@@ -375,14 +373,14 @@ blocker() {
 
 TEST_F(ArachneTest, block_basics) {
     Arachne::ThreadId id = createThread(0, blocker);
-    EXPECT_EQ(1, Arachne::occupiedAndCount[0]->load().numOccupied);
-    EXPECT_EQ(1, Arachne::occupiedAndCount[0]->load().occupied);
+    EXPECT_EQ(1U, Arachne::occupiedAndCount[0]->load().numOccupied);
+    EXPECT_EQ(1U, Arachne::occupiedAndCount[0]->load().occupied);
 
     limitedTimeWait([]()->bool { return blockerHasStarted;});
     Arachne::signal(id);
     limitedTimeWait([]()->bool {
             return Arachne::occupiedAndCount[0]->load().numOccupied < 1;});
-    EXPECT_EQ(0, Arachne::occupiedAndCount[0]->load().occupied);
+    EXPECT_EQ(0U, Arachne::occupiedAndCount[0]->load().occupied);
 }
 
 TEST_F(ArachneTest, signal) {
@@ -394,20 +392,20 @@ TEST_F(ArachneTest, signal) {
     tempContext->generation = 0;
     tempContext->wakeupTimeInCycles = BLOCKED;
     Arachne::signal(ThreadId(tempContext, 0));
-    EXPECT_EQ(0, tempContext->wakeupTimeInCycles);
+    EXPECT_EQ(0U, tempContext->wakeupTimeInCycles);
 }
 
 static Arachne::ThreadId joineeId;
 
 void
 joinee() {
-    EXPECT_LE(1, Arachne::occupiedAndCount[0]->load().numOccupied);
+    EXPECT_LE(1U, Arachne::occupiedAndCount[0]->load().numOccupied);
 }
 
 void
 joiner() {
     Arachne::join(joineeId);
-    EXPECT_EQ(1, Arachne::occupiedAndCount[0]->load().numOccupied);
+    EXPECT_EQ(1U, Arachne::occupiedAndCount[0]->load().numOccupied);
 }
 
 void
@@ -453,7 +451,7 @@ TEST_F(ArachneTest, parseOptions_noOptions) {
     Arachne::init(&argc, argv);
     EXPECT_EQ(3, argc);
     EXPECT_EQ(originalArgv, argv);
-    EXPECT_EQ(3, numCores);
+    EXPECT_EQ(3U, numCores);
     EXPECT_EQ(1024 * 1024, stackSize);
 }
 
@@ -468,10 +466,10 @@ TEST_F(ArachneTest, parseOptions_longOptions) {
             "--maxNumCores", "6"};
     Arachne::init(&argc, argv);
     EXPECT_EQ(1, argc);
-    EXPECT_EQ(5, numCores);
+    EXPECT_EQ(5U, numCores);
     EXPECT_EQ(stackSize, 4096);
-    EXPECT_EQ(numCores, 5);
-    EXPECT_EQ(Arachne::maxNumCores, 6);
+    EXPECT_EQ(numCores, 5U);
+    EXPECT_EQ(Arachne::maxNumCores, 6U);
 }
 
 TEST_F(ArachneTest, parseOptions_mixedOptions) {
@@ -516,8 +514,8 @@ TEST_F(ArachneTest, ConditionVariable_notifyOne) {
     numWaitedOn = 0;
     createThread(0, waiter);
     createThread(0, waiter);
-    EXPECT_EQ(2, Arachne::occupiedAndCount[0]->load().numOccupied);
-    EXPECT_EQ(3, Arachne::occupiedAndCount[0]->load().occupied);
+    EXPECT_EQ(2U, Arachne::occupiedAndCount[0]->load().numOccupied);
+    EXPECT_EQ(3U, Arachne::occupiedAndCount[0]->load().occupied);
     numWaitedOn = 2;
     mutex.lock();
     cv.notifyOne();
@@ -585,12 +583,12 @@ TEST_F(ArachneTest, incrementCoreCount) {
     setErrorStream(newStream);
 
     maxNumCores = 4;
-    EXPECT_EQ(3, occupiedAndCount.size());
-    EXPECT_EQ(3, allThreadContexts.size());
+    EXPECT_EQ(3U, occupiedAndCount.size());
+    EXPECT_EQ(3U, allThreadContexts.size());
     incrementCoreCount();
     limitedTimeWait([]() -> bool { return numCores > 3;});
-    EXPECT_EQ(4, occupiedAndCount.size());
-    EXPECT_EQ(4, allThreadContexts.size());
+    EXPECT_EQ(4U, occupiedAndCount.size());
+    EXPECT_EQ(4U, allThreadContexts.size());
 
     fflush(newStream);
     EXPECT_EQ("Number of cores increasing from 3 to 4\n", std::string(str));
