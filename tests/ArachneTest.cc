@@ -52,17 +52,19 @@ static void limitedTimeWait(std::function<bool()> condition) {
 }
 
 static Arachne::SpinLock mutex;
+static Arachne::SleepLock sleepLock;
 static Arachne::ConditionVariable cv;
 static volatile int numWaitedOn;
 static volatile int flag;
 
 // Helper function for SpinLock tests
+template <typename L>
 static void
-lockTaker() {
+lockTaker(L *mutex) {
     flag = 1;
-    mutex.lock();
-    EXPECT_EQ(loadedContext, mutex.owner);
-    mutex.unlock();
+    mutex->lock();
+    EXPECT_EQ(loadedContext, mutex->owner);
+    mutex->unlock();
     flag = 0;
 }
 
@@ -70,7 +72,7 @@ TEST_F(ArachneTest, SpinLock_lockUnlock) {
     EXPECT_EQ(NULL, loadedContext);
     flag = 0;
     mutex.lock();
-    createThread(0, lockTaker);
+    createThread(0, lockTaker<SpinLock>, &mutex);
     limitedTimeWait([]() -> bool {return flag;});
     EXPECT_EQ(1, flag);
     usleep(1);
@@ -116,6 +118,38 @@ TEST_F(ArachneTest, SpinLock_tryLock) {
     mutex.unlock();
     EXPECT_TRUE(mutex.try_lock());
     mutex.unlock();
+}
+
+// This is needed because SleepLocks cannot be taken by non-Arachne threads.
+void sleepLockTest() {
+    flag = 0;
+    sleepLock.lock();
+    Arachne::ThreadId tid = createThread(0, lockTaker<SleepLock>, &sleepLock);
+    Arachne::sleep(1000);
+    limitedTimeWait([]() -> bool {return flag;});
+    EXPECT_EQ(1, flag);
+    EXPECT_EQ(Arachne::BLOCKED, tid.context->wakeupTimeInCycles);
+    Arachne::sleep(1000);
+    EXPECT_EQ(1, flag);
+    EXPECT_EQ(NULL, sleepLock.owner);
+    sleepLock.unlock();
+    limitedTimeWait([]() -> bool {return !flag;});
+    EXPECT_EQ(0, flag);
+}
+
+TEST_F(ArachneTest, SleepLock) {
+    Arachne::createThread(sleepLockTest);
+}
+
+void sleepLockTryLockTest() {
+    sleepLock.lock();
+    EXPECT_FALSE(sleepLock.try_lock());
+    sleepLock.unlock();
+    EXPECT_TRUE(sleepLock.try_lock());
+    sleepLock.unlock();
+}
+TEST_F(ArachneTest, SleepLock_tryLock) {
+    createThread(sleepLockTryLockTest);
 }
 
 // Helper functions for thread creation tests.

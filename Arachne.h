@@ -164,7 +164,7 @@ class SpinLock {
         owner = loadedContext;
     }
 
-    /** 
+    /**
      * Attempt to acquire this resource once.
      * \return
      *    Whether or not the acquisition succeeded.  inline bool
@@ -204,6 +204,70 @@ class SpinLock {
     //
     // Used to identify the lock when reporting a potential deadlock.
     std::string name;
+};
+
+/**
+  * A resource which blocks the current thread until it is available.
+  * This resources should not be acquired from non-Arachne threads.
+  */
+class SleepLock {
+ public:
+    /** Constructor and destructor for sleepLock. */
+    SleepLock() : blockedThreads(), blockedThreadsLock(), owner(NULL) {}
+    ~SleepLock(){}
+
+    /** Attempt to acquire this resource and block if it is not available. */
+    inline void
+    lock() {
+        std::unique_lock<SpinLock> guard(blockedThreadsLock);
+        if (owner == NULL) {
+            owner = loadedContext;
+            return;
+        }
+        blockedThreads.push_back(getThreadId());
+        guard.unlock();
+        dispatch();
+    }
+
+    /** 
+     * Attempt to acquire this resource once.
+     * \return
+     *    Whether or not the acquisition succeeded.  inline bool
+     */
+    inline bool
+    try_lock() {
+        std::lock_guard<SpinLock> guard(blockedThreadsLock);
+        if (owner == NULL) {
+            owner = loadedContext;
+            return true;
+        }
+        return false;
+    }
+
+    /** Release resource. */
+    inline void
+    unlock() {
+        std::lock_guard<SpinLock> guard(blockedThreadsLock);
+        if (blockedThreads.empty()) {
+            owner = NULL;
+            return;
+        }
+        owner = blockedThreads.front().context;
+        blockedThreads.pop_front();
+    }
+
+ private:
+    // Ordered collection of threads that are waiting on this condition
+    // variable. Threads are processed from this list in FIFO order when a
+    // notifyOne() is called.
+    std::deque<ThreadId> blockedThreads;
+
+    // A SpinLock to protect the blockedThreads data structure.
+    SpinLock blockedThreadsLock;
+
+    // Used to identify the owning context for this lock, and also indicates
+    // whether the lock is held or not.
+    ThreadContext* owner;
 };
 
 /**
