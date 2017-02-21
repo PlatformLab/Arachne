@@ -1,0 +1,8 @@
+*.err
+*.o
+*.swp
+.gdb_history
+libArachne.a
+tags
+tests/ArachneTest
+tests/libgtest.a
