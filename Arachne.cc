@@ -705,6 +705,52 @@ shutDown() {
     shutdown = true;
 }
 
+
+/** Attempt to acquire this resource and block if it is not available. */
+void
+SleepLock::lock() {
+    std::unique_lock<SpinLock> guard(blockedThreadsLock);
+    if (owner == NULL) {
+        owner = loadedContext;
+        return;
+    }
+    blockedThreads.push_back(getThreadId());
+    guard.unlock();
+    dispatch();
+
+    // If this statement is ever true, then there is an error in the
+    // implementation.
+    if (owner != loadedContext) abort();
+}
+
+/** 
+ * Attempt to acquire this resource once.
+ * \return
+ *    Whether or not the acquisition succeeded.
+ */
+bool
+SleepLock::try_lock() {
+    std::lock_guard<SpinLock> guard(blockedThreadsLock);
+    if (owner == NULL) {
+        owner = loadedContext;
+        return true;
+    }
+    return false;
+}
+
+/** Release resource. */
+void
+SleepLock::unlock() {
+    std::lock_guard<SpinLock> guard(blockedThreadsLock);
+    if (blockedThreads.empty()) {
+        owner = NULL;
+        return;
+    }
+    owner = blockedThreads.front().context;
+    signal(blockedThreads.front());
+    blockedThreads.pop_front();
+}
+
 ConditionVariable::ConditionVariable()
     : blockedThreads() {}
 
