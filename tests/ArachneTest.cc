@@ -100,7 +100,7 @@ TEST_F(ArachneTest, SpinLock_printWarning) {
     SpinLock lock("SpinLockTest");
     lock.lock();
     Arachne::ThreadId contender = createThread(lockContender, std::ref(lock));
-    sleep(1E9 + 3000);
+    sleep(1E9 + 5000);
     lock.unlock();
     join(contender);
     Arachne::testDestroy();
@@ -131,15 +131,17 @@ void sleepLockTest() {
     EXPECT_EQ(Arachne::BLOCKED, tid.context->wakeupTimeInCycles);
     Arachne::sleep(1000);
     EXPECT_EQ(1, flag);
-    EXPECT_EQ(NULL, sleepLock.owner);
+    EXPECT_EQ(Arachne::loadedContext, sleepLock.owner);
     sleepLock.unlock();
     limitedTimeWait([]() -> bool {return !flag;});
     EXPECT_EQ(0, flag);
+    flag = 2;
 }
 
 TEST_F(ArachneTest, SleepLock) {
     EXPECT_EQ(NULL, loadedContext);
-    Arachne::createThread(sleepLockTest);
+    Arachne::createThread(1, sleepLockTest);
+    limitedTimeWait([]() -> bool {return flag == 2;});
 }
 
 void sleepLockTryLockTest() {
@@ -269,35 +271,6 @@ TEST_F(ArachneTest, cacheAlignAlloc) {
 }
 
 extern std::vector<void*> kernelThreadStacks;
-
-// These file-scope variables are used to test swapcontext.
-static const size_t testStackSize = 256;
-static char stack[testStackSize];
-static void* stackPointer;
-static void *oldStackPointer;
-
-static bool swapContextSuccess = 0;
-
-void
-swapContextHelper() {
-    swapContextSuccess = 1;
-    Arachne::swapcontext(&oldStackPointer, &stackPointer);
-}
-
-TEST_F(ArachneTest, swapContext) {
-    swapContextSuccess = 0;
-    stackPointer = stack + testStackSize;
-    *reinterpret_cast<void**>(stackPointer) =
-        reinterpret_cast<void*>(swapContextHelper);
-    EXPECT_EQ(256, reinterpret_cast<char*>(stackPointer) -
-            reinterpret_cast<char*>(stack));
-    stackPointer = reinterpret_cast<char*>(stackPointer) -
-        Arachne::SpaceForSavedRegisters;
-    EXPECT_EQ(208, reinterpret_cast<char*>(stackPointer) -
-            reinterpret_cast<char*>(stack));
-    Arachne::swapcontext(&stackPointer, &oldStackPointer);
-    EXPECT_EQ(1, swapContextSuccess);
-}
 
 // Helper method for schedulerMainLoop
 void

@@ -215,46 +215,9 @@ class SleepLock {
     /** Constructor and destructor for sleepLock. */
     SleepLock() : blockedThreads(), blockedThreadsLock(), owner(NULL) {}
     ~SleepLock(){}
-
-    /** Attempt to acquire this resource and block if it is not available. */
-    inline void
-    lock() {
-        std::unique_lock<SpinLock> guard(blockedThreadsLock);
-        if (owner == NULL) {
-            owner = loadedContext;
-            return;
-        }
-        blockedThreads.push_back(getThreadId());
-        guard.unlock();
-        dispatch();
-    }
-
-    /** 
-     * Attempt to acquire this resource once.
-     * \return
-     *    Whether or not the acquisition succeeded.  inline bool
-     */
-    inline bool
-    try_lock() {
-        std::lock_guard<SpinLock> guard(blockedThreadsLock);
-        if (owner == NULL) {
-            owner = loadedContext;
-            return true;
-        }
-        return false;
-    }
-
-    /** Release resource. */
-    inline void
-    unlock() {
-        std::lock_guard<SpinLock> guard(blockedThreadsLock);
-        if (blockedThreads.empty()) {
-            owner = NULL;
-            return;
-        }
-        owner = blockedThreads.front().context;
-        blockedThreads.pop_front();
-    }
+    void lock();
+    bool try_lock();
+    void unlock();
 
  private:
     // Ordered collection of threads that are waiting on this condition
