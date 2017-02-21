@@ -138,6 +138,7 @@ void sleepLockTest() {
 }
 
 TEST_F(ArachneTest, SleepLock) {
+    EXPECT_EQ(NULL, loadedContext);
     Arachne::createThread(sleepLockTest);
 }
 

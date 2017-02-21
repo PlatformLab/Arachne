@@ -685,6 +685,8 @@ void testDestroy() {
         free(localThreadContexts[k]);
     }
     delete[] localThreadContexts;
+    loadedContext = NULL;
+    *localOccupiedAndCount = {0, 0};
 }
 
 /**
