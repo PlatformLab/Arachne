@@ -21,15 +21,38 @@ class BackTraceArachneCommand (gdb.Command):
         gdb.execute("backtrace", from_tty)
         return
 
-    originalSP = gdb.parse_and_eval("$sp")
-    originalPC = long(gdb.parse_and_eval("$pc"))
-    print "Original SP:", originalSP
-    print "Original PC:", originalPC
-    gdb.execute("set $rsp=((Arachne::ThreadContext*){0})->sp + Arachne::SpaceForSavedRegisters".format(threadContext), from_tty)
+    SP = gdb.parse_and_eval("$sp")
+    PC = long(gdb.parse_and_eval("$pc"))
+    r12 = long(gdb.parse_and_eval("$r12"))
+    r13 = long(gdb.parse_and_eval("$r13"))
+    r14 = long(gdb.parse_and_eval("$r14"))
+    r15 = long(gdb.parse_and_eval("$r15"))
+    rbx = long(gdb.parse_and_eval("$rbx"))
+    rbp = long(gdb.parse_and_eval("$rbp"))
+    loadedContext = long(gdb.parse_and_eval("Arachne::loadedContext"))
+
+    gdb.execute("set Arachne::loadedContext = ((Arachne::ThreadContext*){0})".format(threadContext))
+    gdb.execute("set $rbp = *(uint64_t*) Arachne::loadedContext->sp")
+    gdb.execute("set $rbx = *(((uint64_t*) Arachne::loadedContext->sp)+1)")
+    gdb.execute("set $r15 = *(((uint64_t*) Arachne::loadedContext->sp)+2)")
+    gdb.execute("set $r14 = *(((uint64_t*) Arachne::loadedContext->sp)+3)")
+    gdb.execute("set $r13 = *(((uint64_t*) Arachne::loadedContext->sp)+4)")
+    gdb.execute("set $r12 = *(((uint64_t*) Arachne::loadedContext->sp)+5)")
+    gdb.execute("set $rsp=Arachne::loadedContext->sp + Arachne::SpaceForSavedRegisters", from_tty)
     gdb.execute("set $pc = *(void **)$rsp", from_tty)
+
     gdb.execute("backtrace", from_tty)
-    gdb.execute("set ($sp)={0}".format(originalSP), from_tty)
-    gdb.execute("set ($pc)={0}".format(originalPC), from_tty)
+
+    # Restore
+    gdb.execute("set  $sp = {0}".format(SP), from_tty)
+    gdb.execute("set  $pc = {0}".format(PC), from_tty)
+    gdb.execute("set $rbp = {0}".format(rbp), from_tty)
+    gdb.execute("set $rbx = {0}".format(rbx), from_tty)
+    gdb.execute("set $r15 = {0}".format(r15), from_tty)
+    gdb.execute("set $r14 = {0}".format(r14), from_tty)
+    gdb.execute("set $r13 = {0}".format(r13), from_tty)
+    gdb.execute("set $r12 = {0}".format(r12), from_tty)
+    gdb.execute("set Arachne::loadedContext = {0}".format(loadedContext))
 
   def invoke(self, arg, from_tty):
     arg = arg.strip()
