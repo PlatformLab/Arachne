@@ -403,6 +403,39 @@ TEST_F(ArachneTest, signal) {
     EXPECT_EQ(0U, tempContext->wakeupTimeInCycles);
 }
 
+// This buffer does not need protection because the threads writing to it are
+// deliberately scheduled onto the same core so only one will run at a time.
+
+char outputBuffer[1024];
+std::atomic<int> completionCounter(0);
+void
+blockingThread() {
+    strcat(outputBuffer, "Thread 1 blocking.");
+    Arachne::block();
+    strcat(outputBuffer, "Thread 1 unblocked.");
+    completionCounter++;
+}
+void signalingThread(ThreadId toBeSignaled) {
+    strcat(outputBuffer, "Thread 2 signaling.");
+    signal(toBeSignaled);
+    completionCounter++;
+}
+void normalThread() {
+    strcat(outputBuffer, "Thread 3 running.");
+    completionCounter++;
+}
+
+TEST_F(ArachneTest, block_priorities) {
+    memset(outputBuffer, 0, 1024);
+    ThreadId blocking = createThread(0, blockingThread);
+    createThread(0, signalingThread, blocking);
+    createThread(0, normalThread);
+    limitedTimeWait([]()->bool {
+            return completionCounter == 3;});
+    EXPECT_STREQ("Thread 1 blocking.Thread 2 signaling.Thread 1 unblocked."
+            "Thread 3 running.", outputBuffer);
+}
+
 static Arachne::ThreadId joineeId;
 
 void
