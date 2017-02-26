@@ -346,9 +346,16 @@ struct ThreadContext {
     /// context shall wait on this CV.
     ConditionVariable joinCV;
 
+    // Unique identifier for the core that this thread currently lives on.
+    // Used to index into global arrays with information per core.
+    /// This will only change if a ThreadContext is migrated when scaling down
+    /// the number of cores.
+    uint8_t coreId;
+
     /// Unique identifier for this thread among those on the same core.
     /// Used to index into various core-specific arrays.
-    /// This is read-only after Arachne initialization.
+    /// This will only change if a ThreadContext is migrated when scaling down
+    /// the number of cores.
     uint8_t idInCore;
 
     /// \var threadInvocation
@@ -367,7 +374,7 @@ struct ThreadContext {
     ThreadContext() = delete;
     ThreadContext(ThreadContext&) = delete;
 
-    explicit ThreadContext(uint8_t idInCore);
+    explicit ThreadContext(uint8_t coreId, uint8_t idInCore);
 };
 
 // Largest number of Arachne threads that can be simultaneously created on each
@@ -415,6 +422,9 @@ struct MaskAndCount{
 
 extern std::vector< std::atomic<MaskAndCount> *> occupiedAndCount;
 extern thread_local std::atomic<MaskAndCount> *localOccupiedAndCount;
+
+extern std::vector< std::atomic<uint64_t> *> publicPriorityMasks;
+extern thread_local uint64_t privatePriorityMask;
 
 #ifdef TEST
 static std::deque<uint64_t> mockRandomValues;

@@ -128,6 +128,25 @@ std::vector<std::atomic<MaskAndCount> * > occupiedAndCount;
 thread_local std::atomic<MaskAndCount> *localOccupiedAndCount;
 
 /**
+  * Setting a jth bit in the ith element of this vector indicates that the
+  * priority of the thread living at index j on core i is temporarily raised.
+  */
+std::vector< std::atomic<uint64_t> *> publicPriorityMasks;
+
+/**
+  * This represents each core's local copy of the high-priority mask. Each call
+  * to dispatch() will first examine this bitmask. It will clear the first set
+  * bit and switch to that context. If there are no set bits, it will copy the
+  * current value of publicPriorityMasks for the current core to here, and then
+  * atomically clear those bits using an atomic OR.
+  *
+  * When ramping down cores, this value (if nonzero) should be cleared, since
+  * all non-terminated threads on this core will be migrated away from this
+  * thread.
+  */
+thread_local uint64_t privatePriorityMask;
+
+/**
   * This variable holds the index into the current kernel thread's
   * localThreadContexts that it will check first the next time it looks for a
   * thread to run. It is used to implement round-robin scheduling of Arachne
@@ -331,11 +350,45 @@ dispatch() {
         fflush(errorStream);
         abort();
     }
+    uint64_t currentCycles = Cycles::rdtsc();
+    uint64_t mask = localOccupiedAndCount->load().occupied;
 
+    // Check for high priority threads.
+    if (!privatePriorityMask) {
+        // Copy & paste from the public list.
+        privatePriorityMask = *publicPriorityMasks[kernelThreadId];
+        if (privatePriorityMask)
+            *publicPriorityMasks[kernelThreadId] &= ~privatePriorityMask;
+    }
+
+    if (privatePriorityMask) {
+        // This position is one-indexed with zero meaning that no bits were
+        // set.
+        int firstSetBit = ffsll(privatePriorityMask);
+        if (firstSetBit) {
+            firstSetBit--;
+            privatePriorityMask &= ~(1 << (firstSetBit));
+
+            ThreadContext* targetContext = localThreadContexts[firstSetBit];
+
+            // Verify wakeup and occupied.
+            if (targetContext->wakeupTimeInCycles == 0 &&
+                    ((mask >> firstSetBit) & 1)) {
+                if (targetContext == loadedContext) {
+                    loadedContext->wakeupTimeInCycles = BLOCKED;
+                    return;
+                }
+                void** saved = &loadedContext->sp;
+                loadedContext = targetContext;
+                swapcontext(&loadedContext->sp, saved);
+                loadedContext->wakeupTimeInCycles = BLOCKED;
+                return;
+            }
+        }
+    }
     // Find a thread to switch to
     size_t currentIndex = nextCandidateIndex;
-    uint64_t mask = localOccupiedAndCount->load().occupied >> currentIndex;
-    uint64_t currentCycles = Cycles::rdtsc();
+    mask >>= currentIndex;
 
     // Count the iterations it took us to find a runnable thread.
     // Heuristically, if this number is very small, then we may want to ramp up
@@ -402,6 +455,10 @@ signal(ThreadId id) {
         __asm__ __volatile__("lock; cmpxchgq %0,%1" : "=r" (newValue), 
                 "=m" (id.context->wakeupTimeInCycles),
                 "=a" (oldWakeupTime) : "0" (newValue), "2" (oldWakeupTime));
+
+        // Raise the priority of the newly awakened thread.
+        if (id.context->coreId != static_cast<uint8_t>(~0))
+            *publicPriorityMasks[id.context->coreId] |= 1 << id.context->idInCore;
     }
 }
 
@@ -531,7 +588,7 @@ parseOptions(int* argcp, const char** argv) {
     *argcp = argc;
 }
 
-ThreadContext::ThreadContext(uint8_t idInCore)
+ThreadContext::ThreadContext(uint8_t coreId, uint8_t idInCore)
     : stack(malloc(stackSize))
     , sp(reinterpret_cast<char*>(stack) +
             stackSize - 2*sizeof(void*))
@@ -539,6 +596,7 @@ ThreadContext::ThreadContext(uint8_t idInCore)
     , generation(1)
     , joinLock()
     , joinCV()
+    , coreId(coreId)
     , idInCore(idInCore)
 {
     // Immediately before schedulerMainLoop gains control, we want the
@@ -612,13 +670,17 @@ init(int* argcp, const char** argv) {
         occupiedAndCount.push_back(
                 reinterpret_cast<std::atomic<Arachne::MaskAndCount>* >(
                     cacheAlignAlloc(sizeof(MaskAndCount))));
-        memset(occupiedAndCount.back(), 0, sizeof(MaskAndCount));
+        memset(occupiedAndCount.back(), 0, sizeof(std::atomic<MaskAndCount>));
+        publicPriorityMasks.push_back(
+                reinterpret_cast< std::atomic<uint64_t>* >(
+                    cacheAlignAlloc(sizeof(std::atomic<uint64_t>))));
+        memset(publicPriorityMasks.back(), 0, sizeof(std::atomic<uint64_t>));
         // Here we will allocate all the thread contexts and stacks
         ThreadContext **contexts = new ThreadContext*[maxThreadsPerCore];
         for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
             contexts[k] = reinterpret_cast<ThreadContext*>(
                     cacheAlignAlloc(sizeof(ThreadContext)));
-            new (contexts[k]) ThreadContext(k);
+            new (contexts[k]) ThreadContext(static_cast<uint8_t>(i), k);
         }
         allThreadContexts.push_back(contexts);
     }
@@ -664,7 +726,7 @@ testInit() {
         // expensive.
         localThreadContexts[k] = reinterpret_cast<ThreadContext*>(
                 cacheAlignAlloc(sizeof(ThreadContext)));
-        new (localThreadContexts[k]) ThreadContext(k);
+        new (localThreadContexts[k]) ThreadContext(~0, k);
         localThreadContexts[k]->wakeupTimeInCycles = BLOCKED;
     }
     loadedContext = *localThreadContexts;
@@ -809,7 +871,7 @@ void joinKernelThreadPool() {
         // expensive.
         localThreadContexts[k] = reinterpret_cast<ThreadContext*>(
                 cacheAlignAlloc(sizeof(ThreadContext)));
-        new (localThreadContexts[k]) ThreadContext(k);
+        new (localThreadContexts[k]) ThreadContext(~0, k);
     }
 
     // Ensure that the memory above is properly allocated; prevent pipelining.
@@ -820,9 +882,19 @@ void joinKernelThreadPool() {
     coreChangeMutex.lock();
     occupiedAndCount.push_back(localOccupiedAndCount);
     allThreadContexts.push_back(localThreadContexts);
+    publicPriorityMasks.push_back(
+                reinterpret_cast< std::atomic<uint64_t>* >(
+                    cacheAlignAlloc(sizeof(std::atomic<uint64_t>))));
     kernelThreadStacks.push_back(NULL);
     kernelThreadId = numCores++;
     coreChangeMutex.unlock();
+
+    // Since we know the kernelThreadId now, we can now correct the
+    // ThreadContext.coreId() here. Eventually, this correction will take place
+    // every time a core is returned to the application.
+    for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
+        localThreadContexts[k]->coreId = static_cast<uint8_t>(kernelThreadId);
+    }
 
     // See documentation in threadMain
     loadedContext = localThreadContexts[0];
