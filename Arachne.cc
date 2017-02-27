@@ -771,7 +771,9 @@ shutDown() {
 /** Attempt to acquire this resource and block if it is not available. */
 void
 SleepLock::lock() {
-    std::unique_lock<SpinLock> guard(blockedThreadsLock);
+    // Spin here manually to avoid yields
+    while (!blockedThreadsLock.try_lock());
+    std::unique_lock<SpinLock> guard(blockedThreadsLock, std::adopt_lock);
     if (owner == NULL) {
         owner = loadedContext;
         return;
@@ -792,7 +794,9 @@ SleepLock::lock() {
  */
 bool
 SleepLock::try_lock() {
-    std::lock_guard<SpinLock> guard(blockedThreadsLock);
+    // Spin here manually to avoid yields
+    while (!blockedThreadsLock.try_lock());
+    std::lock_guard<SpinLock> guard(blockedThreadsLock, std::adopt_lock);
     if (owner == NULL) {
         owner = loadedContext;
         return true;
@@ -803,7 +807,9 @@ SleepLock::try_lock() {
 /** Release resource. */
 void
 SleepLock::unlock() {
-    std::lock_guard<SpinLock> guard(blockedThreadsLock);
+    // Spin here manually to avoid yields
+    while (!blockedThreadsLock.try_lock());
+    std::lock_guard<SpinLock> guard(blockedThreadsLock, std::adopt_lock);
     if (blockedThreads.empty()) {
         owner = NULL;
         return;
