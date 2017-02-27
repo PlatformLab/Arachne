@@ -306,6 +306,7 @@ schedulerMainLoop() {
 void
 yield() {
     if (!loadedContext) return;
+    if (localOccupiedAndCount->load().numOccupied == 1) return;
     // This thread is still runnable since it is merely yielding.
     loadedContext->wakeupTimeInCycles = 0L;
     dispatch();
