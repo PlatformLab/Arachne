@@ -418,6 +418,7 @@ blockingThread() {
 void signalingThread(ThreadId toBeSignaled) {
     strcat(outputBuffer, "Thread 2 signaling.");
     signal(toBeSignaled);
+    EXPECT_EQ(1LU, *publicPriorityMasks[0]);
     completionCounter++;
 }
 void normalThread() {
