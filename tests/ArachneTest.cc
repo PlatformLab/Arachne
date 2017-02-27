@@ -37,6 +37,11 @@ struct ArachneTest : public ::testing::Test {
     }
 };
 
+// Shared data structures used in multiple tests.
+char outputBuffer[1024];
+std::atomic<int> completionCounter;
+static Arachne::SleepLock sleepLock;
+
 // Helper function for tests with timing dependencies, so that we wait for a
 // finite amount of time in the case of a bug causing an infinite loop.
 static void limitedTimeWait(std::function<bool()> condition) {
@@ -52,7 +57,6 @@ static void limitedTimeWait(std::function<bool()> condition) {
 }
 
 static Arachne::SpinLock mutex;
-static Arachne::SleepLock sleepLock;
 static Arachne::ConditionVariable cv;
 static volatile int numWaitedOn;
 static volatile int flag;
@@ -142,6 +146,49 @@ TEST_F(ArachneTest, SleepLock) {
     EXPECT_EQ(NULL, loadedContext);
     Arachne::createThread(1, sleepLockTest);
     limitedTimeWait([]() -> bool {return flag == 2;});
+}
+
+void sleepOnLock(int id) {
+    std::lock_guard<SleepLock> guard(sleepLock);
+    char tempBuffer[100];
+    memset(tempBuffer, 0, 100);
+    sprintf(tempBuffer, "T %d takes lock.\n", id);
+    strcat(outputBuffer, tempBuffer);
+    completionCounter++;
+}
+void lockHolder() {
+    std::lock_guard<SleepLock> guard(sleepLock);
+    yield();
+    completionCounter++;
+}
+
+void silentLocker() {
+    std::lock_guard<SleepLock> guard(sleepLock);
+    completionCounter++;
+}
+
+TEST_F(ArachneTest, SleepLock_fairness) {
+    memset(outputBuffer, 0, 1024);
+    completionCounter = 0;
+    createThread(0, lockHolder);
+    for (int i = 0; i < 20; i ++) {
+        createThread(0, sleepOnLock, i);
+        // Interference on another core should not change the order
+        createThread(1, silentLocker);
+    }
+
+    limitedTimeWait([]()->bool {
+            return completionCounter == 41;});
+
+    char tempBuffer[100];
+    char inputBuffer[1024];
+    memset(inputBuffer, 0, 1024);
+    for (int i = 0; i < 20; i ++) {
+        memset(tempBuffer, 0, 100);
+        sprintf(tempBuffer, "T %d takes lock.\n", i);
+        strcat(inputBuffer, tempBuffer);
+    }
+    EXPECT_STREQ(inputBuffer, outputBuffer);
 }
 
 void sleepLockTryLockTest() {
@@ -406,8 +453,6 @@ TEST_F(ArachneTest, signal) {
 // This buffer does not need protection because the threads writing to it are
 // deliberately scheduled onto the same core so only one will run at a time.
 
-char outputBuffer[1024];
-std::atomic<int> completionCounter(0);
 void
 blockingThread() {
     strcat(outputBuffer, "Thread 1 blocking.");
@@ -428,6 +473,7 @@ void normalThread() {
 
 TEST_F(ArachneTest, block_priorities) {
     memset(outputBuffer, 0, 1024);
+    completionCounter = 0;
     ThreadId blocking = createThread(0, blockingThread);
     createThread(0, signalingThread, blocking);
     createThread(0, normalThread);
