@@ -458,7 +458,7 @@ signal(ThreadId id) {
 
         // Raise the priority of the newly awakened thread.
         if (id.context->coreId != static_cast<uint8_t>(~0))
-            *publicPriorityMasks[id.context->coreId] |= 1 << id.context->idInCore;
+            *publicPriorityMasks[id.context->coreId] |= (1 << id.context->idInCore);
     }
 }
 
@@ -778,11 +778,11 @@ SleepLock::lock() {
     }
     blockedThreads.push_back(getThreadId());
     guard.unlock();
-    dispatch();
-
-    // If this statement is ever true, then there is an error in the
-    // implementation.
-    if (owner != loadedContext) abort();
+    do {
+        // Spurious wake-ups can happen due to signalers of past inhabitants of
+        // this loadedContext.
+        dispatch();
+    } while(owner != loadedContext);
 }
 
 /** 
