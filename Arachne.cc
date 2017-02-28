@@ -269,7 +269,6 @@ schedulerMainLoop() {
         // Bump the generation number for the next newborn thread.
         loadedContext->generation++;
         {
-
             // Handle joins
             std::lock_guard<SpinLock> joinGuard(loadedContext->joinLock);
             loadedContext->joinCV.notifyAll();
@@ -295,6 +294,11 @@ schedulerMainLoop() {
                     oldSlotMap,
                     slotMap);
         } while (!success);
+
+        // Newborn threads should not have elevated priority, even if the
+        // predecessors had leftover priority
+        privatePriorityMask &= ~(1L << (loadedContext->idInCore));
+        *publicPriorityMasks[kernelThreadId] &= ~(1L << (loadedContext->idInCore));
     }
 }
 
@@ -368,7 +372,7 @@ dispatch() {
         int firstSetBit = ffsll(privatePriorityMask);
         if (firstSetBit) {
             firstSetBit--;
-            privatePriorityMask &= ~(1 << (firstSetBit));
+            privatePriorityMask &= ~(1L << (firstSetBit));
 
             ThreadContext* targetContext = localThreadContexts[firstSetBit];
 
@@ -459,7 +463,8 @@ signal(ThreadId id) {
 
         // Raise the priority of the newly awakened thread.
         if (id.context->coreId != static_cast<uint8_t>(~0))
-            *publicPriorityMasks[id.context->coreId] |= (1 << id.context->idInCore);
+            *publicPriorityMasks[id.context->coreId] |=
+                (1L << id.context->idInCore);
     }
 }
 
