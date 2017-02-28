@@ -139,8 +139,19 @@ void testDestroy();
 class SpinLock {
  public:
     /** Constructor and destructor for spinlock. */
-    explicit SpinLock(std::string name) : state(false), name(name) {}
-    SpinLock() : state(false), owner(NULL), name("unnamed") {}
+    SpinLock(std::string name, bool shouldYield = true)
+        : state(false)
+        , name(name)
+        , shouldYield(shouldYield) {}
+    // Delegating constructor forces const char* to resolve to string instead
+    // of bool.
+    SpinLock(const char* name, bool shouldYield = true)
+        : SpinLock(std::string(name), shouldYield) {}
+    SpinLock(bool shouldYield = true)
+        : state(false)
+        , owner(NULL)
+        , name("unnamed")
+        , shouldYield(shouldYield) {}
     ~SpinLock(){}
 
     /** Repeatedly try to acquire this resource until success. */
@@ -159,7 +170,7 @@ class SpinLock {
                     startOfContention = now;
                 }
             }
-            yield();
+            if (shouldYield) yield();
         }
         owner = loadedContext;
     }
@@ -204,6 +215,15 @@ class SpinLock {
     //
     // Used to identify the lock when reporting a potential deadlock.
     std::string name;
+
+    // Controls whether the acquiring thread should yield control of the core
+    // each time it fails to acquire this SpinLock.
+    //
+    // For short critical sections that hold onto a core throughout, it will
+    // minimize latency to set this to false.
+    // For longer critical sections that may relinguish a core, it is necessary
+    // to set this to true to avoid deadlock.
+    bool shouldYield;
 };
 
 /**
@@ -213,7 +233,7 @@ class SpinLock {
 class SleepLock {
  public:
     /** Constructor and destructor for sleepLock. */
-    SleepLock() : blockedThreads(), blockedThreadsLock(), owner(NULL) {}
+    SleepLock() : blockedThreads(), blockedThreadsLock(false), owner(NULL) {}
     ~SleepLock(){}
     void lock();
     bool try_lock();
