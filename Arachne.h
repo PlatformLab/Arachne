@@ -167,6 +167,7 @@ class SpinLock {
                     fprintf(errorStream,
                             "%s SpinLock locked for one second; deadlock?\n",
                             name.c_str());
+                    fflush(errorStream);
                     startOfContention = now;
                 }
             }
