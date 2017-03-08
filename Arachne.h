@@ -520,6 +520,7 @@ createThread(int kId, _Callable&& __f, _Args&&... __args) {
     auto task = std::bind(
             std::forward<_Callable>(__f), std::forward<_Args>(__args)...);
 
+    ThreadContext* threadContext;
     bool success;
     uint32_t index;
     do {
@@ -540,7 +541,7 @@ createThread(int kId, _Callable&& __f, _Args&&... __args) {
         slotMap.occupied =
             (slotMap.occupied | (1L << index)) & 0x00FFFFFFFFFFFFFF;
         slotMap.numOccupied++;
-
+        threadContext = allThreadContexts[kId][index];
         success = occupiedAndCount[kId]->compare_exchange_strong(oldSlotMap,
                 slotMap);
     } while (!success);
@@ -548,7 +549,7 @@ createThread(int kId, _Callable&& __f, _Args&&... __args) {
     // Copy the thread invocation into the byte array.
     new (&allThreadContexts[kId][index]->threadInvocation)
         Arachne::ThreadInvocation<decltype(task)>(task);
-    allThreadContexts[kId][index]->wakeupTimeInCycles = 0;
+    threadContext->wakeupTimeInCycles = 0;
     return ThreadId(allThreadContexts[kId][index],
             allThreadContexts[kId][index]->generation);
 }
