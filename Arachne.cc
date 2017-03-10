@@ -75,7 +75,7 @@ volatile uint32_t maxNumCores = 0;
   * multiple threads from simultaneously attempting to change the number of
   * cores.
   */
-std::mutex coreChangeMutex;
+SpinLock coreChangeMutex(false);
 
 /**
   * Configurable maximum stack size for all threads.
@@ -912,7 +912,7 @@ void joinKernelThreadPool() {
   * used by Arachne.
   */
 void incrementCoreCount() {
-    std::lock_guard<std::mutex> _(coreChangeMutex);
+    std::lock_guard<SpinLock> _(coreChangeMutex);
     if (numCoresPrecursor < maxNumCores) {
         fprintf(errorStream, "Number of cores increasing from %u to %u\n",
                 numCoresPrecursor, numCoresPrecursor + 1);
