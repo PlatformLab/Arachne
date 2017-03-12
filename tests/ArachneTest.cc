@@ -76,7 +76,7 @@ TEST_F(ArachneTest, SpinLock_lockUnlock) {
     EXPECT_EQ(NULL, loadedContext);
     flag = 0;
     mutex.lock();
-    createThread(0, lockTaker<SpinLock>, &mutex);
+    createThreadOnCore(0, lockTaker<SpinLock>, &mutex);
     limitedTimeWait([]() -> bool {return flag;});
     EXPECT_EQ(1, flag);
     usleep(1);
@@ -128,7 +128,7 @@ TEST_F(ArachneTest, SpinLock_tryLock) {
 void sleepLockTest() {
     flag = 0;
     sleepLock.lock();
-    Arachne::ThreadId tid = createThread(0, lockTaker<SleepLock>, &sleepLock);
+    Arachne::ThreadId tid = createThreadOnCore(0, lockTaker<SleepLock>, &sleepLock);
     Arachne::sleep(1000);
     limitedTimeWait([]() -> bool {return flag;});
     EXPECT_EQ(1, flag);
@@ -144,7 +144,7 @@ void sleepLockTest() {
 
 TEST_F(ArachneTest, SleepLock) {
     EXPECT_EQ(NULL, loadedContext);
-    Arachne::createThread(1, sleepLockTest);
+    Arachne::createThreadOnCore(1, sleepLockTest);
     limitedTimeWait([]() -> bool {return flag == 2;});
 }
 
@@ -170,11 +170,11 @@ void silentLocker() {
 TEST_F(ArachneTest, SleepLock_fairness) {
     memset(outputBuffer, 0, 1024);
     completionCounter = 0;
-    createThread(0, lockHolder);
+    createThreadOnCore(0, lockHolder);
     for (int i = 0; i < 20; i ++) {
-        createThread(0, sleepOnLock, i);
+        createThreadOnCore(0, sleepOnLock, i);
         // Interference on another core should not change the order
-        createThread(1, silentLocker);
+        createThreadOnCore(1, silentLocker);
     }
 
     limitedTimeWait([]()->bool {
@@ -222,7 +222,7 @@ setFlagForCreation(int a) {
 TEST_F(ArachneTest, createThread_noArgs) {
     EXPECT_EQ(0U, Arachne::occupiedAndCount[0]->load().numOccupied);
     EXPECT_EQ(0U, Arachne::occupiedAndCount[0]->load().occupied);
-    createThread(0, clearFlag);
+    createThreadOnCore(0, clearFlag);
 
     // This test may be a little fragile since it depends on the internal
     // structure of std::function
@@ -241,7 +241,7 @@ TEST_F(ArachneTest, createThread_noArgs) {
 }
 
 TEST_F(ArachneTest, createThread_withArgs) {
-    createThread(0, setFlagForCreation, 2);
+    createThreadOnCore(0, setFlagForCreation, 2);
     EXPECT_EQ(1U, Arachne::occupiedAndCount[0]->load().numOccupied);
     EXPECT_EQ(1U, Arachne::occupiedAndCount[0]->load().occupied);
     EXPECT_EQ(0, threadCreationIndicator);
@@ -257,7 +257,7 @@ TEST_F(ArachneTest, createThread_findCorrectSlot) {
     EXPECT_EQ(3U, Arachne::occupiedAndCount[0]->load().numOccupied);
     EXPECT_EQ(0b1011U, Arachne::occupiedAndCount[0]->load().occupied);
 
-    createThread(0, setFlagForCreation, 2);
+    createThreadOnCore(0, setFlagForCreation, 2);
     EXPECT_EQ(4U, Arachne::occupiedAndCount[0]->load().numOccupied);
     EXPECT_EQ(0b1111U, Arachne::occupiedAndCount[0]->load().occupied);
     EXPECT_EQ(0, threadCreationIndicator);
@@ -275,8 +275,8 @@ TEST_F(ArachneTest, createThread_findCorrectSlot) {
 
 TEST_F(ArachneTest, createThread_maxThreadsExceeded) {
     for (int i = 0; i < Arachne::maxThreadsPerCore; i++)
-        EXPECT_NE(Arachne::NullThread, createThread(0, clearFlag));
-    EXPECT_EQ(Arachne::NullThread, createThread(0, clearFlag));
+        EXPECT_NE(Arachne::NullThread, createThreadOnCore(0, clearFlag));
+    EXPECT_EQ(Arachne::NullThread, createThreadOnCore(0, clearFlag));
 
     // Clean up the threads
     while (Arachne::occupiedAndCount[0]->load().numOccupied > 0)
@@ -328,7 +328,7 @@ checkSchedulerState() {
 }
 
 TEST_F(ArachneTest, schedulerMainLoop) {
-    createThread(0, checkSchedulerState);
+    createThreadOnCore(0, checkSchedulerState);
     limitedTimeWait([]()->bool {
             return occupiedAndCount[0]->load().numOccupied == 0; });
 
@@ -361,10 +361,10 @@ TEST_F(ArachneTest, yield_secondThreadGotControl) {
     numCores = 2;
     init();
     keepYielding = true;
-    createThread(0, yielder);
+    createThreadOnCore(0, yielder);
 
     flag = 0;
-    createThread(0, setFlag);
+    createThreadOnCore(0, setFlag);
     limitedTimeWait([]()->bool {
             return Arachne::occupiedAndCount[0]->load().numOccupied <= 1;});
     EXPECT_EQ(1, flag);
@@ -378,9 +378,9 @@ TEST_F(ArachneTest, yield_allThreadsRan) {
     keepYielding = true;
     flag = 0;
 
-    createThread(0, bitSetter, 0);
-    createThread(0, bitSetter, 1);
-    createThread(0, bitSetter, 2);
+    createThreadOnCore(0, bitSetter, 0);
+    createThreadOnCore(0, bitSetter, 1);
+    createThreadOnCore(0, bitSetter, 2);
     limitedTimeWait([]()->bool {return flag == 7;});
     keepYielding = false;
 }
@@ -405,14 +405,14 @@ simplesleeper() {
 TEST_F(ArachneTest, sleep_minimumDelay) {
     numCores = 2;
     init();
-    createThread(0, sleeper);
+    createThreadOnCore(0, sleeper);
 }
 
 TEST_F(ArachneTest, sleep_wakeupTimeSetAndCleared) {
     Arachne::numCores = 2;
     Arachne::init();
     flag = 0;
-    createThread(0, simplesleeper);
+    createThreadOnCore(0, simplesleeper);
     limitedTimeWait([]()->bool { return flag; });
     EXPECT_EQ(BLOCKED, Arachne::allThreadContexts[0][0]->wakeupTimeInCycles);
     flag = 0;
@@ -427,7 +427,7 @@ blocker() {
 }
 
 TEST_F(ArachneTest, block_basics) {
-    Arachne::ThreadId id = createThread(0, blocker);
+    Arachne::ThreadId id = createThreadOnCore(0, blocker);
     EXPECT_EQ(1U, Arachne::occupiedAndCount[0]->load().numOccupied);
     EXPECT_EQ(1U, Arachne::occupiedAndCount[0]->load().occupied);
 
@@ -474,9 +474,9 @@ void normalThread() {
 TEST_F(ArachneTest, block_priorities) {
     memset(outputBuffer, 0, 1024);
     completionCounter = 0;
-    ThreadId blocking = createThread(0, blockingThread);
-    createThread(0, signalingThread, blocking);
-    createThread(0, normalThread);
+    ThreadId blocking = createThreadOnCore(0, blockingThread);
+    createThreadOnCore(0, signalingThread, blocking);
+    createThreadOnCore(0, normalThread);
     limitedTimeWait([]()->bool {
             return completionCounter == 3;});
     EXPECT_STREQ("Thread 1 blocking.Thread 2 signaling.Thread 1 unblocked."
@@ -507,8 +507,8 @@ TEST_F(ArachneTest, join_afterTermination) {
 
     // Since the joinee does not yield, we know that it terminated before the
     // joiner got a chance to run.
-    joineeId = createThread(0, joinee);
-    createThread(0, joiner);
+    joineeId = createThreadOnCore(0, joinee);
+    createThreadOnCore(0, joiner);
 
     // Wait for threads to finish so that tests do not interfere with each
     // other.
@@ -519,8 +519,8 @@ TEST_F(ArachneTest, join_afterTermination) {
 TEST_F(ArachneTest, join_DuringRun) {
     Arachne::numCores = 2;
     Arachne::init();
-    joineeId = createThread(0, joinee2);
-    createThread(0, joiner);
+    joineeId = createThreadOnCore(0, joinee2);
+    createThreadOnCore(0, joiner);
     limitedTimeWait([]() ->bool {
             return Arachne::occupiedAndCount[0]->load().numOccupied == 0;});
 }
@@ -600,8 +600,8 @@ waiter() {
 
 TEST_F(ArachneTest, ConditionVariable_notifyOne) {
     numWaitedOn = 0;
-    createThread(0, waiter);
-    createThread(0, waiter);
+    createThreadOnCore(0, waiter);
+    createThreadOnCore(0, waiter);
     EXPECT_EQ(2U, Arachne::occupiedAndCount[0]->load().numOccupied);
     EXPECT_EQ(3U, Arachne::occupiedAndCount[0]->load().occupied);
     numWaitedOn = 2;
@@ -623,7 +623,7 @@ TEST_F(ArachneTest, ConditionVariable_notifyAll) {
     mutex.lock();
     numWaitedOn = 0;
     for (int i = 0; i < 10; i++)
-        createThread(0, waiter);
+        createThreadOnCore(0, waiter);
     numWaitedOn = 5;
     cv.notifyAll();
     mutex.unlock();
@@ -645,7 +645,7 @@ timedWaiter() {
 
 TEST_F(ArachneTest, ConditionVariable_waitFor) {
     numWaitedOn = 1;
-    createThread(0, timedWaiter);
+    createThreadOnCore(0, timedWaiter);
     limitedTimeWait([]() -> bool {return numWaitedOn != 1;});
     EXPECT_EQ(0, numWaitedOn);
 }

@@ -520,11 +520,9 @@ random(void) {
   */
 template<typename _Callable, typename... _Args>
 ThreadId
-createThread(int virtualCoreId, _Callable&& __f, _Args&&... __args) {
-    // This code should be removed after all instances of passing -1 have been
-    // removed.
-    if (virtualCoreId == -1)
-        abort();
+createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
+    if (virtualCoreId >= numCores)
+        return Arachne::NullThread;
 
     int coreId = virtualCoreTable[virtualCoreId];
 
@@ -590,11 +588,11 @@ ThreadId
 createThread(_Callable&& __f, _Args&&... __args) {
     // Find a kernel thread to enqueue to by picking two at random and choosing
     // the one with the fewest Arachne threads.
-    int kId;
-    int choice1 = static_cast<int>(random()) % numCores;
-    int choice2 = static_cast<int>(random()) % numCores;
+    uint32_t kId;
+    uint32_t choice1 = static_cast<uint32_t>(random()) % numCores;
+    uint32_t choice2 = static_cast<uint32_t>(random()) % numCores;
     while (choice2 == choice1 && numCores > 1)
-        choice2 = static_cast<int>(random()) % numCores;
+        choice2 = static_cast<uint32_t>(random()) % numCores;
 
     if (occupiedAndCount[choice1]->load().numOccupied <
             occupiedAndCount[choice2]->load().numOccupied)
@@ -602,7 +600,7 @@ createThread(_Callable&& __f, _Args&&... __args) {
     else
         kId = choice2;
 
-    return createThread(kId, __f, __args...);
+    return createThreadOnCore(kId, __f, __args...);
 }
 
 /**
