@@ -1040,8 +1040,8 @@ void incrementCoreCount() {
 }
 
 /**
-  * This function can be called from any thread to decrease the number of cores
-  * used by Arachne.
+  * This function can be called from any thread to arrange to decrease the
+  * number of cores used by Arachne. It returns a core is actually released.
   */
 void decrementCoreCount() {
     std::lock_guard<SpinLock> _(coreChangeMutex);
@@ -1061,7 +1061,6 @@ void decrementCoreCount() {
     // hold it for too long.
     // Separate variable to avoid ambiguity between two versions of
     // createThread.
-    int targetCore = (minIndex + 1) % numCores;
-    createThread(targetCore, releaseCore);
+    createThreadOnCore(minIndex, releaseCore);
 }
 } // namespace Arachne
