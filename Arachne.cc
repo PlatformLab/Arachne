@@ -91,10 +91,16 @@ std::vector<std::thread> kernelThreads;
 std::vector<void*> kernelThreadStacks;
 
 /**
-  * Alert the kernel threads that they should exit if there are no further
-  * threads to run.
+  * Alert the kernel threads that they should exit immediately. This is used
+  * only for testing.
   */
 volatile bool shutdown;
+
+/**
+  * Alert the kernel thread that cleanup is complete and it should exit for
+  * ramp-down.
+  */
+thread_local bool threadShouldExit;
 
 /**
   * The collection of possibly runnable contexts for each kernel thread.
@@ -126,6 +132,13 @@ thread_local ThreadContext *loadedContext;
   */
 std::vector<std::atomic<MaskAndCount> * > occupiedAndCount;
 thread_local std::atomic<MaskAndCount> *localOccupiedAndCount;
+
+/**
+  * This table maps a contiguous range of virtual core ID's to indices into an
+  * immutable table pairing each ThreadContext** with its corresponding
+  * MaskAndCount structure.
+  */
+int* virtualCoreTable;
 
 /**
   * Setting a jth bit in the ith element of this vector indicates that the
@@ -256,6 +269,13 @@ swapcontext(void **saved, void **target) {
 void
 schedulerMainLoop() {
     while (true) {
+        // Check for whether this thread should exit, for the purposes of
+        // ramping down.
+        if (threadShouldExit) {
+            swapcontext(
+                    &kernelThreadStacks[kernelThreadId],
+                    &loadedContext->sp);
+        }
         // No thread to execute yet. This call will not return until we have
         // been assigned a new Arachne thread.
         dispatch();
@@ -420,7 +440,8 @@ dispatch() {
         ThreadContext* currentContext = localThreadContexts[currentIndex];
         if (currentCycles >= currentContext->wakeupTimeInCycles) {
             if (numIterations < CORE_INCREASE_THRESHOLD &&
-                    numCoresPrecursor < maxNumCores)
+                    numCoresPrecursor < maxNumCores &&
+                    numCoresPrecursor == numCores)
                 incrementCoreCount();
             nextCandidateIndex = currentIndex + 1;
             if (nextCandidateIndex == maxThreadsPerCore) nextCandidateIndex = 0;
@@ -513,8 +534,11 @@ void waitForTermination() {
     }
     allThreadContexts.clear();
     occupiedAndCount.clear();
+
+    delete[] virtualCoreTable;
     PerfUtils::Util::serialize();
     initialized = false;
+
 }
 
 /**
@@ -672,7 +696,10 @@ init(int* argcp, const char** argv) {
     numCoresPrecursor = numCores;
     maxNumCores = std::max(numCores, maxNumCores);
 
-    for (unsigned int i = 0; i < numCores; i++) {
+    // We assume that maxNumCores will not be exceeded in the lifetime of this
+    // application.
+    virtualCoreTable = new int[maxNumCores];
+    for (unsigned int i = 0; i < maxNumCores; i++) {
         occupiedAndCount.push_back(
                 reinterpret_cast<std::atomic<Arachne::MaskAndCount>* >(
                     cacheAlignAlloc(sizeof(MaskAndCount))));
@@ -689,10 +716,11 @@ init(int* argcp, const char** argv) {
             new (contexts[k]) ThreadContext(static_cast<uint8_t>(i), k);
         }
         allThreadContexts.push_back(contexts);
+        virtualCoreTable[i] = i;
     }
 
     // Allocate space to store all the original kernel pointers
-    kernelThreadStacks.resize(numCores);
+    kernelThreadStacks.resize(maxNumCores);
     shutdown = false;
 
     // Ensure that data structure and stack allocation completes before we
@@ -703,7 +731,8 @@ init(int* argcp, const char** argv) {
     for (unsigned int i = 0; i < numCores; i++) {
         // These threads are started with threadMain instead of
         // schedulerMainLoop because we want schedulerMainLoop to run on a user
-        // stack rather than a kernel-provided stack
+        // stack rather than a kernel-provided stack. This enables us to run
+        // the first user thread without a context switch.
         kernelThreads.emplace_back(threadMain, i);
     }
 }
@@ -859,45 +888,22 @@ void setErrorStream(FILE* stream) {
 /**
   * When Arachne needs to scale up its number of cores, this function should be
   * invoked from the new kernel thread.
+  * We assume that exactly one instnace of this function is running at any
+  * given time.
   */
 void joinKernelThreadPool() {
     PerfUtils::Util::pinAvailableCore();
     if (initCore) initCore();
-    // Allocate data structures, assign them to thread-local variable, and then
-    localOccupiedAndCount =
-        reinterpret_cast<std::atomic<Arachne::MaskAndCount>* >(
-            cacheAlignAlloc(sizeof(MaskAndCount)));
+    // Initialize thread-local variables to existing data structures
+    kernelThreadId = virtualCoreTable[numCores];
+    localOccupiedAndCount = occupiedAndCount[kernelThreadId];
+    localThreadContexts = allThreadContexts[kernelThreadId];
 
-    memset(localOccupiedAndCount, 0, sizeof(MaskAndCount));
+    numCores++;
 
-    localThreadContexts = new ThreadContext*[maxThreadsPerCore];
-    for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
-        // Technically, this allocates a bunch of user stacks which will never
-        // be used, and it can be optimized out if it turns out to be too
-        // expensive.
-        localThreadContexts[k] = reinterpret_cast<ThreadContext*>(
-                cacheAlignAlloc(sizeof(ThreadContext)));
-        new (localThreadContexts[k]) ThreadContext(~0, k);
-    }
-
-    // Ensure that the memory above is properly allocated; prevent pipelining.
-    PerfUtils::Util::serialize();
-
-    // Take a mutex to exclude other threads from simultaneously trying to
-    // change the number of cores.
-    coreChangeMutex.lock();
-    occupiedAndCount.push_back(localOccupiedAndCount);
-    allThreadContexts.push_back(localThreadContexts);
-    publicPriorityMasks.push_back(
-                reinterpret_cast< std::atomic<uint64_t>* >(
-                    cacheAlignAlloc(sizeof(std::atomic<uint64_t>))));
-    kernelThreadStacks.push_back(NULL);
-    kernelThreadId = numCores++;
-    coreChangeMutex.unlock();
-
-    // Since we know the kernelThreadId now, we can now correct the
-    // ThreadContext.coreId() here. Eventually, this correction will take place
-    // every time a core is returned to the application.
+    // Correct the ThreadContext.coreId() here to match the existing core.
+    // Eventually, this correction will take place every time a core is
+    // returned to the application.
     for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
         localThreadContexts[k]->coreId = static_cast<uint8_t>(kernelThreadId);
     }
@@ -905,6 +911,117 @@ void joinKernelThreadPool() {
     // See documentation in threadMain
     loadedContext = localThreadContexts[0];
     swapcontext(&loadedContext->sp, &kernelThreadStacks[kernelThreadId]);
+}
+
+/**
+ * This function runs on a core immediately before it is deallocated, and is
+ * responsible for waiting out and then migrating running threads other than
+ * itself. By ensuring that the core is busy running this thread, we ensure
+ * that all other threads' contexts on this core are saved.
+ */
+void releaseCore() {
+    // Block future creations on core
+    MaskAndCount targetOccupiedAndCount;
+    MaskAndCount blockedOccupiedAndCount;
+    bool success = false;
+    do {
+        targetOccupiedAndCount = *localOccupiedAndCount;
+        blockedOccupiedAndCount = targetOccupiedAndCount;
+        blockedOccupiedAndCount.numOccupied = ~0;
+        success = localOccupiedAndCount->compare_exchange_strong(
+                targetOccupiedAndCount, blockedOccupiedAndCount);
+    } while (!success);
+
+    // Wait out creations that finished CASing before we blocked creations
+    bool pendingCreation;
+    do {
+        pendingCreation = false;
+        for (int i = 0; i < maxThreadsPerCore; i++) {
+            // It is safe to use targetOccupiedAndCount here, because the
+            // success of the CAS indicates that all subsequent attempts to CAS
+            // should have failed.
+            // There is no race with completions here because no other thread
+            // can be running on this core since we are running.
+            if (((targetOccupiedAndCount.occupied >> i) & 1) &&
+                    localThreadContexts[i]->wakeupTimeInCycles == UNOCCUPIED) {
+                pendingCreation = true;
+                break;
+            }
+        }
+    } while (pendingCreation);
+
+    // Wait out thread completions
+    // If this interval is discovered to be too long, we can take a sleep &
+    // poll approach.
+    sleep(COMPLETION_WAIT_TIME);
+
+    // Migrate all threads other than the current one, since this one will
+    // simply exit when it finishes its job, after which this core will
+    // immediately be returned.
+    // Round robin cores because these are likely long-running threads.
+    int nextMigrationTarget = (kernelThreadId + 1) % numCores;
+    blockedOccupiedAndCount = *localOccupiedAndCount;
+    for (int i = 0; i < maxThreadsPerCore; i++) {
+        if (i == loadedContext->idInCore) continue;
+        if ((blockedOccupiedAndCount.occupied >> i) & 1) {
+            int index;
+            do {
+                // Each iteration through this loop makes one attempt to enqueue the
+                // task to the specified core. Multiple iterations are required only if
+                // there is contention for the core's state variables.
+                MaskAndCount slotMap = *occupiedAndCount[nextMigrationTarget];
+                MaskAndCount oldSlotMap = slotMap;
+
+                // If this happens, we should not be ramping down, since at
+                // least one core is fully loaded.
+                if (slotMap.numOccupied >= maxThreadsPerCore) {
+                    abort();
+                    return;
+                }
+
+                // Search for a non-occupied slot and attempt to reserve the slot
+                index = 0;
+                while ((slotMap.occupied & (1L << index)) && index < maxThreadsPerCore)
+                    index++;
+
+                slotMap.occupied =
+                    (slotMap.occupied | (1L << index)) & 0x00FFFFFFFFFFFFFF;
+                slotMap.numOccupied++;
+                success = occupiedAndCount[nextMigrationTarget]->compare_exchange_strong(
+                            oldSlotMap, slotMap);
+                blockedOccupiedAndCount.occupied &= ~(1 << i) & 0x00FFFFFFFFFFFFFF;
+            } while (!success);
+
+            // At this point we've reserved a spot on the target, and now we swap.
+            ThreadContext* originalContext =
+                allThreadContexts[nextMigrationTarget][index];
+            allThreadContexts[nextMigrationTarget][index] = localThreadContexts[i];
+            localThreadContexts[i] = originalContext;
+
+            // The next victim core that we will pawn our work on.
+            nextMigrationTarget = (nextMigrationTarget + 1) % numCores;
+            if (nextMigrationTarget == kernelThreadId)
+                nextMigrationTarget = (nextMigrationTarget + 1) % numCores;
+        }
+    }
+
+    // Sanity checking
+    if (blockedOccupiedAndCount.occupied) {
+        abort();
+    }
+
+    // Remap any slot in virtualCoreTable to point at the highest number, to
+    // coalesce the range.
+    for (uint32_t i = 0; i < maxNumCores; i++)
+        if (virtualCoreTable[i] == kernelThreadId) {
+            virtualCoreTable[i] = virtualCoreTable[numCores - 1];
+            virtualCoreTable[numCores - 1] = kernelThreadId;
+        }
+    numCores--;
+
+    // Clean up the data structure for the next user.
+    *localOccupiedAndCount = {0,0};
+    threadShouldExit = true;
 }
 
 /**
@@ -920,5 +1037,31 @@ void incrementCoreCount() {
         kernelThreads.emplace_back(joinKernelThreadPool);
         numCoresPrecursor++;
     }
+}
+
+/**
+  * This function can be called from any thread to decrease the number of cores
+  * used by Arachne.
+  */
+void decrementCoreCount() {
+    std::lock_guard<SpinLock> _(coreChangeMutex);
+    numCoresPrecursor--;
+
+    // Find a core to deschedule
+    int minLoaded = occupiedAndCount[0]->load().numOccupied;
+    int minIndex = 0;
+    for (uint32_t i = 1; i < numCores; i++)
+        if (occupiedAndCount[i]->load().numOccupied < minLoaded) {
+            minLoaded = occupiedAndCount[i]->load().numOccupied;
+            minIndex = i;
+        }
+
+    // Create a thread on the target core to handle the actual core release,
+    // since we are currently borrowing an arbitrary context and should not
+    // hold it for too long.
+    // Separate variable to avoid ambiguity between two versions of
+    // createThread.
+    int targetCore = (minIndex + 1) % numCores;
+    createThread(targetCore, releaseCore);
 }
 } // namespace Arachne

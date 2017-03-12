@@ -64,6 +64,7 @@ extern thread_local ThreadContext *loadedContext;
 extern thread_local ThreadContext** localThreadContexts;
 extern std::vector<ThreadContext**> allThreadContexts;
 
+extern int* virtualCoreTable;
 
 /**
  * \addtogroup api Arachne Public API
@@ -434,6 +435,12 @@ const uint64_t BLOCKED = ~0L;
   */
 const uint64_t UNOCCUPIED = ~0L - 1;
 
+/**
+  * Amount of time in nanoseconds to wait for extant threads to finish before
+  * commencing migration.
+  */
+const uint64_t COMPLETION_WAIT_TIME = 100000;
+
 void schedulerMainLoop();
 void swapcontext(void **saved, void **target);
 void threadMain(int id);
@@ -513,9 +520,13 @@ random(void) {
   */
 template<typename _Callable, typename... _Args>
 ThreadId
-createThread(int kId, _Callable&& __f, _Args&&... __args) {
-    if (kId == -1)
-        kId = kernelThreadId;
+createThread(int virtualCoreId, _Callable&& __f, _Args&&... __args) {
+    // This code should be removed after all instances of passing -1 have been
+    // removed.
+    if (virtualCoreId == -1)
+        abort();
+
+    int coreId = virtualCoreTable[virtualCoreId];
 
     auto task = std::bind(
             std::forward<_Callable>(__f), std::forward<_Args>(__args)...);
@@ -527,7 +538,7 @@ createThread(int kId, _Callable&& __f, _Args&&... __args) {
         // Each iteration through this loop makes one attempt to enqueue the
         // task to the specified core. Multiple iterations are required only if
         // there is contention for the core's state variables.
-        MaskAndCount slotMap = *occupiedAndCount[kId];
+        MaskAndCount slotMap = *occupiedAndCount[coreId];
         MaskAndCount oldSlotMap = slotMap;
 
         if (slotMap.numOccupied >= maxThreadsPerCore)
@@ -541,17 +552,17 @@ createThread(int kId, _Callable&& __f, _Args&&... __args) {
         slotMap.occupied =
             (slotMap.occupied | (1L << index)) & 0x00FFFFFFFFFFFFFF;
         slotMap.numOccupied++;
-        threadContext = allThreadContexts[kId][index];
-        success = occupiedAndCount[kId]->compare_exchange_strong(oldSlotMap,
+        threadContext = allThreadContexts[coreId][index];
+        success = occupiedAndCount[coreId]->compare_exchange_strong(oldSlotMap,
                 slotMap);
     } while (!success);
 
     // Copy the thread invocation into the byte array.
-    new (&allThreadContexts[kId][index]->threadInvocation)
+    new (&allThreadContexts[coreId][index]->threadInvocation)
         Arachne::ThreadInvocation<decltype(task)>(task);
     threadContext->wakeupTimeInCycles = 0;
-    return ThreadId(allThreadContexts[kId][index],
-            allThreadContexts[kId][index]->generation);
+    return ThreadId(allThreadContexts[coreId][index],
+            allThreadContexts[coreId][index]->generation);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
