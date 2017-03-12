@@ -35,3 +35,4 @@ site: docs
 
 clean:
 	rm -f *.o *.a
+	make -C tests clean
