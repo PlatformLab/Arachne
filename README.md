@@ -37,16 +37,19 @@ Today, it is highly performant only as long as threads do not need to block in
 the kernel, but this limitation is expected to go away in the next few months.
 
 ## How do I use it?
+1. Recursively clone Arachne inside your application's directory.
 
-1. Clone and build [PerfUtils](https://github.com/PlatformLab/PerfUtils) in a
-   directory structure parallel to this one, so the overall directory structure
-   looks like the following.
+        git clone --recursive git@github.com:PlatformLab/Arachne.git
 
-		application_directory/
-			Arachne/
-			PerfUtils/
+At this point, your application directory should look like the following.
 
-2. Build the library with `make` in the top-level directory. 
+        application_directory/
+            Arachne/
+
+2. Build the library with `make` in the Arachne directory.
+
+        cd Arachne
+        make
 
 3. Write your application using the public Arachne API, documented [here](https://platformlab.github.io/Arachne/group__api.html).
 
@@ -78,7 +81,7 @@ the kernel, but this limitation is expected to go away in the next few months.
 
 4. Link your application against Arachne.
 
-        g++ -std=c++11 -o MyApp -IArachne MyApp.cc  -LArachne -lArachne -LPerfUtils -lPerfUtils -pthread
+        g++ -std=c++11 -o MyApp -IArachne MyApp.cc  -LArachne -lArachne -LArachne/PerfUtils -lPerfUtils -pthread
 
 ## What is on the roadmap?
 
