@@ -272,6 +272,12 @@ schedulerMainLoop() {
         // Check for whether this thread should exit, for the purposes of
         // ramping down.
         if (threadShouldExit) {
+            // The next kernel thread to operate here on this data will clean up the
+            // data structures, which avoids races.
+            // This decrement serves as an indication that it is safe to do another
+            // ramp-down or ramp-up, so it should be the last state change before this
+            // thread exits.
+            numCores--;
             swapcontext(
                     &kernelThreadStacks[kernelThreadId],
                     &loadedContext->sp);
@@ -899,6 +905,8 @@ void joinKernelThreadPool() {
     localOccupiedAndCount = occupiedAndCount[kernelThreadId];
     localThreadContexts = allThreadContexts[kernelThreadId];
 
+    *localOccupiedAndCount = {0,0};
+
     numCores++;
 
     // Correct the ThreadContext.coreId() here to match the existing core.
@@ -950,6 +958,15 @@ void releaseCore() {
         }
     } while (pendingCreation);
 
+    // Remap any slot in virtualCoreTable to point at the highest number, to
+    // coalesce the range for creation.
+    for (uint32_t i = 0; i < maxNumCores; i++)
+        if (virtualCoreTable[i] == kernelThreadId) {
+            virtualCoreTable[i] = virtualCoreTable[numCores - 1];
+            virtualCoreTable[numCores - 1] = kernelThreadId;
+            break;
+        }
+
     // Wait out thread completions
     // If this interval is discovered to be too long, we can take a sleep &
     // poll approach.
@@ -959,17 +976,18 @@ void releaseCore() {
     // simply exit when it finishes its job, after which this core will
     // immediately be returned.
     // Round robin cores because these are likely long-running threads.
-    int nextMigrationTarget = (kernelThreadId + 1) % numCores;
+    int nextMigrationTarget = (kernelThreadId + 1) % (numCores - 1);
+    int coreId = virtualCoreTable[nextMigrationTarget];
     blockedOccupiedAndCount = *localOccupiedAndCount;
-    for (int i = 0; i < maxThreadsPerCore; i++) {
+    for (uint8_t i = 0; i < maxThreadsPerCore; i++) {
         if (i == loadedContext->idInCore) continue;
         if ((blockedOccupiedAndCount.occupied >> i) & 1) {
-            int index;
+            uint8_t index;
             do {
                 // Each iteration through this loop makes one attempt to enqueue the
                 // task to the specified core. Multiple iterations are required only if
                 // there is contention for the core's state variables.
-                MaskAndCount slotMap = *occupiedAndCount[nextMigrationTarget];
+                MaskAndCount slotMap = *occupiedAndCount[coreId];
                 MaskAndCount oldSlotMap = slotMap;
 
                 // If this happens, we should not be ramping down, since at
@@ -987,40 +1005,35 @@ void releaseCore() {
                 slotMap.occupied =
                     (slotMap.occupied | (1L << index)) & 0x00FFFFFFFFFFFFFF;
                 slotMap.numOccupied++;
-                success = occupiedAndCount[nextMigrationTarget]->compare_exchange_strong(
+                success = occupiedAndCount[coreId]->compare_exchange_strong(
                             oldSlotMap, slotMap);
                 blockedOccupiedAndCount.occupied &= ~(1 << i) & 0x00FFFFFFFFFFFFFF;
             } while (!success);
 
             // At this point we've reserved a spot on the target, and now we swap.
             ThreadContext* originalContext =
-                allThreadContexts[nextMigrationTarget][index];
-            allThreadContexts[nextMigrationTarget][index] = localThreadContexts[i];
+                allThreadContexts[coreId][index];
+            allThreadContexts[coreId][index] = localThreadContexts[i];
             localThreadContexts[i] = originalContext;
 
+            // Update idInCore to a consistent value
+            allThreadContexts[coreId][index]->idInCore = index;
+            localThreadContexts[i]->idInCore = i;
+
             // The next victim core that we will pawn our work on.
-            nextMigrationTarget = (nextMigrationTarget + 1) % numCores;
-            if (nextMigrationTarget == kernelThreadId)
-                nextMigrationTarget = (nextMigrationTarget + 1) % numCores;
+            nextMigrationTarget = (nextMigrationTarget + 1) % (numCores - 1);
+            coreId = virtualCoreTable[nextMigrationTarget];
         }
     }
 
-    // Sanity checking
-    if (blockedOccupiedAndCount.occupied) {
+    // Sanity checking that we are the only thread left on this core.
+    int count = 0;
+    for (int i = 0; i < maxThreadsPerCore; i++)
+        if (blockedOccupiedAndCount.occupied & (1L << i))
+            count++;
+    if (count != 1)
         abort();
-    }
 
-    // Remap any slot in virtualCoreTable to point at the highest number, to
-    // coalesce the range.
-    for (uint32_t i = 0; i < maxNumCores; i++)
-        if (virtualCoreTable[i] == kernelThreadId) {
-            virtualCoreTable[i] = virtualCoreTable[numCores - 1];
-            virtualCoreTable[numCores - 1] = kernelThreadId;
-        }
-    numCores--;
-
-    // Clean up the data structure for the next user.
-    *localOccupiedAndCount = {0,0};
     threadShouldExit = true;
 }
 
@@ -1045,6 +1058,12 @@ void incrementCoreCount() {
   */
 void decrementCoreCount() {
     std::lock_guard<SpinLock> _(coreChangeMutex);
+    // We currently need at least one core running to make progress.
+    if (numCoresPrecursor == 1) return;
+
+    fprintf(errorStream, "Number of cores decreasing from %u to %u\n",
+            numCoresPrecursor, numCoresPrecursor - 1);
+    fflush(errorStream);
     numCoresPrecursor--;
 
     // Find a core to deschedule

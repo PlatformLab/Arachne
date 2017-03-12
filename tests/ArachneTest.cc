@@ -686,4 +686,25 @@ TEST_F(ArachneTest, incrementCoreCount) {
     EXPECT_EQ("Number of cores increasing from 3 to 4\n", std::string(str));
     free(str);
 }
+
+TEST_F(ArachneTest, decrementCoreCount) {
+    void decrementCoreCount();
+    char *str;
+    size_t size;
+    FILE* newStream = open_memstream(&str, &size);
+    setErrorStream(newStream);
+    EXPECT_EQ(3U, numCoresPrecursor);
+    EXPECT_NE(NullThread, createThreadOnCore(2, doNothing));
+    decrementCoreCount();
+    EXPECT_EQ(2U, numCoresPrecursor);
+    limitedTimeWait([]() -> bool { return numCores < 3;});
+    EXPECT_EQ(NullThread, createThreadOnCore(2, doNothing));
+    decrementCoreCount();
+    limitedTimeWait([]() -> bool { return numCores < 2;});
+    EXPECT_EQ(NullThread, createThreadOnCore(1, doNothing));
+    fflush(newStream);
+    EXPECT_EQ("Number of cores decreasing from 3 to 2\n"
+            "Number of cores decreasing from 2 to 1\n", std::string(str));
+    free(str);
+}
 } // namespace Arachne
