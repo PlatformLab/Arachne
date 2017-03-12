@@ -662,7 +662,9 @@ TEST_F(ArachneTest, setErrorStream) {
     free(str);
 }
 
+void doNothing() { }
 extern volatile uint32_t numCoresPrecursor;
+
 TEST_F(ArachneTest, incrementCoreCount) {
     void incrementCoreCount();
     shutDown();
@@ -674,11 +676,12 @@ TEST_F(ArachneTest, incrementCoreCount) {
     size_t size;
     FILE* newStream = open_memstream(&str, &size);
     setErrorStream(newStream);
-
     EXPECT_EQ(3U, numCoresPrecursor);
+    EXPECT_EQ(NullThread, createThreadOnCore(3, doNothing));
     incrementCoreCount();
     EXPECT_EQ(4U, numCoresPrecursor);
     limitedTimeWait([]() -> bool { return numCores > 3;});
+    EXPECT_NE(NullThread, createThreadOnCore(3, doNothing));
     fflush(newStream);
     EXPECT_EQ("Number of cores increasing from 3 to 4\n", std::string(str));
     free(str);
