@@ -27,7 +27,7 @@
 #include <string>
 
 
-#include "../PerfUtils/Cycles.h"
+#include "PerfUtils/Cycles.h"
 
 namespace Arachne {
 
