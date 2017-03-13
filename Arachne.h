@@ -46,9 +46,13 @@ using PerfUtils::Cycles;
 // ConditionVariable
 struct ThreadContext;
 
-// This is used in createThread.
+// This option will be removed when we deprecate the ability to set options
+// directly instead of through argv.
 extern volatile uint32_t numCores;
 extern volatile uint32_t maxNumCores;
+
+// This is used in createThread.
+extern std::atomic<uint32_t> numActiveCores;
 
 extern int stackSize;
 
@@ -378,8 +382,10 @@ struct ThreadContext {
 
     // Unique identifier for the core that this thread currently lives on.
     // Used to index into global arrays with information per core.
-    /// This will only change if a ThreadContext is migrated when scaling down
-    /// the number of cores.
+    // This will only change if a ThreadContext is migrated when scaling down
+    // the number of cores.
+    // This is a not a virtual coreId, which is used only to ensure that thread
+    // creation sees a contiguous range of CoreId's.
     uint8_t coreId;
 
     /// Unique identifier for this thread among those on the same core.
@@ -443,7 +449,6 @@ const uint64_t COMPLETION_WAIT_TIME = 100000;
 
 void schedulerMainLoop();
 void swapcontext(void **saved, void **target);
-void threadMain(int id);
 
 /// This structure tracks the live threads on a single core.
 struct MaskAndCount{
@@ -521,7 +526,7 @@ random(void) {
 template<typename _Callable, typename... _Args>
 ThreadId
 createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
-    if (virtualCoreId >= numCores)
+    if (virtualCoreId >= numActiveCores)
         return Arachne::NullThread;
 
     int coreId = virtualCoreTable[virtualCoreId];
@@ -589,10 +594,10 @@ createThread(_Callable&& __f, _Args&&... __args) {
     // Find a kernel thread to enqueue to by picking two at random and choosing
     // the one with the fewest Arachne threads.
     uint32_t kId;
-    uint32_t choice1 = static_cast<uint32_t>(random()) % numCores;
-    uint32_t choice2 = static_cast<uint32_t>(random()) % numCores;
-    while (choice2 == choice1 && numCores > 1)
-        choice2 = static_cast<uint32_t>(random()) % numCores;
+    uint32_t choice1 = static_cast<uint32_t>(random()) % numActiveCores;
+    uint32_t choice2 = static_cast<uint32_t>(random()) % numActiveCores;
+    while (choice2 == choice1 && numActiveCores > 1)
+        choice2 = static_cast<uint32_t>(random()) % numActiveCores;
 
     if (occupiedAndCount[choice1]->load().numOccupied <
             occupiedAndCount[choice2]->load().numOccupied)

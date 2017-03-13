@@ -19,12 +19,62 @@
 
 #define private public
 #include "Arachne.h"
+#include "CoreArbiterServer.h"
+#include "CoreArbiterClient.h"
+#include "MockSyscall.h"
+#include "Logger.h"
 
 namespace Arachne {
+
+using CoreArbiter::CoreArbiterServer;
+using CoreArbiter::CoreArbiterClient;
+using CoreArbiter::MockSyscall;
+using CoreArbiter::Logger;
+
+extern CoreArbiterClient& coreArbiter;
+
+struct Environment : public ::testing::Environment {
+    CoreArbiterServer* coreArbiter;
+    MockSyscall* sys;
+
+    std::thread* coreArbiterServerThread;
+    // Override this to define how to set up the environment.
+    virtual void SetUp() {
+        // Initalize core arbiter server
+        Logger::setLogLevel(CoreArbiter::DEBUG);
+        sys = new MockSyscall();
+        sys->callGeteuid = false;
+        sys->geteuidResult = 0;
+        CoreArbiterServer::testingSkipCpusetAllocation = true;
+
+        CoreArbiterServer::sys = sys;
+        coreArbiter = new CoreArbiterServer(
+                std::string("/tmp/CoreArbiter/testsocket"),
+                std::string("/tmp/CoreArbiter/testmem"),
+                {1,2,3,4});
+        coreArbiterServerThread = new std::thread([=] {
+                coreArbiter->startArbitration();
+                });
+
+    }
+    // Override this to define how to tear down the environment.
+    virtual void TearDown() {
+        coreArbiter->endArbitration();
+        coreArbiterServerThread->join();
+        delete coreArbiterServerThread;
+        delete sys;
+        delete coreArbiter;
+    }
+
+    Environment() {
+        ::testing::AddGlobalTestEnvironment(this);
+    }
+} environment;
 
 struct ArachneTest : public ::testing::Test {
     virtual void SetUp()
     {
+        // Initialize Arachne user library
         Arachne::numCores = 3;
         Arachne::maxNumCores = 3;
         Arachne::init();
@@ -32,6 +82,10 @@ struct ArachneTest : public ::testing::Test {
 
     virtual void TearDown()
     {
+        // Unblock all cores so we can terminate cleanly.
+		std::vector<uint32_t> coreRequest({Arachne::maxNumCores,0,0,0,0,0,0,0});
+        coreArbiter.setNumCores(coreRequest);
+
         shutDown();
         waitForTermination();
     }
