@@ -53,6 +53,9 @@ extern std::atomic<uint32_t> numActiveCores;
 extern volatile uint32_t minNumCores;
 extern volatile uint32_t maxNumCores;
 
+// This is used in createThread.
+extern std::atomic<uint32_t> numActiveCores;
+
 extern int stackSize;
 
 // Used in inline functions.
@@ -383,8 +386,10 @@ struct ThreadContext {
 
     // Unique identifier for the core that this thread currently lives on.
     // Used to index into global arrays with information per core.
-    /// This will only change if a ThreadContext is migrated when scaling down
-    /// the number of cores.
+    // This will only change if a ThreadContext is migrated when scaling down
+    // the number of cores.
+    // This is a not a virtual coreId, which is used only to ensure that thread
+    // creation sees a contiguous range of CoreId's.
     uint8_t coreId;
 
     /// Unique identifier for this thread among those on the same core.
@@ -455,7 +460,6 @@ const uint8_t EXCLUSIVE = maxThreadsPerCore * 2 + 1;
 
 void schedulerMainLoop();
 void swapcontext(void **saved, void **target);
-void threadMain();
 
 /// This structure tracks the live threads on a single core.
 struct MaskAndCount{

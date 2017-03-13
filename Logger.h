@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef CORE_ARBITER_LOGGER_H
-#define CORE_ARBITER_LOGGER_H
+#ifndef ARACHNE_LOGGER_H
+#define ARACHNE_LOGGER_H
 
 #include <stdarg.h>
 #include <stdint.h>

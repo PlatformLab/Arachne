@@ -19,20 +19,62 @@
 
 #define private public
 #include "Arachne.h"
-#include "Semaphore.h"
+#include "CoreArbiter/CoreArbiterServer.h"
+#include "CoreArbiter/CoreArbiterClient.h"
+#include "CoreArbiter/MockSyscall.h"
+#include "CoreArbiter/Logger.h"
 
 namespace Arachne {
 
+using CoreArbiter::CoreArbiterServer;
+using CoreArbiter::CoreArbiterClient;
+using CoreArbiter::MockSyscall;
+
 extern bool disableLoadEstimation;
 
-extern Semaphore inactiveCores;
 extern std::atomic<uint32_t> numActiveCores;
 extern volatile uint32_t minNumCores;
 extern int* virtualCoreTable;
 
+extern CoreArbiterClient& coreArbiter;
 static void limitedTimeWait(std::function<bool()> condition,
-                int numIterations = 1000);
+        int numIterations = 1000);
 
+struct Environment : public ::testing::Environment {
+    CoreArbiterServer* coreArbiterServer;
+    MockSyscall* sys;
+
+    std::thread* coreArbiterServerThread;
+    // Override this to define how to set up the environment.
+    virtual void SetUp() {
+        // Initalize core arbiter server
+		CoreArbiter::Logger::setLogLevel(CoreArbiter::WARNING);
+        sys = new MockSyscall();
+        sys->callGeteuid = false;
+        sys->geteuidResult = 0;
+        CoreArbiterServer::testingSkipCpusetAllocation = true;
+
+        CoreArbiterServer::sys = sys;
+        coreArbiterServer = new CoreArbiterServer(
+                std::string("/tmp/CoreArbiter/testsocket"),
+                std::string("/tmp/CoreArbiter/testmem"),
+                {1,2,3,4,5,6,7}, false);
+        coreArbiterServerThread = new std::thread([=] {
+                coreArbiterServer->startArbitration();
+                });
+
+    }
+    // Override this to define how to tear down the environment.
+    virtual void TearDown() {
+        coreArbiterServer->endArbitration();
+        coreArbiterServerThread->join();
+        delete coreArbiterServerThread;
+        delete coreArbiterServer;
+        delete sys;
+    }
+};
+::testing::Environment* const testEnvironment =
+    ::testing::AddGlobalTestEnvironment(new Environment);
 
 struct ArachneTest : public ::testing::Test {
     virtual void SetUp()
@@ -42,14 +84,16 @@ struct ArachneTest : public ::testing::Test {
         Arachne::disableLoadEstimation = true;
         Arachne::init();
         // Articially wake up all threads for testing purposes
-        for (uint32_t i = 0; i < maxNumCores - minNumCores; i++) {
-            inactiveCores.notify();
-        }
+        std::vector<uint32_t> coreRequest({3,0,0,0,0,0,0,0});
+        coreArbiter.setNumCores(coreRequest);
         limitedTimeWait([]() -> bool { return numActiveCores == 3;});
     }
 
     virtual void TearDown()
     {
+        // Unblock all cores so they can shut down and be joined.
+        coreArbiter.setNumCores({Arachne::maxNumCores,0,0,0,0,0,0,0});
+
         shutDown();
         waitForTermination();
     }
@@ -703,9 +747,8 @@ TEST_F(ArachneTest, incrementCoreCount) {
     maxNumCores = 4;
     Arachne::init();
     // Articially wake up all threads for testing purposes
-    for (uint32_t i = 0; i < 2; i++) {
-        inactiveCores.notify();
-    }
+    std::vector<uint32_t> coreRequest({3,0,0,0,0,0,0,0});
+    coreArbiter.setNumCores(coreRequest);
     limitedTimeWait([]() -> bool { return numActiveCores == 3;});
     char *str;
     size_t size;
@@ -722,6 +765,7 @@ TEST_F(ArachneTest, incrementCoreCount) {
 
 TEST_F(ArachneTest, decrementCoreCount) {
     void decrementCoreCount();
+    limitedTimeWait([]() -> bool { return numActiveCores == 3;}, 500000);
     char *str;
     size_t size;
     FILE* newStream = open_memstream(&str, &size);

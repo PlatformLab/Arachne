@@ -1,7 +1,7 @@
 # Compile a static library
 
 DEBUG=-g
-LIBS=-I../Arachne -L../Arachne -lArachne -LPerfUtils -lPerfUtils
+LIBS=-I../Arachne -L../Arachne -lArachne -LPerfUtils -lPerfUtils -LCoreArbiter -lCoreArbiter
 TOP := $(shell echo $${PWD-`pwd`})
 
 ifndef CHECK_TARGET
