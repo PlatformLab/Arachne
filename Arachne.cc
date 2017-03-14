@@ -226,7 +226,7 @@ threadMain() {
 	// Perform user-specified initialization
     if (initCore) initCore();
 
-    do {
+    for(;;) {
 		coreArbiter.blockUntilCoreAvailable();
 		kernelThreadId = virtualCoreTable[numActiveCores++];
 		numCoresPrecursor = numActiveCores;
@@ -253,13 +253,14 @@ threadMain() {
         swapcontext(&loadedContext->sp, &kernelThreadStacks[kernelThreadId]);
 		numActiveCores--;
 		numCoresPrecursor = numActiveCores;
+        if (shutdown) break;
 
         // Cleanup is completed, so we can carry on with the next core release if needed.
         std::lock_guard<SpinLock> _(coreChangeMutex);
         coreReleaseRequestCount--;
         if (coreReleaseRequestCount)
             descheduleCore();
-    } while (!shutdown);
+    };
 
     coreArbiter.unregisterThread();
 }
@@ -325,17 +326,6 @@ schedulerMainLoop() {
 			swapcontext(&kernelThreadStacks[kernelThreadId], &loadedContext->sp);
         }
 
-        if (coreArbiter.mustReleaseCore()) {
-            std::lock_guard<SpinLock> _(coreChangeMutex);
-            coreReleaseRequestCount++;
-//            if (coreReleaseRequestCount >= numActiveCores) {
-                abort();
-//            }
-            // Deschedule a core iff we are the first thread to read that a
-            // core release is needed.
-            if (coreReleaseRequestCount == 1)
-                descheduleCore();
-        }
         // No thread to execute yet. This call will not return until we have
         // been assigned a new Arachne thread.
         dispatch();
@@ -492,6 +482,20 @@ dispatch() {
                 swapcontext(
                         &kernelThreadStacks[kernelThreadId],
                         &loadedContext->sp);
+
+            // Check for core release request.
+            if (coreArbiter.mustReleaseCore()) {
+                std::lock_guard<SpinLock> _(coreChangeMutex);
+                coreReleaseRequestCount++;
+
+                if (coreReleaseRequestCount >= numActiveCores) {
+                    abort();
+                }
+                // Deschedule a core iff we are the first thread to read that a
+                // core release is needed.
+                if (coreReleaseRequestCount == 1)
+                    descheduleCore();
+            }
         }
         // Optimize to eliminate unoccupied contexts
         if (!(mask & 1))
@@ -578,7 +582,6 @@ void waitForTermination() {
     }
     kernelThreads.clear();
     kernelThreadStacks.clear();
-    coreReleaseRequestCount = 0;
 
     // We now assume that all threads are done executing.
     PerfUtils::Util::serialize();
@@ -759,6 +762,7 @@ init(int* argcp, const char** argv) {
 	std::vector<uint32_t> coreRequest({numCores,0,0,0,0,0,0,0});
 	coreArbiter.setNumCores(coreRequest);
     numCoresPrecursor = numActiveCores;
+    coreReleaseRequestCount = 0;
 
     // We assume that maxNumCores will not be exceeded in the lifetime of this
     // application.

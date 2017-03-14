@@ -36,35 +36,35 @@ static void limitedTimeWait(std::function<bool()> condition,
         int numIterations = 1000);
 
 struct Environment : public ::testing::Environment {
-    CoreArbiterServer* coreArbiter;
+    CoreArbiterServer* coreArbiterServer;
     MockSyscall* sys;
 
     std::thread* coreArbiterServerThread;
     // Override this to define how to set up the environment.
     virtual void SetUp() {
         // Initalize core arbiter server
-        Logger::setLogLevel(CoreArbiter::DEBUG);
+        Logger::setLogLevel(CoreArbiter::WARNING);
         sys = new MockSyscall();
         sys->callGeteuid = false;
         sys->geteuidResult = 0;
         CoreArbiterServer::testingSkipCpusetAllocation = true;
 
         CoreArbiterServer::sys = sys;
-        coreArbiter = new CoreArbiterServer(
+        coreArbiterServer = new CoreArbiterServer(
                 std::string("/tmp/CoreArbiter/testsocket"),
                 std::string("/tmp/CoreArbiter/testmem"),
-                {1,2,3,4}, false);
+                {1,2,3,4,5,6,7}, false);
         coreArbiterServerThread = new std::thread([=] {
-                coreArbiter->startArbitration();
+                coreArbiterServer->startArbitration();
                 });
 
     }
     // Override this to define how to tear down the environment.
     virtual void TearDown() {
-        coreArbiter->endArbitration();
+        coreArbiterServer->endArbitration();
         coreArbiterServerThread->join();
         delete coreArbiterServerThread;
-        delete coreArbiter;
+        delete coreArbiterServer;
         delete sys;
     }
 };
@@ -85,6 +85,9 @@ struct ArachneTest : public ::testing::Test {
 
     virtual void TearDown()
     {
+        // Unblock all cores so they can shut down and be joined.
+        coreArbiter.setNumCores({Arachne::maxNumCores,0,0,0,0,0,0,0});
+
         shutDown();
         waitForTermination();
     }
@@ -753,14 +756,14 @@ TEST_F(ArachneTest, decrementCoreCount) {
     EXPECT_NE(NullThread, createThreadOnCore(2, doNothing));
     decrementCoreCount();
     EXPECT_EQ(2U, numCoresPrecursor);
-    limitedTimeWait([]() -> bool { return numActiveCores < 3;});
-//    EXPECT_EQ(NullThread, createThreadOnCore(2, doNothing));
-//    decrementCoreCount();
-//    limitedTimeWait([]() -> bool { return numActiveCores < 2;});
-//    EXPECT_EQ(NullThread, createThreadOnCore(1, doNothing));
-//    fflush(newStream);
-//    EXPECT_EQ("Number of cores decreasing from 3 to 2\n"
-//            "Number of cores decreasing from 2 to 1\n", std::string(str));
+    limitedTimeWait([]() -> bool { return numActiveCores < 3;}, 50000);
+    EXPECT_EQ(NullThread, createThreadOnCore(2, doNothing));
+    decrementCoreCount();
+    limitedTimeWait([]() -> bool { return numActiveCores < 2;});
+    EXPECT_EQ(NullThread, createThreadOnCore(1, doNothing));
+    fflush(newStream);
+    EXPECT_EQ("Number of cores decreasing from 3 to 2\n"
+            "Number of cores decreasing from 2 to 1\n", std::string(str));
     free(str);
 }
 } // namespace Arachne
