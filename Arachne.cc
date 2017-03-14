@@ -71,9 +71,9 @@ std::atomic<uint32_t> numActiveCores;
 volatile uint32_t numCoresPrecursor;
 
 /**
-  * We use this flag to ensure that only one core is descheduled at a time.
+  * Number of outstanding requests to yield cores back to the arbiter.
   */
-volatile bool coreBlockPending;
+uint32_t coreReleaseRequestCount = 0;
 
 /**
   * The largest number of cores that Arachne is permitted to utilize.
@@ -187,6 +187,8 @@ thread_local size_t nextCandidateIndex = 0;
   */
 uint64_t CORE_INCREASE_THRESHOLD = 3;
 void incrementCoreCount();
+void decrementCoreCount();
+void descheduleCore();
 
 /**
   * A handle to the CoreArbiterClient, which we use for requesting and
@@ -251,7 +253,15 @@ threadMain() {
         swapcontext(&loadedContext->sp, &kernelThreadStacks[kernelThreadId]);
 		numActiveCores--;
 		numCoresPrecursor = numActiveCores;
+
+        // Cleanup is completed, so we can carry on with the next core release if needed.
+        std::lock_guard<SpinLock> _(coreChangeMutex);
+        coreReleaseRequestCount--;
+        if (coreReleaseRequestCount)
+            descheduleCore();
     } while (!shutdown);
+
+    coreArbiter.unregisterThread();
 }
 
 /**
@@ -313,6 +323,18 @@ schedulerMainLoop() {
 			// live on the same core, and will use a different set of user
 			// contexts.
 			swapcontext(&kernelThreadStacks[kernelThreadId], &loadedContext->sp);
+        }
+
+        if (coreArbiter.mustReleaseCore()) {
+            std::lock_guard<SpinLock> _(coreChangeMutex);
+            coreReleaseRequestCount++;
+            if (coreReleaseRequestCount >= numActiveCores) {
+                abort();
+            }
+            // Deschedule a core iff we are the first thread to read that a
+            // core release is needed.
+            if (coreReleaseRequestCount == 1)
+                descheduleCore();
         }
         // No thread to execute yet. This call will not return until we have
         // been assigned a new Arachne thread.
@@ -556,6 +578,7 @@ void waitForTermination() {
     }
     kernelThreads.clear();
     kernelThreadStacks.clear();
+    coreReleaseRequestCount = 0;
 
     // We now assume that all threads are done executing.
     PerfUtils::Util::serialize();
@@ -598,7 +621,7 @@ parseOptions(int* argcp, const char** argv) {
         // Does the option take an argument?
         bool takesArgument;
     } optionSpecifiers[] = {
-        {"numActiveCores", 'c', true},
+        {"numCores", 'c', true},
         {"maxNumCores", 'm', true},
         {"stackSize", 's', true}
     };
@@ -641,7 +664,7 @@ parseOptions(int* argcp, const char** argv) {
         }
         switch (optionId) {
             case 'c':
-                numActiveCores = atoi(optionArgument);
+                numCores = atoi(optionArgument);
                 break;
             case 'm':
                 maxNumCores = atoi(optionArgument);
@@ -776,6 +799,10 @@ init(int* argcp, const char** argv) {
         // the first user thread without a context switch.
         kernelThreads.emplace_back(threadMain);
     }
+
+    // Block until at least one core is active, so that thread creations are
+    // guaranteed to be safe after this method returns.
+    while (!numActiveCores) usleep(1);
 }
 
 /**
@@ -1069,21 +1096,19 @@ void decrementCoreCount() {
     if (numCoresPrecursor == 1) return;
 	numCoresPrecursor--;
 	std::vector<uint32_t> coreRequest({numCoresPrecursor,0,0,0,0,0,0,0});
-		coreArbiter.setNumCores(coreRequest);
+    coreArbiter.setNumCores(coreRequest);
     fprintf(errorStream, "Number of cores decreasing from %u to %u\n",
-            numCoresPrecursor, numCoresPrecursor - 1);
+            numCoresPrecursor + 1, numCoresPrecursor);
     fflush(errorStream);
 }
 
 /**
   * When the Core Arbiter requests us to yield a core, any thread can invoke
   * this function to begin the process of descheduling a core.
+  *
+  * The caller must hold the coreChangeMutex when making this call.
   */
 void descheduleCore() {
-    std::lock_guard<SpinLock> _(coreChangeMutex);
-	// Double-checked locking on variable
-	if (coreBlockPending) return;
-	coreBlockPending = true;
 	// Find a core to deschedule
 	int minLoaded = occupiedAndCount[0]->load().numOccupied;
 	int minIndex = 0;

@@ -528,7 +528,7 @@ ThreadId
 createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
     if (virtualCoreId >= numActiveCores)
         return Arachne::NullThread;
-
+//    printf("virtualCoreId = %u, numActiveCores = %u\n", virtualCoreId, numActiveCores.load());
     int coreId = virtualCoreTable[virtualCoreId];
 
     auto task = std::bind(
