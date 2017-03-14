@@ -43,7 +43,7 @@ struct Environment : public ::testing::Environment {
     // Override this to define how to set up the environment.
     virtual void SetUp() {
         // Initalize core arbiter server
-        Logger::setLogLevel(CoreArbiter::ERROR);
+        Logger::setLogLevel(CoreArbiter::DEBUG);
         sys = new MockSyscall();
         sys->callGeteuid = false;
         sys->geteuidResult = 0;
@@ -743,17 +743,17 @@ TEST_F(ArachneTest, incrementCoreCount) {
 }
 
 TEST_F(ArachneTest, decrementCoreCount) {
-//    void decrementCoreCount();
-//    limitedTimeWait([]() -> bool { return numActiveCores == 3;}, 50000);
-//    char *str;
-//    size_t size;
-//    FILE* newStream = open_memstream(&str, &size);
-//    setErrorStream(newStream);
-//    EXPECT_EQ(3U, numCoresPrecursor);
-//    EXPECT_NE(NullThread, createThreadOnCore(2, doNothing));
-//    decrementCoreCount();
-//    EXPECT_EQ(2U, numCoresPrecursor);
-//    limitedTimeWait([]() -> bool { return numActiveCores < 3;});
+    void decrementCoreCount();
+    limitedTimeWait([]() -> bool { return numActiveCores == 3;}, 500000);
+    char *str;
+    size_t size;
+    FILE* newStream = open_memstream(&str, &size);
+    setErrorStream(newStream);
+    EXPECT_EQ(3U, numCoresPrecursor);
+    EXPECT_NE(NullThread, createThreadOnCore(2, doNothing));
+    decrementCoreCount();
+    EXPECT_EQ(2U, numCoresPrecursor);
+    limitedTimeWait([]() -> bool { return numActiveCores < 3;});
 //    EXPECT_EQ(NullThread, createThreadOnCore(2, doNothing));
 //    decrementCoreCount();
 //    limitedTimeWait([]() -> bool { return numActiveCores < 2;});
@@ -761,6 +761,6 @@ TEST_F(ArachneTest, decrementCoreCount) {
 //    fflush(newStream);
 //    EXPECT_EQ("Number of cores decreasing from 3 to 2\n"
 //            "Number of cores decreasing from 2 to 1\n", std::string(str));
-//    free(str);
+    free(str);
 }
 } // namespace Arachne

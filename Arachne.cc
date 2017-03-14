@@ -328,9 +328,9 @@ schedulerMainLoop() {
         if (coreArbiter.mustReleaseCore()) {
             std::lock_guard<SpinLock> _(coreChangeMutex);
             coreReleaseRequestCount++;
-            if (coreReleaseRequestCount >= numActiveCores) {
+//            if (coreReleaseRequestCount >= numActiveCores) {
                 abort();
-            }
+//            }
             // Deschedule a core iff we are the first thread to read that a
             // core release is needed.
             if (coreReleaseRequestCount == 1)
