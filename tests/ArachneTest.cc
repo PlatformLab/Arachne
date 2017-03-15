@@ -22,11 +22,13 @@
 
 namespace Arachne {
 
+extern bool disableLoadEstimation;
 struct ArachneTest : public ::testing::Test {
     virtual void SetUp()
     {
         Arachne::numCores = 3;
         Arachne::maxNumCores = 3;
+        Arachne::disableLoadEstimation = true;
         Arachne::init();
     }
 
