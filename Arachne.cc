@@ -44,7 +44,7 @@ std::function<void()> initCore = nullptr;
 // The following configuration options can be passed into init.
 
 /**
-  * The degree of parallelism between Arachne threads. If this is set higher
+  * The initial degree of parallelism between Arachne threads. If this is set higher
   * than the number of physical cores, the kernel will multiplex, which is
   * usually undesirable except when running unit tests on a single-core
   * system.
@@ -68,7 +68,7 @@ volatile uint32_t numCoresPrecursor;
   * It is an invariant that maxNumCores >= numCores, but if the user explicitly
   * sets both then numCores will push maxNumCores up to satisfy the invariant.
   */
-volatile uint32_t maxNumCores = 0;
+volatile uint32_t maxNumCores;
 
 /**
   * Protect state related to changes in the number of cores, and prevents
@@ -168,13 +168,23 @@ thread_local uint64_t privatePriorityMask;
 thread_local size_t nextCandidateIndex = 0;
 
 /**
-  * This quantity is used in the current heuristic for deciding that we need to
-  * scale up the number of cores.
-  * If we manage to find a runnable thread after less than this many iterations
-  * through the loop, then we should attempt to increase the number of cores.
+  * If we ran this many threads or more in one pass over the core array, then
+  * we will attempt to increase the number of cores.
   */
-uint64_t CORE_INCREASE_THRESHOLD = 3;
+uint64_t CORE_INCREASE_THRESHOLD = 20;
+
+/**
+  * If we ran this many threads or more in one pass over the core array, then
+  * we will attempt to increase the number of cores.
+  */
+uint64_t CORE_DECREASE_THRESHOLD = 3;
+
 void incrementCoreCount();
+void decrementCoreCount();
+
+// BEGIN Testing-Specific Flags
+bool disableLoadEstimation;
+// END   Testing-Specific Flags
 
 /**
   * Allocate a block of memory aligned at the beginning of a cache line.
@@ -424,14 +434,28 @@ dispatch() {
     // Count the iterations it took us to find a runnable thread.
     // Heuristically, if this number is very small, then we may want to ramp up
     // the number of cores.
-    uint64_t numIterations = 0;
-    for (;;currentIndex++, mask >>= 1L, numIterations++) {
+    uint8_t numThreadsRan = 0;
+    for (;;currentIndex++, mask >>= 1L) {
         if (mask == 0) {
             // We have reached the end of the threads, so we should go back to
             // the beginning.
             currentIndex = 0;
             mask = localOccupiedAndCount->load().occupied;
             currentCycles = Cycles::rdtsc();
+
+            if (!disableLoadEstimation) {
+                // Check the number of threads ran in the last iteration.
+                if (numThreadsRan > CORE_INCREASE_THRESHOLD &&
+                        numCoresPrecursor < maxNumCores &&
+                        numCoresPrecursor == numCores)
+                    incrementCoreCount();
+                else if (numThreadsRan < CORE_DECREASE_THRESHOLD &&
+                        numCoresPrecursor > 1 &&
+                        numCoresPrecursor == numCores)
+                    decrementCoreCount();
+
+                numThreadsRan = 0;
+            }
 
             // Check for termination
             if (shutdown)
@@ -445,10 +469,6 @@ dispatch() {
 
         ThreadContext* currentContext = localThreadContexts[currentIndex];
         if (currentCycles >= currentContext->wakeupTimeInCycles) {
-            if (numIterations < CORE_INCREASE_THRESHOLD &&
-                    numCoresPrecursor < maxNumCores &&
-                    numCoresPrecursor == numCores)
-                incrementCoreCount();
             nextCandidateIndex = currentIndex + 1;
             if (nextCandidateIndex == maxThreadsPerCore) nextCandidateIndex = 0;
 
@@ -809,7 +829,9 @@ shutDown() {
 }
 
 
-/** Attempt to acquire this resource and block if it is not available. */
+/**
+ * Attempt to acquire this resource and block if it is not available.
+ */
 void
 SleepLock::lock() {
     std::unique_lock<SpinLock> guard(blockedThreadsLock);
