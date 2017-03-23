@@ -346,7 +346,8 @@ schedulerMainLoop() {
 void
 yield() {
     if (!loadedContext) return;
-    if (localOccupiedAndCount->load().numOccupied == 1) return;
+    if (localOccupiedAndCount->load().numOccupied == 1 &&
+            !shutdown && !threadShouldExit) return;
     // This thread is still runnable since it is merely yielding.
     loadedContext->wakeupTimeInCycles = 0L;
     dispatch();
@@ -950,6 +951,98 @@ void joinKernelThreadPool() {
  * that all other threads' contexts on this core are saved.
  */
 void releaseCore() {
+    void makeExclusiveOnCore();
+    // Remove all other threads from this core.
+    makeExclusiveOnCore();
+
+    // Remap any slot in virtualCoreTable to point at the highest number, to
+    // coalesce the range for creation.
+    for (uint32_t i = 0; i < maxNumCores; i++)
+        if (virtualCoreTable[i] == kernelThreadId) {
+            virtualCoreTable[i] = virtualCoreTable[numCores - 1];
+            virtualCoreTable[numCores - 1] = kernelThreadId;
+            break;
+        }
+
+    threadShouldExit = true;
+}
+
+/**
+  * This function can be called from any thread to increase the number of cores
+  * used by Arachne.
+  */
+void incrementCoreCount() {
+    std::lock_guard<SpinLock> _(coreChangeMutex);
+    if (numCoresPrecursor < maxNumCores) {
+        fprintf(errorStream, "Number of cores increasing from %u to %u\n",
+                numCoresPrecursor, numCoresPrecursor + 1);
+        fflush(errorStream);
+        kernelThreads.emplace_back(joinKernelThreadPool);
+        numCoresPrecursor++;
+    }
+}
+
+/**
+  * This function can be called from any thread to arrange to decrease the
+  * number of cores used by Arachne. It returns a core is actually released.
+  */
+void decrementCoreCount() {
+    std::lock_guard<SpinLock> _(coreChangeMutex);
+    // We currently need at least one core running to make progress.
+    if (numCoresPrecursor == 1) return;
+
+    fprintf(errorStream, "Number of cores decreasing from %u to %u\n",
+            numCoresPrecursor, numCoresPrecursor - 1);
+    fflush(errorStream);
+    numCoresPrecursor--;
+
+    // Find a core to deschedule
+    uint8_t minLoaded = occupiedAndCount[0]->load().numOccupied;
+    int minIndex = 0;
+    for (uint32_t i = 1; i < numCores; i++)
+        if (occupiedAndCount[i]->load().numOccupied < minLoaded) {
+            minLoaded = occupiedAndCount[i]->load().numOccupied;
+            minIndex = i;
+        }
+
+    // Give up if the minLoaded core is exclusive or full, since that implies
+    // we are likely pre-empting must-have cores.
+    if (minLoaded >= static_cast<uint8_t>(56)) {
+        fprintf(errorStream, "Failed to find an unoccupied core, giving up!");
+        fflush(errorStream);
+        return;
+    }
+
+    // Create a thread on the target core to handle the actual core release,
+    // since we are currently borrowing an arbitrary context and should not
+    // hold it for too long.
+    // Separate variable to avoid ambiguity between two versions of
+    // createThread.
+    createThreadOnCore(minIndex, releaseCore);
+}
+
+/**
+  * This function is invoked from an Arachne thread and does not return until
+  * it is the only thread on the core. On return, it is valid for this thread
+  * to never yield, because no other threads will share its core.
+  *
+  * Note that if too many threads call this function, Arachne will not be able
+  * to achieve very much concurrency.
+  *
+  * NB: If a thread invokes this function, it must invoke makeSharedOnCore
+  * before exiting. We require this because this call is expected to be used
+  * infrequently, and it does not make sense to pay the performance penalty for
+  * checking on every thread exit.
+  */
+void makeExclusiveOnCore() {
+    // Already exclusive
+    if (localOccupiedAndCount->load().numOccupied > maxThreadsPerCore) {
+        // If we are not the exclusive thread, then an error has occurred.
+        if (localOccupiedAndCount->load().occupied !=
+                (1U << loadedContext->idInCore))
+            return;
+    }
+
     // Block future creations on core
     MaskAndCount targetOccupiedAndCount;
     MaskAndCount blockedOccupiedAndCount;
@@ -957,7 +1050,7 @@ void releaseCore() {
     do {
         targetOccupiedAndCount = *localOccupiedAndCount;
         blockedOccupiedAndCount = targetOccupiedAndCount;
-        blockedOccupiedAndCount.numOccupied = ~0;
+        blockedOccupiedAndCount.numOccupied = EXCLUSIVE;
         success = localOccupiedAndCount->compare_exchange_strong(
                 targetOccupiedAndCount, blockedOccupiedAndCount);
     } while (!success);
@@ -979,15 +1072,6 @@ void releaseCore() {
             }
         }
     } while (pendingCreation);
-
-    // Remap any slot in virtualCoreTable to point at the highest number, to
-    // coalesce the range for creation.
-    for (uint32_t i = 0; i < maxNumCores; i++)
-        if (virtualCoreTable[i] == kernelThreadId) {
-            virtualCoreTable[i] = virtualCoreTable[numCores - 1];
-            virtualCoreTable[numCores - 1] = kernelThreadId;
-            break;
-        }
 
     // Wait out thread completions
     // If this interval is discovered to be too long, we can take a sleep &
@@ -1047,7 +1131,6 @@ void releaseCore() {
             coreId = virtualCoreTable[nextMigrationTarget];
         }
     }
-
     // Sanity checking that we are the only thread left on this core.
     int count = 0;
     for (int i = 0; i < maxThreadsPerCore; i++)
@@ -1056,52 +1139,35 @@ void releaseCore() {
     if (count != 1)
         abort();
 
-    threadShouldExit = true;
+    // Update localOccupiedAndCount to a consistent state before exiting. At
+    // this point, creations should have already been blocked, and completions
+    // cannot occur because we are running, so we can just directly assign.
+    *localOccupiedAndCount = blockedOccupiedAndCount;
 }
 
 /**
-  * This function can be called from any thread to increase the number of cores
-  * used by Arachne.
+  * This function reverses the effect of makeExclusiveOnCore(), allowing other
+  * threads to once again be scheduled onto the core hosting this thread.
+  *
+  * If makeExclusiveOnCore has never been invoked from the current thread, then
+  * this function is a no-op.
   */
-void incrementCoreCount() {
-    std::lock_guard<SpinLock> _(coreChangeMutex);
-    if (numCoresPrecursor < maxNumCores) {
-        fprintf(errorStream, "Number of cores increasing from %u to %u\n",
-                numCoresPrecursor, numCoresPrecursor + 1);
+void makeSharedOnCore() {
+    if (localOccupiedAndCount->load().numOccupied < maxThreadsPerCore) // Not exclusive
+        return;
+    // Assume already exclusive
+    MaskAndCount original = *localOccupiedAndCount;
+    MaskAndCount shared = original;
+    shared.numOccupied = 1;
+    bool success = localOccupiedAndCount->compare_exchange_strong(
+            original, shared);
+    if (!success) {
+        // If this scenario happens, it means there is a bug since nobody
+        // should be able to create threads on an exclusive core.
+        fprintf(errorStream, "Error making core shared again! Aborting...");
         fflush(errorStream);
-        kernelThreads.emplace_back(joinKernelThreadPool);
-        numCoresPrecursor++;
+        abort();
     }
 }
 
-/**
-  * This function can be called from any thread to arrange to decrease the
-  * number of cores used by Arachne. It returns a core is actually released.
-  */
-void decrementCoreCount() {
-    std::lock_guard<SpinLock> _(coreChangeMutex);
-    // We currently need at least one core running to make progress.
-    if (numCoresPrecursor == 1) return;
-
-    fprintf(errorStream, "Number of cores decreasing from %u to %u\n",
-            numCoresPrecursor, numCoresPrecursor - 1);
-    fflush(errorStream);
-    numCoresPrecursor--;
-
-    // Find a core to deschedule
-    int minLoaded = occupiedAndCount[0]->load().numOccupied;
-    int minIndex = 0;
-    for (uint32_t i = 1; i < numCores; i++)
-        if (occupiedAndCount[i]->load().numOccupied < minLoaded) {
-            minLoaded = occupiedAndCount[i]->load().numOccupied;
-            minIndex = i;
-        }
-
-    // Create a thread on the target core to handle the actual core release,
-    // since we are currently borrowing an arbitrary context and should not
-    // hold it for too long.
-    // Separate variable to avoid ambiguity between two versions of
-    // createThread.
-    createThreadOnCore(minIndex, releaseCore);
-}
 } // namespace Arachne

@@ -127,6 +127,9 @@ void waitForTermination();
 void yield();
 void sleep(uint64_t ns);
 
+void makeExclusiveOnCore();
+void makeSharedOnCore();
+
 /**
  * Block the current thread until another thread invokes join() with the
  * current thread's ThreadId.
@@ -440,6 +443,13 @@ const uint64_t UNOCCUPIED = ~0L - 1;
   * commencing migration.
   */
 const uint64_t COMPLETION_WAIT_TIME = 100000;
+
+/**
+  * Initial value of numOccupied for cores that are exclusive to a thread.
+  * This value is sufficiently high that when other threads exit and decrement
+  * numOccupied, creation will continue to be blocked on the target core.
+  */
+const uint8_t EXCLUSIVE = maxThreadsPerCore * 2 + 1;
 
 void schedulerMainLoop();
 void swapcontext(void **saved, void **target);

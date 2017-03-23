@@ -46,8 +46,9 @@ static Arachne::SleepLock sleepLock;
 
 // Helper function for tests with timing dependencies, so that we wait for a
 // finite amount of time in the case of a bug causing an infinite loop.
-static void limitedTimeWait(std::function<bool()> condition) {
-    for (int i = 0; i < 1000; i++) {
+static void limitedTimeWait(std::function<bool()> condition,
+                int numIterations = 1000) {
+    for (int i = 0; i < numIterations; i++) {
         if (condition()) {
             break;
         }
@@ -708,5 +709,47 @@ TEST_F(ArachneTest, decrementCoreCount) {
     EXPECT_EQ("Number of cores decreasing from 3 to 2\n"
             "Number of cores decreasing from 2 to 1\n", std::string(str));
     free(str);
+}
+
+// This thread goes through three stages
+// Stage 0: Non-Exclusive
+// Stage 1: Exclusive
+// Stage 2: Non-Exclusive Again
+std::atomic<int> stage;
+void exclusiveThread() {
+    while (stage != 1);
+    makeExclusiveOnCore();
+    while (stage != 2);
+    makeSharedOnCore();
+    while (stage != 3);
+}
+void yieldForever() {
+    while(true) yield();
+}
+// Since the functions are paired, this also serves as the test for
+// makeSharedOnCore.
+TEST_F(ArachneTest, makeExclusiveOnCore) {
+    createThreadOnCore(0, exclusiveThread);
+    limitedTimeWait([]()-> bool {
+            return Arachne::occupiedAndCount[0]->load().numOccupied == 1;});
+    // Check that thread creations are possible.
+    EXPECT_NE(Arachne::NullThread, Arachne::createThreadOnCore(0, yieldForever));
+    stage = 1;
+    // Check that other threads have been moved off or finished, and that
+    // thread creations fail.
+    limitedTimeWait([]()-> bool {
+            return Arachne::occupiedAndCount[0]->load().occupied == 1;},
+            10000);
+    // Virtual core 0 is mapped to core 2.
+    EXPECT_EQ(Arachne::NullThread, Arachne::createThreadOnCore(0, doNothing));
+    // That eternally yielding thread must have moved somewhere.
+    EXPECT_EQ(1, Arachne::occupiedAndCount[1]->load().numOccupied);
+    stage = 2;
+    limitedTimeWait([]()-> bool {
+            return Arachne::occupiedAndCount[0]->load().numOccupied == 1;},
+            10000);
+    // Verify that thread creations are once again allowed.
+    EXPECT_NE(Arachne::NullThread, Arachne::createThreadOnCore(0, doNothing));
+    stage = 3;
 }
 } // namespace Arachne
