@@ -741,7 +741,7 @@ TEST_F(ArachneTest, makeExclusiveOnCore) {
     limitedTimeWait([]()-> bool {
             return Arachne::occupiedAndCount[0]->load().occupied == 1;},
             10000);
-    EXPECT_EQ(Arachne::NullThread, Arachne::createThreadOnCore(0, doNothing));
+    EXPECT_EQ(Arachne::NullThread, Arachne::createThreadOnCore(2, doNothing));
     EXPECT_EQ(1U, Arachne::numExclusiveCores);
     // That eternally yielding thread must have moved somewhere.
     EXPECT_EQ(1, Arachne::occupiedAndCount[1]->load().numOccupied);
