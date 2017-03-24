@@ -23,6 +23,7 @@
 namespace Arachne {
 
 extern bool disableLoadEstimation;
+extern std::atomic<uint8_t> numExclusiveCores;
 struct ArachneTest : public ::testing::Test {
     virtual void SetUp()
     {
@@ -740,8 +741,8 @@ TEST_F(ArachneTest, makeExclusiveOnCore) {
     limitedTimeWait([]()-> bool {
             return Arachne::occupiedAndCount[0]->load().occupied == 1;},
             10000);
-    // Virtual core 0 is mapped to core 2.
     EXPECT_EQ(Arachne::NullThread, Arachne::createThreadOnCore(0, doNothing));
+    EXPECT_EQ(1U, Arachne::numExclusiveCores);
     // That eternally yielding thread must have moved somewhere.
     EXPECT_EQ(1, Arachne::occupiedAndCount[1]->load().numOccupied);
     stage = 2;
@@ -750,6 +751,7 @@ TEST_F(ArachneTest, makeExclusiveOnCore) {
             10000);
     // Verify that thread creations are once again allowed.
     EXPECT_NE(Arachne::NullThread, Arachne::createThreadOnCore(0, doNothing));
+    EXPECT_EQ(0, Arachne::numExclusiveCores);
     stage = 3;
 }
 } // namespace Arachne

@@ -71,6 +71,14 @@ volatile uint32_t numCoresPrecursor;
 volatile uint32_t maxNumCores;
 
 /**
+  * This value represents the current number of exclusive cores that the
+  * application is maintaining. We must ensure that we have at least one more
+  * core than this, because otherwise we will run out of cores to schedule
+  * other threads.
+  */
+std::atomic<uint8_t> numExclusiveCores;
+
+/**
   * Protect state related to changes in the number of cores, and prevents
   * multiple threads from simultaneously attempting to change the number of
   * cores.
@@ -451,8 +459,8 @@ dispatch() {
                         numCoresPrecursor == numCores)
                     incrementCoreCount();
                 else if (numThreadsRan < CORE_DECREASE_THRESHOLD &&
-                        numCoresPrecursor > 1 &&
-                        numCoresPrecursor == numCores)
+                        numCoresPrecursor == numCores &&
+                        numCoresPrecursor > 1U + numExclusiveCores)
                     decrementCoreCount();
 
                 numThreadsRan = 0;
@@ -951,9 +959,9 @@ void joinKernelThreadPool() {
  * that all other threads' contexts on this core are saved.
  */
 void releaseCore() {
-    void makeExclusiveOnCore();
+    bool makeExclusiveOnCore(bool);
     // Remove all other threads from this core.
-    makeExclusiveOnCore();
+    makeExclusiveOnCore(true);
 
     // Remap any slot in virtualCoreTable to point at the highest number, to
     // coalesce the range for creation.
@@ -989,7 +997,7 @@ void incrementCoreCount() {
 void decrementCoreCount() {
     std::lock_guard<SpinLock> _(coreChangeMutex);
     // We currently need at least one core running to make progress.
-    if (numCoresPrecursor == 1) return;
+    if (numCoresPrecursor == numExclusiveCores + 1U) return;
 
     fprintf(errorStream, "Number of cores decreasing from %u to %u\n",
             numCoresPrecursor, numCoresPrecursor - 1);
@@ -1023,8 +1031,8 @@ void decrementCoreCount() {
 
 /**
   * This function is invoked from an Arachne thread and does not return until
-  * it is the only thread on the core. On return, it is valid for this thread
-  * to never yield, because no other threads will share its core.
+  * it is the only thread on the core. If it returns true, it is valid for this
+  * thread to never yield, because no other threads will share its core.
   *
   * Note that if too many threads call this function, Arachne will not be able
   * to achieve very much concurrency.
@@ -1034,13 +1042,26 @@ void decrementCoreCount() {
   * infrequently, and it does not make sense to pay the performance penalty for
   * checking on every thread exit.
   */
-void makeExclusiveOnCore() {
+bool makeExclusiveOnCore(bool isRampDown) {
     // Already exclusive
     if (localOccupiedAndCount->load().numOccupied > maxThreadsPerCore) {
         // If we are not the exclusive thread, then an error has occurred.
         if (localOccupiedAndCount->load().occupied !=
                 (1U << loadedContext->idInCore))
-            return;
+            return false;
+    }
+
+    // Cannot make exclusive because we will not have a non-exclusive core
+    // anymore
+    if (numExclusiveCores == maxNumCores - 1) {
+        return false;
+    }
+
+    // Increment the number of exclusive cores
+    if (!isRampDown) {
+        numExclusiveCores++;
+        if (numExclusiveCores == numCores)
+            incrementCoreCount();
     }
 
     // Block future creations on core
@@ -1100,7 +1121,7 @@ void makeExclusiveOnCore() {
                 // least one core is fully loaded.
                 if (slotMap.numOccupied >= maxThreadsPerCore) {
                     abort();
-                    return;
+                    return false;
                 }
 
                 // Search for a non-occupied slot and attempt to reserve the slot
@@ -1143,6 +1164,8 @@ void makeExclusiveOnCore() {
     // this point, creations should have already been blocked, and completions
     // cannot occur because we are running, so we can just directly assign.
     *localOccupiedAndCount = blockedOccupiedAndCount;
+
+    return true;
 }
 
 /**
@@ -1153,7 +1176,8 @@ void makeExclusiveOnCore() {
   * this function is a no-op.
   */
 void makeSharedOnCore() {
-    if (localOccupiedAndCount->load().numOccupied < maxThreadsPerCore) // Not exclusive
+    // If not exclusive, this is a no-op.
+    if (localOccupiedAndCount->load().numOccupied < maxThreadsPerCore)
         return;
     // Assume already exclusive
     MaskAndCount original = *localOccupiedAndCount;
@@ -1168,6 +1192,7 @@ void makeSharedOnCore() {
         fflush(errorStream);
         abort();
     }
+    numExclusiveCores--;
 }
 
 } // namespace Arachne
