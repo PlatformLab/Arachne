@@ -604,12 +604,11 @@ createThread(_Callable&& __f, _Args&&... __args) {
     while (choice2 == choice1 && numCores > 1)
         choice2 = static_cast<uint32_t>(random()) % numCores;
 
-    if (occupiedAndCount[choice1]->load().numOccupied <
-            occupiedAndCount[choice2]->load().numOccupied)
+    if (occupiedAndCount[virtualCoreTable[choice1]]->load().numOccupied <
+            occupiedAndCount[virtualCoreTable[choice2]]->load().numOccupied)
         kId = choice1;
     else
         kId = choice2;
-
     return createThreadOnCore(kId, __f, __args...);
 }
 
@@ -620,7 +619,6 @@ createThread(_Callable&& __f, _Args&&... __args) {
   *     The mutex associated with this condition variable; must be held by
   *     caller before calling wait. This function releases the mutex before
   *     blocking, and re-acquires it before returning to the user.
-  
   */
 template <typename LockType> void
 ConditionVariable::wait(LockType& lock) {
