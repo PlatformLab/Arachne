@@ -385,6 +385,7 @@ getThreadId() {
         : Arachne::NullThread;
 }
 
+thread_local uint8_t numThreadsRan = 0;
 /**
   * Deschedule the current thread until its wakeup time is reached (which may
   * have already happened) and find another thread to run. All direct and
@@ -443,7 +444,6 @@ dispatch() {
     // Count the iterations it took us to find a runnable thread.
     // Heuristically, if this number is very small, then we may want to ramp up
     // the number of cores.
-    uint8_t numThreadsRan = 0;
     for (;;currentIndex++, mask >>= 1L) {
         if (mask == 0) {
             // We have reached the end of the threads, so we should go back to
@@ -483,6 +483,7 @@ dispatch() {
 
             if (currentContext == loadedContext) {
                 loadedContext->wakeupTimeInCycles = BLOCKED;
+                numThreadsRan++;
                 return;
             }
             void** saved = &loadedContext->sp;
@@ -491,6 +492,7 @@ dispatch() {
             // After the old context is swapped out above, this line executes
             // in the new context.
             loadedContext->wakeupTimeInCycles = BLOCKED;
+            numThreadsRan++;
             return;
         }
     }
@@ -962,16 +964,6 @@ void releaseCore() {
     bool makeExclusiveOnCore(bool);
     // Remove all other threads from this core.
     makeExclusiveOnCore(true);
-
-    // Remap any slot in virtualCoreTable to point at the highest number, to
-    // coalesce the range for creation.
-    for (uint32_t i = 0; i < maxNumCores; i++)
-        if (virtualCoreTable[i] == kernelThreadId) {
-            virtualCoreTable[i] = virtualCoreTable[numCores - 1];
-            virtualCoreTable[numCores - 1] = kernelThreadId;
-            break;
-        }
-
     threadShouldExit = true;
 }
 
@@ -1099,12 +1091,22 @@ bool makeExclusiveOnCore(bool isRampDown) {
     // poll approach.
     sleep(COMPLETION_WAIT_TIME);
 
+    // Remap this slot in virtualCoreTable to point at the highest number, to
+    // make it easier to pawn off work.
+    for (uint32_t i = 0; i < maxNumCores; i++)
+        if (virtualCoreTable[i] == kernelThreadId) {
+            virtualCoreTable[i] = virtualCoreTable[numCores - 1];
+            virtualCoreTable[numCores - 1] = kernelThreadId;
+            break;
+        }
+
     // Migrate all threads other than the current one, since this one will
     // simply exit when it finishes its job, after which this core will
     // immediately be returned.
     // Round robin cores because these are likely long-running threads.
     int nextMigrationTarget = (kernelThreadId + 1) % (numCores - 1);
     int coreId = virtualCoreTable[nextMigrationTarget];
+
     blockedOccupiedAndCount = *localOccupiedAndCount;
     for (uint8_t i = 0; i < maxThreadsPerCore; i++) {
         if (i == loadedContext->idInCore) continue;
@@ -1152,6 +1154,7 @@ bool makeExclusiveOnCore(bool isRampDown) {
             coreId = virtualCoreTable[nextMigrationTarget];
         }
     }
+
     // Sanity checking that we are the only thread left on this core.
     int count = 0;
     for (int i = 0; i < maxThreadsPerCore; i++)
