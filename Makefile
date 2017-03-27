@@ -13,7 +13,7 @@ CCFLAGS=-Wall -Werror -Wformat=2 -Wextra -Wwrite-strings -Wno-unused-parameter -
 libArachne.a: Arachne.o
 	ar rcs $@ $^
 
-Arachne.o:  Arachne.h
+Arachne.o:  Arachne.h Semaphore.h
 
 %.o: %.cc
 	g++ $(CCFLAGS)  -O3 $(DEBUG) $(LIBS) -fPIC -c -std=c++11 -o $@ $<

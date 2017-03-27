@@ -47,6 +47,8 @@ using PerfUtils::Cycles;
 struct ThreadContext;
 
 // This is used in createThread.
+extern std::atomic<uint32_t> numActiveCores;
+
 extern volatile uint32_t numCores;
 extern volatile uint32_t maxNumCores;
 
@@ -453,7 +455,7 @@ const uint8_t EXCLUSIVE = maxThreadsPerCore * 2 + 1;
 
 void schedulerMainLoop();
 void swapcontext(void **saved, void **target);
-void threadMain(int id);
+void threadMain();
 
 /// This structure tracks the live threads on a single core.
 struct MaskAndCount{
@@ -531,7 +533,7 @@ random(void) {
 template<typename _Callable, typename... _Args>
 ThreadId
 createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
-    if (virtualCoreId >= numCores)
+    if (virtualCoreId >= numActiveCores)
         return Arachne::NullThread;
 
     int coreId = virtualCoreTable[virtualCoreId];
@@ -599,10 +601,10 @@ createThread(_Callable&& __f, _Args&&... __args) {
     // Find a kernel thread to enqueue to by picking two at random and choosing
     // the one with the fewest Arachne threads.
     uint32_t kId;
-    uint32_t choice1 = static_cast<uint32_t>(random()) % numCores;
-    uint32_t choice2 = static_cast<uint32_t>(random()) % numCores;
-    while (choice2 == choice1 && numCores > 1)
-        choice2 = static_cast<uint32_t>(random()) % numCores;
+    uint32_t choice1 = static_cast<uint32_t>(random()) % numActiveCores;
+    uint32_t choice2 = static_cast<uint32_t>(random()) % numActiveCores;
+    while (choice2 == choice1 && numActiveCores > 1)
+        choice2 = static_cast<uint32_t>(random()) % numActiveCores;
 
     if (occupiedAndCount[virtualCoreTable[choice1]]->load().numOccupied <
             occupiedAndCount[virtualCoreTable[choice2]]->load().numOccupied)

@@ -13,12 +13,14 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "Arachne.h"
 #include <stdio.h>
 #include <string.h>
 #include <thread>
 #include "PerfUtils/TimeTrace.h"
 #include "PerfUtils/Util.h"
+
+#include "Arachne.h"
+#include "Semaphore.h"
 
 namespace Arachne {
 
@@ -52,21 +54,26 @@ std::function<void()> initCore = nullptr;
 volatile uint32_t numCores = 0;
 
 /**
-  * Since numCores is used during thread creation to select a core, it is not
+  * This tracks the actual number of unblocked cores in the system.
+  */
+std::atomic<uint32_t> numActiveCores;
+
+/**
+  * Since numActiveCores is used during thread creation to select a core, it is not
   * safe to increment its value until state has been set up for a new core,
   * which happens asynchronously in a new kernel thread.
   *
   * However, there must be a way to prevent multiple threads from
-  * simultaneously attempting to scale up the number of cores before numCores
+  * simultaneously attempting to scale up the number of cores before numActiveCores
   * is incremented. numCoresPrecursor serves this purpose, and represents the
-  * future value of numCores;
+  * future value of numActiveCores;
   */
 volatile uint32_t numCoresPrecursor;
 
 /**
   * The largest number of cores that Arachne is permitted to utilize.
-  * It is an invariant that maxNumCores >= numCores, but if the user explicitly
-  * sets both then numCores will push maxNumCores up to satisfy the invariant.
+  * It is an invariant that maxNumCores >= numActiveCores, but if the user explicitly
+  * sets both then numActiveCores will push maxNumCores up to satisfy the invariant.
   */
 volatile uint32_t maxNumCores;
 
@@ -105,10 +112,10 @@ std::vector<void*> kernelThreadStacks;
 volatile bool shutdown;
 
 /**
-  * Alert the kernel thread that cleanup is complete and it should exit for
+  * Alert the kernel thread that cleanup is complete and it should block for
   * ramp-down.
   */
-thread_local bool threadShouldExit;
+thread_local bool threadShouldYield;
 
 /**
   * The collection of possibly runnable contexts for each kernel thread.
@@ -190,6 +197,11 @@ uint64_t CORE_DECREASE_THRESHOLD = 3;
 void incrementCoreCount();
 void decrementCoreCount();
 
+/**
+  * Kernel threads which are not actively polling block on this semaphore.
+  */
+Semaphore inactiveCores;
+
 // BEGIN Testing-Specific Flags
 bool disableLoadEstimation;
 // END   Testing-Specific Flags
@@ -215,25 +227,47 @@ cacheAlignAlloc(size_t size) {
 /**
  * Main function for a kernel thread, which roughly corresponds to a core in the
  * current design of the system.
- * 
+ *
  * \param kId
  *     The kernel thread ID for the newly created kernel thread.
  */
 void
-threadMain(int kId) {
+threadMain() {
     PerfUtils::Util::pinAvailableCore();
     if (initCore) initCore();
-    kernelThreadId = kId;
-    localOccupiedAndCount = occupiedAndCount[kernelThreadId];
-    localThreadContexts = allThreadContexts[kernelThreadId];
 
-    loadedContext = localThreadContexts[0];
+    for(;;) {
+        inactiveCores.wait();
+        // Prevent the use of abandoned ThreadContext which occurred as a
+        // result of a shutdown request.
+        if (shutdown) break;
 
-    // Transfers control to the Arachne dispatcher.
-    // This context has been pre-initialized by init so it will "return"
-    // to the schedulerMainLoop.
-    // This call will return iff shutDown is called from the main thread.
-    swapcontext(&loadedContext->sp, &kernelThreadStacks[kId]);
+        kernelThreadId = virtualCoreTable[numActiveCores++];
+        numCoresPrecursor = numActiveCores;
+
+        localOccupiedAndCount = occupiedAndCount[kernelThreadId];
+        localThreadContexts = allThreadContexts[kernelThreadId];
+
+        // Clean up state from the previous thread that was using this data
+        // structure.
+        *localOccupiedAndCount = {0,0};
+
+		// Correct the ThreadContext.coreId() here to match the existing core.
+        for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
+			localThreadContexts[k]->coreId = static_cast<uint8_t>(kernelThreadId);
+        }
+
+        loadedContext = localThreadContexts[0];
+
+        // Transfers control to the Arachne dispatcher.
+        // This context has been pre-initialized by init so it will "return"
+        // to the schedulerMainLoop.
+        // This call will return iff shutDown is called from the main thread.
+        swapcontext(&loadedContext->sp, &kernelThreadStacks[kernelThreadId]);
+        numActiveCores--;
+        numCoresPrecursor = numActiveCores;
+        if (shutdown) break;
+    }
 }
 
 /**
@@ -289,13 +323,12 @@ schedulerMainLoop() {
     while (true) {
         // Check for whether this thread should exit, for the purposes of
         // ramping down.
-        if (threadShouldExit) {
-            // The next kernel thread to operate here on this data will clean up the
-            // data structures, which avoids races.
-            // This decrement serves as an indication that it is safe to do another
-            // ramp-down or ramp-up, so it should be the last state change before this
-            // thread exits.
-            numCores--;
+        if (threadShouldYield) {
+			// Switch back to our kernel-provided stack to block in the Core
+			// Arbiter, since the next time this thread unblocks, it may not
+			// live on the same core, and will use a different set of user
+			// contexts.
+            asm("nop");
             swapcontext(
                     &kernelThreadStacks[kernelThreadId],
                     &loadedContext->sp);
@@ -355,7 +388,7 @@ void
 yield() {
     if (!loadedContext) return;
     if (localOccupiedAndCount->load().numOccupied == 1 &&
-            !shutdown && !threadShouldExit) return;
+            !shutdown && !threadShouldYield) return;
     // This thread is still runnable since it is merely yielding.
     loadedContext->wakeupTimeInCycles = 0L;
     dispatch();
@@ -385,7 +418,7 @@ getThreadId() {
         : Arachne::NullThread;
 }
 
-thread_local uint8_t numThreadsRan = 0;
+uint8_t numThreadsRan = 0;
 /**
   * Deschedule the current thread until its wakeup time is reached (which may
   * have already happened) and find another thread to run. All direct and
@@ -456,10 +489,10 @@ dispatch() {
                 // Check the number of threads ran in the last iteration.
                 if (numThreadsRan > CORE_INCREASE_THRESHOLD &&
                         numCoresPrecursor < maxNumCores &&
-                        numCoresPrecursor == numCores)
+                        numCoresPrecursor == numActiveCores)
                     incrementCoreCount();
                 else if (numThreadsRan < CORE_DECREASE_THRESHOLD &&
-                        numCoresPrecursor == numCores &&
+                        numCoresPrecursor == numActiveCores &&
                         numCoresPrecursor > 1U + numExclusiveCores)
                     decrementCoreCount();
 
@@ -535,10 +568,10 @@ signal(ThreadId id) {
   */
 void
 join(ThreadId id) {
-    std::lock_guard<SpinLock> joinGuard(id.context->joinLock);
+    std::unique_lock<SpinLock> joinGuard(id.context->joinLock);
     // Thread has already exited.
     if (id.generation != id.context->generation) return;
-    id.context->joinCV.wait(id.context->joinLock);
+    id.context->joinCV.wait(joinGuard);
 }
 
 /**
@@ -553,13 +586,15 @@ void waitForTermination() {
     for (size_t i = 0; i < kernelThreads.size(); i++) {
         kernelThreads[i].join();
     }
-    kernelThreads.clear();
-    kernelThreadStacks.clear();
 
     // We now assume that all threads are done executing.
     PerfUtils::Util::serialize();
 
-    for (size_t i = 0; i < numCores; i++) {
+    kernelThreads.clear();
+    kernelThreadStacks.clear();
+
+
+    for (size_t i = 0; i < maxNumCores; i++) {
         for (int k = 0; k < maxThreadsPerCore; k++) {
             free(allThreadContexts[i][k]->stack);
             allThreadContexts[i][k]->joinLock.~SpinLock();
@@ -573,6 +608,7 @@ void waitForTermination() {
     occupiedAndCount.clear();
 
     delete[] virtualCoreTable;
+    inactiveCores.reset();
     PerfUtils::Util::serialize();
     initialized = false;
 
@@ -730,8 +766,10 @@ init(int* argcp, const char** argv) {
 
     if (numCores == 0)
         numCores = std::thread::hardware_concurrency();
-    numCoresPrecursor = numCores;
     maxNumCores = std::max(numCores, maxNumCores);
+    for (uint32_t i = 0; i < numCores; i++)
+        inactiveCores.notify();
+    numCoresPrecursor = numActiveCores;
 
     // We assume that maxNumCores will not be exceeded in the lifetime of this
     // application.
@@ -765,13 +803,17 @@ init(int* argcp, const char** argv) {
     PerfUtils::Util::serialize();
 
     // Note that the main thread is not part of the thread pool.
-    for (unsigned int i = 0; i < numCores; i++) {
+    for (unsigned int i = 0; i < maxNumCores; i++) {
         // These threads are started with threadMain instead of
         // schedulerMainLoop because we want schedulerMainLoop to run on a user
         // stack rather than a kernel-provided stack. This enables us to run
         // the first user thread without a context switch.
-        kernelThreads.emplace_back(threadMain, i);
+        kernelThreads.emplace_back(threadMain);
     }
+
+    // Block until at least one core is active, so that thread creations are
+    // guaranteed to be safe after this method returns.
+    while (!numActiveCores) usleep(1);
 }
 
 /**
@@ -785,7 +827,7 @@ init(int* argcp, const char** argv) {
   */
 void
 testInit() {
-    kernelThreadId = numCores;
+    kernelThreadId = numActiveCores;
     localOccupiedAndCount =
         reinterpret_cast<std::atomic<Arachne::MaskAndCount>* >(
             cacheAlignAlloc(sizeof(MaskAndCount)));
@@ -835,6 +877,10 @@ void testDestroy() {
   */
 void
 shutDown() {
+    // Unblock all cores so they can shut down and be joined.
+    for (uint32_t i = 0; i < maxNumCores - numActiveCores; i++)
+        inactiveCores.notify();
+
     // Tell all the kernel threads to terminate at the first opportunity.
     shutdown = true;
 }
@@ -925,36 +971,6 @@ void setErrorStream(FILE* stream) {
 }
 
 /**
-  * When Arachne needs to scale up its number of cores, this function should be
-  * invoked from the new kernel thread.
-  * We assume that exactly one instnace of this function is running at any
-  * given time.
-  */
-void joinKernelThreadPool() {
-    PerfUtils::Util::pinAvailableCore();
-    if (initCore) initCore();
-    // Initialize thread-local variables to existing data structures
-    kernelThreadId = virtualCoreTable[numCores];
-    localOccupiedAndCount = occupiedAndCount[kernelThreadId];
-    localThreadContexts = allThreadContexts[kernelThreadId];
-
-    *localOccupiedAndCount = {0,0};
-
-    numCores++;
-
-    // Correct the ThreadContext.coreId() here to match the existing core.
-    // Eventually, this correction will take place every time a core is
-    // returned to the application.
-    for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
-        localThreadContexts[k]->coreId = static_cast<uint8_t>(kernelThreadId);
-    }
-
-    // See documentation in threadMain
-    loadedContext = localThreadContexts[0];
-    swapcontext(&loadedContext->sp, &kernelThreadStacks[kernelThreadId]);
-}
-
-/**
  * This function runs on a core immediately before it is deallocated, and is
  * responsible for waiting out and then migrating running threads other than
  * itself. By ensuring that the core is busy running this thread, we ensure
@@ -964,7 +980,7 @@ void releaseCore() {
     bool makeExclusiveOnCore(bool);
     // Remove all other threads from this core.
     makeExclusiveOnCore(true);
-    threadShouldExit = true;
+    threadShouldYield = true;
 }
 
 /**
@@ -977,8 +993,8 @@ void incrementCoreCount() {
         fprintf(errorStream, "Number of cores increasing from %u to %u\n",
                 numCoresPrecursor, numCoresPrecursor + 1);
         fflush(errorStream);
-        kernelThreads.emplace_back(joinKernelThreadPool);
         numCoresPrecursor++;
+        inactiveCores.notify();
     }
 }
 
@@ -999,7 +1015,7 @@ void decrementCoreCount() {
     // Find a core to deschedule
     uint8_t minLoaded = occupiedAndCount[0]->load().numOccupied;
     int minIndex = 0;
-    for (uint32_t i = 1; i < numCores; i++)
+    for (uint32_t i = 1; i < numActiveCores; i++)
         if (occupiedAndCount[i]->load().numOccupied < minLoaded) {
             minLoaded = occupiedAndCount[i]->load().numOccupied;
             minIndex = i;
@@ -1008,7 +1024,14 @@ void decrementCoreCount() {
     // Give up if the minLoaded core is exclusive or full, since that implies
     // we are likely pre-empting must-have cores.
     if (minLoaded >= static_cast<uint8_t>(56)) {
-        fprintf(errorStream, "Failed to find an unoccupied core, giving up!");
+        numCoresPrecursor++;
+        fprintf(errorStream, "Failed to find an unoccupied core, giving up!\n");
+        fprintf(errorStream, "numActiveCores = %u, occupiedAndCount: \n", numActiveCores.load());
+        for (uint32_t i = 0; i < numActiveCores; i++) {
+            fprintf(errorStream, "occupied = %lu, numOccupied = %u\n",
+                    occupiedAndCount[i]->load().occupied, occupiedAndCount[i]->load().numOccupied);
+        }
+
         fflush(errorStream);
         return;
     }
@@ -1043,16 +1066,16 @@ bool makeExclusiveOnCore(bool isRampDown) {
             return false;
     }
 
-    // Cannot make exclusive because we will not have a non-exclusive core
-    // anymore
-    if (numExclusiveCores == maxNumCores - 1) {
-        return false;
-    }
-
     // Increment the number of exclusive cores
     if (!isRampDown) {
+        // Cannot make exclusive because we will not have a non-exclusive core
+        // anymore
+        if (numExclusiveCores == maxNumCores - 1) {
+            return false;
+        }
+
         numExclusiveCores++;
-        if (numExclusiveCores == numCores)
+        if (numExclusiveCores == numActiveCores)
             incrementCoreCount();
     }
 
@@ -1095,8 +1118,8 @@ bool makeExclusiveOnCore(bool isRampDown) {
     // make it easier to pawn off work.
     for (uint32_t i = 0; i < maxNumCores; i++)
         if (virtualCoreTable[i] == kernelThreadId) {
-            virtualCoreTable[i] = virtualCoreTable[numCores - 1];
-            virtualCoreTable[numCores - 1] = kernelThreadId;
+            virtualCoreTable[i] = virtualCoreTable[numActiveCores - 1];
+            virtualCoreTable[numActiveCores - 1] = kernelThreadId;
             break;
         }
 
@@ -1104,7 +1127,7 @@ bool makeExclusiveOnCore(bool isRampDown) {
     // simply exit when it finishes its job, after which this core will
     // immediately be returned.
     // Round robin cores because these are likely long-running threads.
-    int nextMigrationTarget = (kernelThreadId + 1) % (numCores - 1);
+    int nextMigrationTarget = 0;
     int coreId = virtualCoreTable[nextMigrationTarget];
 
     blockedOccupiedAndCount = *localOccupiedAndCount;
@@ -1150,7 +1173,7 @@ bool makeExclusiveOnCore(bool isRampDown) {
             localThreadContexts[i]->idInCore = i;
 
             // The next victim core that we will pawn our work on.
-            nextMigrationTarget = (nextMigrationTarget + 1) % (numCores - 1);
+            nextMigrationTarget = (nextMigrationTarget + 1) % (numActiveCores - 1);
             coreId = virtualCoreTable[nextMigrationTarget];
         }
     }
