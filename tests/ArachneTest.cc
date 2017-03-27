@@ -19,11 +19,22 @@
 
 #define private public
 #include "Arachne.h"
+#include "Semaphore.h"
 
 namespace Arachne {
 
 extern bool disableLoadEstimation;
 extern std::atomic<uint8_t> numExclusiveCores;
+
+extern Semaphore inactiveCores;
+extern std::atomic<uint32_t> numActiveCores;
+extern volatile uint32_t numCores;
+extern int* virtualCoreTable;
+
+static void limitedTimeWait(std::function<bool()> condition,
+                int numIterations = 1000);
+
+
 struct ArachneTest : public ::testing::Test {
     virtual void SetUp()
     {
@@ -31,6 +42,10 @@ struct ArachneTest : public ::testing::Test {
         Arachne::maxNumCores = 3;
         Arachne::disableLoadEstimation = true;
         Arachne::init();
+
+
+        // Many tests schedule onto specific cores.
+        limitedTimeWait([]() -> bool { return numActiveCores == numCores;}, 50000);
     }
 
     virtual void TearDown()
@@ -48,7 +63,7 @@ static Arachne::SleepLock sleepLock;
 // Helper function for tests with timing dependencies, so that we wait for a
 // finite amount of time in the case of a bug causing an infinite loop.
 static void limitedTimeWait(std::function<bool()> condition,
-                int numIterations = 1000) {
+                int numIterations) {
     for (int i = 0; i < numIterations; i++) {
         if (condition()) {
             break;
@@ -80,7 +95,8 @@ TEST_F(ArachneTest, SpinLock_lockUnlock) {
     EXPECT_EQ(NULL, loadedContext);
     flag = 0;
     mutex.lock();
-    createThreadOnCore(0, lockTaker<SpinLock>, &mutex);
+    EXPECT_NE(Arachne::NullThread,
+            createThreadOnCore(0, lockTaker<SpinLock>, &mutex));
     limitedTimeWait([]() -> bool {return flag;});
     EXPECT_EQ(1, flag);
     usleep(1);
@@ -491,7 +507,7 @@ static Arachne::ThreadId joineeId;
 
 void
 joinee() {
-    EXPECT_LE(1U, Arachne::occupiedAndCount[0]->load().numOccupied);
+    EXPECT_LE(1U, Arachne::occupiedAndCount[virtualCoreTable[0]]->load().numOccupied);
 }
 
 void
@@ -506,6 +522,9 @@ joinee2() {
 }
 
 TEST_F(ArachneTest, join_afterTermination) {
+    shutDown();
+    waitForTermination();
+
     Arachne::numCores = 2;
     Arachne::init();
 
@@ -521,6 +540,9 @@ TEST_F(ArachneTest, join_afterTermination) {
 }
 
 TEST_F(ArachneTest, join_DuringRun) {
+    shutDown();
+    waitForTermination();
+
     Arachne::numCores = 2;
     Arachne::init();
     joineeId = createThreadOnCore(0, joinee2);
@@ -676,6 +698,7 @@ TEST_F(ArachneTest, incrementCoreCount) {
     maxNumCores = 4;
     Arachne::init();
 
+    limitedTimeWait([]() -> bool { return numActiveCores == 3;});
     char *str;
     size_t size;
     FILE* newStream = open_memstream(&str, &size);
@@ -684,7 +707,7 @@ TEST_F(ArachneTest, incrementCoreCount) {
     EXPECT_EQ(NullThread, createThreadOnCore(3, doNothing));
     incrementCoreCount();
     EXPECT_EQ(4U, numCoresPrecursor);
-    limitedTimeWait([]() -> bool { return numCores > 3;});
+    limitedTimeWait([]() -> bool { return numActiveCores > 3;});
     EXPECT_NE(NullThread, createThreadOnCore(3, doNothing));
     fflush(newStream);
     EXPECT_EQ("Number of cores increasing from 3 to 4\n", std::string(str));
@@ -701,10 +724,10 @@ TEST_F(ArachneTest, decrementCoreCount) {
     EXPECT_NE(NullThread, createThreadOnCore(2, doNothing));
     decrementCoreCount();
     EXPECT_EQ(2U, numCoresPrecursor);
-    limitedTimeWait([]() -> bool { return numCores < 3;});
+    limitedTimeWait([]() -> bool { return numActiveCores < 3 && numCoresPrecursor == numActiveCores;});
     EXPECT_EQ(NullThread, createThreadOnCore(2, doNothing));
     decrementCoreCount();
-    limitedTimeWait([]() -> bool { return numCores < 2;});
+    limitedTimeWait([]() -> bool { return numActiveCores < 2 && numCoresPrecursor == numActiveCores;});
     EXPECT_EQ(NullThread, createThreadOnCore(1, doNothing));
     fflush(newStream);
     EXPECT_EQ("Number of cores decreasing from 3 to 2\n"
@@ -744,7 +767,7 @@ TEST_F(ArachneTest, makeExclusiveOnCore) {
     EXPECT_EQ(Arachne::NullThread, Arachne::createThreadOnCore(2, doNothing));
     EXPECT_EQ(1U, Arachne::numExclusiveCores);
     // That eternally yielding thread must have moved somewhere.
-    EXPECT_EQ(1, Arachne::occupiedAndCount[1]->load().numOccupied);
+    EXPECT_EQ(1, Arachne::occupiedAndCount[2]->load().numOccupied);
     stage = 2;
     limitedTimeWait([]()-> bool {
             return Arachne::occupiedAndCount[0]->load().numOccupied == 1;},
