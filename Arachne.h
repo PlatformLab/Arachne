@@ -129,7 +129,7 @@ void waitForTermination();
 void yield();
 void sleep(uint64_t ns);
 
-bool makeExclusiveOnCore(bool isRampDown = false);
+bool makeExclusiveOnCore();
 void makeSharedOnCore();
 
 /**
