@@ -49,7 +49,7 @@ struct ThreadContext;
 // This is used in createThread.
 extern std::atomic<uint32_t> numActiveCores;
 
-extern volatile uint32_t numCores;
+extern volatile uint32_t minNumCores;
 extern volatile uint32_t maxNumCores;
 
 extern int stackSize;
