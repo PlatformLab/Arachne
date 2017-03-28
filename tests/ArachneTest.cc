@@ -24,7 +24,6 @@
 namespace Arachne {
 
 extern bool disableLoadEstimation;
-extern std::atomic<uint8_t> numExclusiveCores;
 
 extern Semaphore inactiveCores;
 extern std::atomic<uint32_t> numActiveCores;
@@ -38,10 +37,15 @@ static void limitedTimeWait(std::function<bool()> condition,
 struct ArachneTest : public ::testing::Test {
     virtual void SetUp()
     {
-        Arachne::minNumCores = 3;
+        Arachne::minNumCores = 1;
         Arachne::maxNumCores = 3;
         Arachne::disableLoadEstimation = true;
         Arachne::init();
+        // Articially wake up all threads for testing purposes
+        for (uint32_t i = 0; i < maxNumCores - minNumCores; i++) {
+            inactiveCores.notify();
+        }
+        limitedTimeWait([]() -> bool { return numActiveCores == 3;});
     }
 
     virtual void TearDown()
@@ -561,7 +565,7 @@ TEST_F(ArachneTest, parseOptions_noOptions) {
     Arachne::init(&argc, argv);
     EXPECT_EQ(3, argc);
     EXPECT_EQ(originalArgv, argv);
-    EXPECT_EQ(3U, minNumCores);
+    EXPECT_EQ(1U, minNumCores);
     EXPECT_EQ(1024 * 1024, stackSize);
 }
 
@@ -693,7 +697,10 @@ TEST_F(ArachneTest, incrementCoreCount) {
     waitForTermination();
     maxNumCores = 4;
     Arachne::init();
-
+    // Articially wake up all threads for testing purposes
+    for (uint32_t i = 0; i < 2; i++) {
+        inactiveCores.notify();
+    }
     limitedTimeWait([]() -> bool { return numActiveCores == 3;});
     char *str;
     size_t size;
@@ -761,7 +768,6 @@ TEST_F(ArachneTest, makeExclusiveOnCore) {
             return Arachne::occupiedAndCount[0]->load().occupied == 1;},
             10000);
     EXPECT_EQ(Arachne::NullThread, Arachne::createThreadOnCore(2, doNothing));
-    EXPECT_EQ(1U, Arachne::numExclusiveCores);
     // That eternally yielding thread must have moved somewhere.
     EXPECT_EQ(1, Arachne::occupiedAndCount[2]->load().numOccupied);
     stage = 2;
@@ -770,7 +776,6 @@ TEST_F(ArachneTest, makeExclusiveOnCore) {
             10000);
     // Verify that thread creations are once again allowed.
     EXPECT_NE(Arachne::NullThread, Arachne::createThreadOnCore(0, doNothing));
-    EXPECT_EQ(0, Arachne::numExclusiveCores);
     stage = 3;
 }
 } // namespace Arachne

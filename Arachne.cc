@@ -81,14 +81,6 @@ volatile uint32_t numCoresPrecursor;
 volatile uint32_t maxNumCores;
 
 /**
-  * This value represents the current number of exclusive cores that the
-  * application is maintaining. We must ensure that we have at least one more
-  * core than this, because otherwise we will run out of cores to schedule
-  * other threads.
-  */
-std::atomic<uint8_t> numExclusiveCores;
-
-/**
   * Protect state related to changes in the number of cores, and prevents
   * multiple threads from simultaneously attempting to change the number of
   * cores.
@@ -495,8 +487,7 @@ dispatch() {
                         numCoresPrecursor == numActiveCores)
                     incrementCoreCount();
                 else if (numThreadsRan < CORE_DECREASE_THRESHOLD &&
-                        numCoresPrecursor == numActiveCores &&
-                        numCoresPrecursor > 1U + numExclusiveCores)
+                        numCoresPrecursor == numActiveCores)
                     decrementCoreCount();
 
                 numThreadsRan = 0;
@@ -819,8 +810,7 @@ init(int* argcp, const char** argv) {
         kernelThreads.emplace_back(threadMain);
     }
 
-    // Block until at least one core is active, so that thread creations are
-    // guaranteed to be safe after this method returns.
+    // Block until minNumCores is active, per the application's requirements.
     while (numActiveCores != minNumCores) usleep(1);
 }
 
@@ -985,9 +975,9 @@ void setErrorStream(FILE* stream) {
  * that all other threads' contexts on this core are saved.
  */
 void releaseCore() {
-    bool makeExclusiveOnCore(bool);
+    bool makeExclusiveOnCore();
     // Remove all other threads from this core.
-    makeExclusiveOnCore(true);
+    makeExclusiveOnCore();
     threadShouldYield = true;
 }
 
@@ -1012,8 +1002,7 @@ void incrementCoreCount() {
   */
 void decrementCoreCount() {
     std::lock_guard<SpinLock> _(coreChangeMutex);
-    // We currently need at least one core running to make progress.
-    if (numCoresPrecursor == numExclusiveCores + 1U) return;
+    if (numCoresPrecursor <= minNumCores) return;
     if (numCoresPrecursor != numActiveCores) return;
 
     fprintf(errorStream, "Number of cores decreasing from %u to %u\n",
@@ -1066,25 +1055,13 @@ void decrementCoreCount() {
   * infrequently, and it does not make sense to pay the performance penalty for
   * checking on every thread exit.
   */
-bool makeExclusiveOnCore(bool isRampDown) {
+bool makeExclusiveOnCore() {
     // Already exclusive
     if (localOccupiedAndCount->load().numOccupied > maxThreadsPerCore) {
         // If we are not the exclusive thread, then an error has occurred.
         if (localOccupiedAndCount->load().occupied !=
                 (1U << loadedContext->idInCore))
             return false;
-    }
-
-    // Increment the number of exclusive cores
-    if (!isRampDown) {
-        // Cannot make exclusive because we will not have a non-exclusive core
-        // anymore
-        if (numExclusiveCores == maxNumCores - 1) {
-            return false;
-        }
-        numExclusiveCores++;
-        if (numExclusiveCores == numActiveCores)
-            incrementCoreCount();
     }
 
     // Block future creations on core
@@ -1226,7 +1203,6 @@ void makeSharedOnCore() {
         fflush(errorStream);
         abort();
     }
-    numExclusiveCores--;
 }
 
 } // namespace Arachne
