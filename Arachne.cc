@@ -62,18 +62,6 @@ volatile uint32_t minNumCores;
 std::atomic<uint32_t> numActiveCores;
 
 /**
-  * Since numActiveCores is used during thread creation to select a core, it is not
-  * safe to increment its value until state has been set up for a new core,
-  * which happens asynchronously in a new kernel thread.
-  *
-  * However, there must be a way to prevent multiple threads from
-  * simultaneously attempting to scale up the number of cores before numActiveCores
-  * is incremented. numCoresPrecursor serves this purpose, and represents the
-  * future value of numActiveCores;
-  */
-volatile uint32_t numCoresPrecursor;
-
-/**
   * The largest number of cores that Arachne is permitted to utilize.
   * It is an invariant that maxNumCores >= numActiveCores, but if the user explicitly
   * sets both then numActiveCores will push maxNumCores up to satisfy the invariant.
@@ -86,6 +74,21 @@ volatile uint32_t maxNumCores;
   * cores.
   */
 SpinLock coreChangeMutex(false);
+
+/**
+  * The mutex above cannot be held across the scaling up and down of the number
+  * of cores, so this variable is set when there is a core change in effect, to
+  * prevent multiple core changes from occurring simultaneously.
+  */
+volatile bool coreChangeActive;
+
+/**
+  * Used to ensure that only one thread attempts to become exclusive or shared
+  * at a time. This protects against a thread being migrated while it is
+  * halfway through makeExclusiveOnCore and making incorrect assumptiosn about
+  * the core it is currently on.
+  */
+SleepLock coreExclusionMutex;
 
 /**
   * Configurable maximum stack size for all threads.
@@ -181,11 +184,11 @@ thread_local size_t nextCandidateIndex = 0;
   * If we ran this many threads or more in one pass over the core array, then
   * we will attempt to increase the number of cores.
   */
-uint64_t CORE_INCREASE_THRESHOLD = 20;
+uint64_t CORE_INCREASE_THRESHOLD = 5;
 
 /**
   * If we ran this many threads or more in one pass over the core array, then
-  * we will attempt to increase the number of cores.
+  * we will attempt to decrease the number of cores.
   */
 uint64_t CORE_DECREASE_THRESHOLD = 3;
 
@@ -236,9 +239,11 @@ threadMain() {
         // Prevent the use of abandoned ThreadContext which occurred as a
         // result of a shutdown request.
         if (shutdown) break;
-
         kernelThreadId = virtualCoreTable[numActiveCores++];
-        numCoresPrecursor = numActiveCores;
+        {
+            std::lock_guard<SpinLock> _(coreChangeMutex);
+            coreChangeActive = false;
+        }
 
         localOccupiedAndCount = occupiedAndCount[kernelThreadId];
         localThreadContexts = allThreadContexts[kernelThreadId];
@@ -260,8 +265,11 @@ threadMain() {
         // This call will return iff shutDown is called from the main thread.
         swapcontext(&loadedContext->sp, &kernelThreadStacks[kernelThreadId]);
         numActiveCores--;
-        numCoresPrecursor = numActiveCores;
         if (shutdown) break;
+        {
+            std::lock_guard<SpinLock> _(coreChangeMutex);
+            coreChangeActive = false;
+        }
     }
 }
 
@@ -413,7 +421,7 @@ getThreadId() {
         : Arachne::NullThread;
 }
 
-uint8_t numThreadsRan = 0;
+thread_local uint8_t numThreadsRan = 0;
 /**
   * Deschedule the current thread until its wakeup time is reached (which may
   * have already happened) and find another thread to run. All direct and
@@ -482,12 +490,9 @@ dispatch() {
 
             if (!disableLoadEstimation) {
                 // Check the number of threads ran in the last iteration.
-                if (numThreadsRan > CORE_INCREASE_THRESHOLD &&
-                        numCoresPrecursor < maxNumCores &&
-                        numCoresPrecursor == numActiveCores)
+                if (numThreadsRan > CORE_INCREASE_THRESHOLD && !coreChangeActive)
                     incrementCoreCount();
-                else if (numThreadsRan < CORE_DECREASE_THRESHOLD &&
-                        numCoresPrecursor == numActiveCores)
+                else if (numThreadsRan < CORE_DECREASE_THRESHOLD && !coreChangeActive)
                     decrementCoreCount();
 
                 numThreadsRan = 0;
@@ -768,8 +773,6 @@ init(int* argcp, const char** argv) {
     for (uint32_t i = 0; i < minNumCores; i++)
         inactiveCores.notify();
 
-    numCoresPrecursor = numActiveCores;
-
     // We assume that maxNumCores will not be exceeded in the lifetime of this
     // application.
     virtualCoreTable = new int[maxNumCores];
@@ -987,11 +990,12 @@ void releaseCore() {
   */
 void incrementCoreCount() {
     std::lock_guard<SpinLock> _(coreChangeMutex);
-    if (numCoresPrecursor < maxNumCores) {
+    if (coreChangeActive) return;
+    coreChangeActive = true;
+    if (numActiveCores < maxNumCores) {
         fprintf(errorStream, "Number of cores increasing from %u to %u\n",
-                numCoresPrecursor, numCoresPrecursor + 1);
+                numActiveCores.load(), numActiveCores + 1);
         fflush(errorStream);
-        numCoresPrecursor++;
         inactiveCores.notify();
     }
 }
@@ -1002,13 +1006,13 @@ void incrementCoreCount() {
   */
 void decrementCoreCount() {
     std::lock_guard<SpinLock> _(coreChangeMutex);
-    if (numCoresPrecursor <= minNumCores) return;
-    if (numCoresPrecursor != numActiveCores) return;
+    if (coreChangeActive) return;
+    if (numActiveCores <= minNumCores) return;
 
+    coreChangeActive = true;
     fprintf(errorStream, "Number of cores decreasing from %u to %u\n",
-            numCoresPrecursor, numCoresPrecursor - 1);
+            numActiveCores.load(), numActiveCores - 1);
     fflush(errorStream);
-    numCoresPrecursor--;
 
     // Find a core to deschedule
     uint8_t minLoaded = occupiedAndCount[0]->load().numOccupied;
@@ -1022,7 +1026,6 @@ void decrementCoreCount() {
     // Give up if the minLoaded core is exclusive or full, since that implies
     // we are likely pre-empting must-have cores.
     if (minLoaded >= static_cast<uint8_t>(56)) {
-        numCoresPrecursor++;
         fprintf(errorStream, "Failed to find an unoccupied core, giving up!\n");
         fprintf(errorStream, "numActiveCores = %u, occupiedAndCount: \n", numActiveCores.load());
         for (uint32_t i = 0; i < numActiveCores; i++) {
@@ -1048,20 +1051,23 @@ void decrementCoreCount() {
   * thread to never yield, because no other threads will share its core.
   *
   * Note that if too many threads call this function, Arachne will not be able
-  * to achieve very much concurrency.
+  * to offer very much concurrency.
   *
   * NB: If a thread invokes this function, it must invoke makeSharedOnCore
   * before exiting. We require this because this call is expected to be used
   * infrequently, and it does not make sense to pay the performance penalty for
-  * checking on every thread exit.
+  * checking on every thread exit. A caveat of this requirement is that a
+  * thread which never exits until program termination has no need to invoke
+  * makeSharedOnCore.
   */
 bool makeExclusiveOnCore() {
+    std::lock_guard<SleepLock> _(coreExclusionMutex);
     // Already exclusive
     if (localOccupiedAndCount->load().numOccupied > maxThreadsPerCore) {
         // If we are not the exclusive thread, then an error has occurred.
         if (localOccupiedAndCount->load().occupied !=
                 (1U << loadedContext->idInCore))
-            return false;
+            return true;
     }
 
     // Block future creations on core
@@ -1108,10 +1114,8 @@ bool makeExclusiveOnCore() {
             break;
         }
 
-    // Migrate all threads other than the current one, since this one will
-    // simply exit when it finishes its job, after which this core will
-    // immediately be returned.
-    // Round robin cores because these are likely long-running threads.
+    // Migrate off all threads other than the current one.  Round robin among
+    // cores because these are likely long-running threads.
     int nextMigrationTarget = 0;
     int coreId = virtualCoreTable[nextMigrationTarget];
 
@@ -1187,6 +1191,7 @@ bool makeExclusiveOnCore() {
   * this function is a no-op.
   */
 void makeSharedOnCore() {
+    std::lock_guard<SleepLock> _(coreExclusionMutex);
     // If not exclusive, this is a no-op.
     if (localOccupiedAndCount->load().numOccupied < maxThreadsPerCore)
         return;

@@ -689,7 +689,7 @@ TEST_F(ArachneTest, setErrorStream) {
 }
 
 void doNothing() { }
-extern volatile uint32_t numCoresPrecursor;
+extern volatile bool coreChangeActive;
 
 TEST_F(ArachneTest, incrementCoreCount) {
     void incrementCoreCount();
@@ -706,10 +706,8 @@ TEST_F(ArachneTest, incrementCoreCount) {
     size_t size;
     FILE* newStream = open_memstream(&str, &size);
     setErrorStream(newStream);
-    EXPECT_EQ(3U, numCoresPrecursor);
     EXPECT_EQ(NullThread, createThreadOnCore(3, doNothing));
     incrementCoreCount();
-    EXPECT_EQ(4U, numCoresPrecursor);
     limitedTimeWait([]() -> bool { return numActiveCores > 3;});
     EXPECT_NE(NullThread, createThreadOnCore(3, doNothing));
     fflush(newStream);
@@ -723,14 +721,12 @@ TEST_F(ArachneTest, decrementCoreCount) {
     size_t size;
     FILE* newStream = open_memstream(&str, &size);
     setErrorStream(newStream);
-    EXPECT_EQ(3U, numCoresPrecursor);
     EXPECT_NE(NullThread, createThreadOnCore(2, doNothing));
     decrementCoreCount();
-    EXPECT_EQ(2U, numCoresPrecursor);
-    limitedTimeWait([]() -> bool { return numActiveCores < 3 && numCoresPrecursor == numActiveCores;});
+    limitedTimeWait([]() -> bool { return numActiveCores < 3 && !coreChangeActive;});
     EXPECT_EQ(NullThread, createThreadOnCore(2, doNothing));
     decrementCoreCount();
-    limitedTimeWait([]() -> bool { return numActiveCores < 2 && numCoresPrecursor == numActiveCores;});
+    limitedTimeWait([]() -> bool { return numActiveCores < 2 && !coreChangeActive;});
     EXPECT_EQ(NullThread, createThreadOnCore(1, doNothing));
     fflush(newStream);
     EXPECT_EQ("Number of cores decreasing from 3 to 2\n"
