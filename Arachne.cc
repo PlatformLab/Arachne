@@ -468,7 +468,9 @@ dispatch() {
                 void** saved = &loadedContext->sp;
                 loadedContext = targetContext;
                 swapcontext(&loadedContext->sp, saved);
-                loadedContext->wakeupTimeInCycles = BLOCKED;
+                volatile ThreadContext* volatile forceReload =
+                    const_cast<volatile ThreadContext* volatile>(loadedContext);
+                forceReload->wakeupTimeInCycles = BLOCKED;
                 return;
             }
         }
@@ -523,7 +525,9 @@ dispatch() {
             swapcontext(&loadedContext->sp, saved);
             // After the old context is swapped out above, this line executes
             // in the new context.
-            loadedContext->wakeupTimeInCycles = BLOCKED;
+            volatile ThreadContext* volatile forceReload =
+                const_cast<volatile ThreadContext* volatile>(loadedContext);
+            forceReload->wakeupTimeInCycles = BLOCKED;
             numThreadsRan++;
             return;
         }
@@ -1160,6 +1164,11 @@ bool makeExclusiveOnCore() {
             // Update idInCore to a consistent value
             allThreadContexts[coreId][index]->idInCore = index;
             localThreadContexts[i]->idInCore = i;
+
+            allThreadContexts[coreId][index]->coreId =
+                static_cast<uint8_t>(coreId);
+            localThreadContexts[i]->coreId =
+                static_cast<uint8_t>(kernelThreadId);
 
             // The next victim core that we will pawn our work on.
             nextMigrationTarget = (nextMigrationTarget + 1) % (numActiveCores - 1);
