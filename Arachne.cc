@@ -46,12 +46,15 @@ std::function<void()> initCore = nullptr;
 // The following configuration options can be passed into init.
 
 /**
-  * The initial degree of parallelism between Arachne threads. If this is set higher
-  * than the number of physical cores, the kernel will multiplex, which is
-  * usually undesirable except when running unit tests on a single-core
-  * system.
+  * The minimum number of cores this application needs to run. This number must
+  * be at least one higher than the number of cores which are permanently
+  * exclusive.
+  *
+  * If this is set higher than the number of physical cores, the kernel will
+  * multiplex, which is usually undesirable except when running unit tests on a
+  * single-core system.
   */
-volatile uint32_t numCores = 0;
+volatile uint32_t minNumCores;
 
 /**
   * This tracks the actual number of unblocked cores in the system.
@@ -633,7 +636,7 @@ parseOptions(int* argcp, const char** argv) {
         // Does the option take an argument?
         bool takesArgument;
     } optionSpecifiers[] = {
-        {"numCores", 'c', true},
+        {"minNumCores", 'c', true},
         {"maxNumCores", 'm', true},
         {"stackSize", 's', true}
     };
@@ -676,7 +679,7 @@ parseOptions(int* argcp, const char** argv) {
         }
         switch (optionId) {
             case 'c':
-                numCores = atoi(optionArgument);
+                minNumCores = atoi(optionArgument);
                 break;
             case 'm':
                 maxNumCores = atoi(optionArgument);
@@ -742,8 +745,10 @@ ThreadContext::ThreadContext(uint8_t coreId, uint8_t idInCore)
  *
  * Here are the current available options.
  *
- *     --numCores
- *        The starting number of cores the application should use.
+ *     --minNumCores
+ *        The minimum number of cores the application should use. This number
+ *        must be at least one higher than the number of cores which are
+ *        permanently exclusive.
  *     --maxNumCores
  *        The largest number of core the appliation may use
  *     --stackSize
@@ -764,11 +769,14 @@ init(int* argcp, const char** argv) {
     initialized = true;
     parseOptions(argcp, argv);
 
-    if (numCores == 0)
-        numCores = std::thread::hardware_concurrency();
-    maxNumCores = std::max(numCores, maxNumCores);
-    for (uint32_t i = 0; i < numCores; i++)
+    if (minNumCores == 0)
+        minNumCores = 1;
+    if (maxNumCores == 0)
+        maxNumCores = std::thread::hardware_concurrency();
+    maxNumCores = std::max(minNumCores, maxNumCores);
+    for (uint32_t i = 0; i < minNumCores; i++)
         inactiveCores.notify();
+
     numCoresPrecursor = numActiveCores;
 
     // We assume that maxNumCores will not be exceeded in the lifetime of this
@@ -813,7 +821,7 @@ init(int* argcp, const char** argv) {
 
     // Block until at least one core is active, so that thread creations are
     // guaranteed to be safe after this method returns.
-    while (!numActiveCores) usleep(1);
+    while (numActiveCores != minNumCores) usleep(1);
 }
 
 /**
@@ -1006,6 +1014,7 @@ void decrementCoreCount() {
     std::lock_guard<SpinLock> _(coreChangeMutex);
     // We currently need at least one core running to make progress.
     if (numCoresPrecursor == numExclusiveCores + 1U) return;
+    if (numCoresPrecursor != numActiveCores) return;
 
     fprintf(errorStream, "Number of cores decreasing from %u to %u\n",
             numCoresPrecursor, numCoresPrecursor - 1);
@@ -1073,7 +1082,6 @@ bool makeExclusiveOnCore(bool isRampDown) {
         if (numExclusiveCores == maxNumCores - 1) {
             return false;
         }
-
         numExclusiveCores++;
         if (numExclusiveCores == numActiveCores)
             incrementCoreCount();

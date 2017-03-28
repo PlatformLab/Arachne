@@ -28,7 +28,7 @@ extern std::atomic<uint8_t> numExclusiveCores;
 
 extern Semaphore inactiveCores;
 extern std::atomic<uint32_t> numActiveCores;
-extern volatile uint32_t numCores;
+extern volatile uint32_t minNumCores;
 extern int* virtualCoreTable;
 
 static void limitedTimeWait(std::function<bool()> condition,
@@ -38,14 +38,10 @@ static void limitedTimeWait(std::function<bool()> condition,
 struct ArachneTest : public ::testing::Test {
     virtual void SetUp()
     {
-        Arachne::numCores = 3;
+        Arachne::minNumCores = 3;
         Arachne::maxNumCores = 3;
         Arachne::disableLoadEstimation = true;
         Arachne::init();
-
-
-        // Many tests schedule onto specific cores.
-        limitedTimeWait([]() -> bool { return numActiveCores == numCores;}, 50000);
     }
 
     virtual void TearDown()
@@ -378,7 +374,7 @@ bitSetter(int index) {
 }
 
 TEST_F(ArachneTest, yield_secondThreadGotControl) {
-    numCores = 2;
+    minNumCores = 2;
     init();
     keepYielding = true;
     createThreadOnCore(0, yielder);
@@ -393,7 +389,7 @@ TEST_F(ArachneTest, yield_secondThreadGotControl) {
 }
 
 TEST_F(ArachneTest, yield_allThreadsRan) {
-    Arachne::numCores = 2;
+    Arachne::minNumCores = 2;
     Arachne::init();
     keepYielding = true;
     flag = 0;
@@ -423,13 +419,13 @@ simplesleeper() {
 }
 
 TEST_F(ArachneTest, sleep_minimumDelay) {
-    numCores = 2;
+    minNumCores = 2;
     init();
     createThreadOnCore(0, sleeper);
 }
 
 TEST_F(ArachneTest, sleep_wakeupTimeSetAndCleared) {
-    Arachne::numCores = 2;
+    Arachne::minNumCores = 2;
     Arachne::init();
     flag = 0;
     createThreadOnCore(0, simplesleeper);
@@ -525,7 +521,7 @@ TEST_F(ArachneTest, join_afterTermination) {
     shutDown();
     waitForTermination();
 
-    Arachne::numCores = 2;
+    Arachne::minNumCores = 2;
     Arachne::init();
 
     // Since the joinee does not yield, we know that it terminated before the
@@ -543,7 +539,7 @@ TEST_F(ArachneTest, join_DuringRun) {
     shutDown();
     waitForTermination();
 
-    Arachne::numCores = 2;
+    Arachne::minNumCores = 2;
     Arachne::init();
     joineeId = createThreadOnCore(0, joinee2);
     createThreadOnCore(0, joiner);
@@ -565,7 +561,7 @@ TEST_F(ArachneTest, parseOptions_noOptions) {
     Arachne::init(&argc, argv);
     EXPECT_EQ(3, argc);
     EXPECT_EQ(originalArgv, argv);
-    EXPECT_EQ(3U, numCores);
+    EXPECT_EQ(3U, minNumCores);
     EXPECT_EQ(1024 * 1024, stackSize);
 }
 
@@ -576,13 +572,13 @@ TEST_F(ArachneTest, parseOptions_longOptions) {
 
     int argc = 7;
     const char* argv[] =
-        {"ArachneTest", "--numCores", "5", "--stackSize", "4096",
+        {"ArachneTest", "--minNumCores", "5", "--stackSize", "4096",
             "--maxNumCores", "6"};
     Arachne::init(&argc, argv);
     EXPECT_EQ(1, argc);
-    EXPECT_EQ(5U, numCores);
+    EXPECT_EQ(5U, minNumCores);
     EXPECT_EQ(stackSize, 4096);
-    EXPECT_EQ(numCores, 5U);
+    EXPECT_EQ(minNumCores, 5U);
     EXPECT_EQ(Arachne::maxNumCores, 6U);
 }
 
