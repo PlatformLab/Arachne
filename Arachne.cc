@@ -430,6 +430,10 @@ thread_local uint8_t numThreadsRan = 0;
   */
 void
 dispatch() {
+    // Cache the original context so that we can survive across migrations to
+    // other kernel threads, since loadedContext is not reloaded correctly from
+    // TLS after switching back to this context.
+    ThreadContext* originalContext = loadedContext;
     // Check the stack canary on the current context.
     if (*reinterpret_cast<uint64_t*>(loadedContext->stack) != StackCanary) {
         fprintf(errorStream, "Stack overflow detected on %p. Aborting...\n",
@@ -468,9 +472,7 @@ dispatch() {
                 void** saved = &loadedContext->sp;
                 loadedContext = targetContext;
                 swapcontext(&loadedContext->sp, saved);
-                volatile ThreadContext* volatile forceReload =
-                    const_cast<volatile ThreadContext* volatile>(loadedContext);
-                forceReload->wakeupTimeInCycles = BLOCKED;
+                originalContext->wakeupTimeInCycles = BLOCKED;
                 return;
             }
         }
@@ -525,9 +527,7 @@ dispatch() {
             swapcontext(&loadedContext->sp, saved);
             // After the old context is swapped out above, this line executes
             // in the new context.
-            volatile ThreadContext* volatile forceReload =
-                const_cast<volatile ThreadContext* volatile>(loadedContext);
-            forceReload->wakeupTimeInCycles = BLOCKED;
+            originalContext->wakeupTimeInCycles = BLOCKED;
             numThreadsRan++;
             return;
         }
