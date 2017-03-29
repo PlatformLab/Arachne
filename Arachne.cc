@@ -1065,13 +1065,23 @@ void decrementCoreCount() {
   * makeSharedOnCore.
   */
 bool makeExclusiveOnCore() {
+    // Cache the original context so that we can survive across migrations to
+    // other kernel threads, since loadedContext is not reloaded correctly from
+    // TLS after switching back to this context.
+    ThreadContext* originalContext = loadedContext;
+
     std::lock_guard<SleepLock> _(coreExclusionMutex);
     // Already exclusive
+    // TODO: Read the new value of localOccupiedAndCount, instead of the value
+    // from the previous kernelThread.
     if (localOccupiedAndCount->load().numOccupied > maxThreadsPerCore) {
         // If we are not the exclusive thread, then an error has occurred.
-        if (localOccupiedAndCount->load().occupied !=
-                (1U << loadedContext->idInCore))
+        if (localOccupiedAndCount->load().occupied ==
+                (1U << originalContext->idInCore)) {
             return true;
+        } else {
+            abort();
+        }
     }
 
     // Block future creations on core
@@ -1125,7 +1135,7 @@ bool makeExclusiveOnCore() {
 
     blockedOccupiedAndCount = *localOccupiedAndCount;
     for (uint8_t i = 0; i < maxThreadsPerCore; i++) {
-        if (i == loadedContext->idInCore) continue;
+        if (i == originalContext->idInCore) continue;
         if ((blockedOccupiedAndCount.occupied >> i) & 1) {
             uint8_t index;
             do {
@@ -1135,11 +1145,10 @@ bool makeExclusiveOnCore() {
                 MaskAndCount slotMap = *occupiedAndCount[coreId];
                 MaskAndCount oldSlotMap = slotMap;
 
-                // If this happens, we should not be ramping down, since at
-                // least one core is fully loaded.
+                // Skip this core since it might be an exclusive or fully loaded.
                 if (slotMap.numOccupied >= maxThreadsPerCore) {
-                    abort();
-                    return false;
+                    success = false;
+                    break;
                 }
 
                 // Search for a non-occupied slot and attempt to reserve the slot
@@ -1155,20 +1164,26 @@ bool makeExclusiveOnCore() {
                 blockedOccupiedAndCount.occupied &= ~(1 << i) & 0x00FFFFFFFFFFFFFF;
             } while (!success);
 
-            // At this point we've reserved a spot on the target, and now we swap.
-            ThreadContext* originalContext =
-                allThreadContexts[coreId][index];
-            allThreadContexts[coreId][index] = localThreadContexts[i];
-            localThreadContexts[i] = originalContext;
+            if (success) {
+                // At this point we've reserved a spot on the target, and now we swap.
+                ThreadContext* contextToMigrate =
+                    allThreadContexts[coreId][index];
+                allThreadContexts[coreId][index] = localThreadContexts[i];
+                localThreadContexts[i] = contextToMigrate;
 
-            // Update idInCore to a consistent value
-            allThreadContexts[coreId][index]->idInCore = index;
-            localThreadContexts[i]->idInCore = i;
+                // Update idInCore to a consistent value
+                allThreadContexts[coreId][index]->idInCore = index;
+                localThreadContexts[i]->idInCore = i;
 
-            allThreadContexts[coreId][index]->coreId =
-                static_cast<uint8_t>(coreId);
-            localThreadContexts[i]->coreId =
-                static_cast<uint8_t>(kernelThreadId);
+                allThreadContexts[coreId][index]->coreId =
+                    static_cast<uint8_t>(coreId);
+                localThreadContexts[i]->coreId =
+                    static_cast<uint8_t>(kernelThreadId);
+            } else {
+                // Continue to try migrating this thread with a different
+                // migration target
+                i--;
+            }
 
             // The next victim core that we will pawn our work on.
             nextMigrationTarget = (nextMigrationTarget + 1) % (numActiveCores - 1);
