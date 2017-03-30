@@ -574,6 +574,7 @@ TEST_F(ArachneTest, parseOptions_longOptions) {
     shutDown();
     waitForTermination();
 
+    int originalStackSize = stackSize;
     int argc = 7;
     const char* argv[] =
         {"ArachneTest", "--minNumCores", "5", "--stackSize", "4096",
@@ -584,6 +585,7 @@ TEST_F(ArachneTest, parseOptions_longOptions) {
     EXPECT_EQ(stackSize, 4096);
     EXPECT_EQ(minNumCores, 5U);
     EXPECT_EQ(Arachne::maxNumCores, 6U);
+    stackSize = originalStackSize;
 }
 
 TEST_F(ArachneTest, parseOptions_mixedOptions) {
@@ -591,6 +593,7 @@ TEST_F(ArachneTest, parseOptions_mixedOptions) {
     shutDown();
     waitForTermination();
 
+    int originalStackSize = stackSize;
     int argc = 7;
     const char* originalArgv[] =
         {"ArachneTest", "--appOptionB", "2", "--stackSize", "2048",
@@ -601,6 +604,8 @@ TEST_F(ArachneTest, parseOptions_mixedOptions) {
     EXPECT_EQ(stackSize, 2048);
     EXPECT_EQ("--appOptionB", argv[1]);
     EXPECT_EQ("--appOptionA", argv[3]);
+    // Restore the stackSize
+    stackSize = originalStackSize;
 }
 
 TEST_F(ArachneTest, parseOptions_appOptionsOnly) {
