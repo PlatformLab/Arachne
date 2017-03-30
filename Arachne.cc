@@ -80,7 +80,7 @@ SpinLock coreChangeMutex(false);
   * of cores, so this variable is set when there is a core change in effect, to
   * prevent multiple core changes from occurring simultaneously.
   */
-volatile bool coreChangeActive;
+std::atomic<bool> coreChangeActive;
 
 /**
   * Used to ensure that only one thread attempts to become exclusive or shared
@@ -133,7 +133,7 @@ thread_local ThreadContext** localThreadContexts;
   * when we support multiple kernel threads per core to handle blocking system
   * calls.
   */
-thread_local int kernelThreadId;
+thread_local int kernelThreadId = -1;
 
 /**
   * This is the context that a given kernel thread is currently executing.
@@ -239,18 +239,20 @@ threadMain() {
         // Prevent the use of abandoned ThreadContext which occurred as a
         // result of a shutdown request.
         if (shutdown) break;
-        kernelThreadId = virtualCoreTable[numActiveCores++];
         {
             std::lock_guard<SpinLock> _(coreChangeMutex);
+            kernelThreadId = virtualCoreTable[numActiveCores];
+            localOccupiedAndCount = occupiedAndCount[kernelThreadId];
+            localThreadContexts = allThreadContexts[kernelThreadId];
+
+            // Clean up state from the previous thread that was using this data
+            // structure.
+            *localOccupiedAndCount = {0,0};
+            // This marks the point at which new thread creations may begin.
+            numActiveCores++;
             coreChangeActive = false;
         }
 
-        localOccupiedAndCount = occupiedAndCount[kernelThreadId];
-        localThreadContexts = allThreadContexts[kernelThreadId];
-
-        // Clean up state from the previous thread that was using this data
-        // structure.
-        *localOccupiedAndCount = {0,0};
 
 		// Correct the ThreadContext.coreId() here to match the existing core.
         for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
@@ -331,6 +333,7 @@ schedulerMainLoop() {
 			// Arbiter, since the next time this thread unblocks, it may not
 			// live on the same core, and will use a different set of user
 			// contexts.
+            threadShouldYield = false;
             asm("nop");
             swapcontext(
                     &kernelThreadStacks[kernelThreadId],
@@ -614,7 +617,6 @@ void waitForTermination() {
     inactiveCores.reset();
     PerfUtils::Util::serialize();
     initialized = false;
-
 }
 
 /**
@@ -832,7 +834,10 @@ init(int* argcp, const char** argv) {
   */
 void
 testInit() {
-    kernelThreadId = numActiveCores;
+    // NB: This technically leads to sharing memory with the highest index of
+    // publicPriorityMasks, as well any other place where kernelThreadId is
+    // used as an index.
+    kernelThreadId = maxNumCores - 1;
     localOccupiedAndCount =
         reinterpret_cast<std::atomic<Arachne::MaskAndCount>* >(
             cacheAlignAlloc(sizeof(MaskAndCount)));
@@ -1031,12 +1036,6 @@ void decrementCoreCount() {
     // we are likely pre-empting must-have cores.
     if (minLoaded >= static_cast<uint8_t>(56)) {
         fprintf(errorStream, "Failed to find an unoccupied core, giving up!\n");
-        fprintf(errorStream, "numActiveCores = %u, occupiedAndCount: \n", numActiveCores.load());
-        for (uint32_t i = 0; i < numActiveCores; i++) {
-            fprintf(errorStream, "occupied = %lu, numOccupied = %u\n",
-                    occupiedAndCount[i]->load().occupied, occupiedAndCount[i]->load().numOccupied);
-        }
-
         fflush(errorStream);
         return;
     }
@@ -1044,9 +1043,12 @@ void decrementCoreCount() {
     // Create a thread on the target core to handle the actual core release,
     // since we are currently borrowing an arbitrary context and should not
     // hold it for too long.
-    // Separate variable to avoid ambiguity between two versions of
-    // createThread.
-    createThreadOnCore(minIndex, releaseCore);
+    // If this creation fails, it would implies that we are overloaded and
+    // should not ramp down.
+    if (createThreadOnCore(minIndex, releaseCore) == NullThread) {
+        fprintf(errorStream, "Release core thread creation failed to %d!\n", minIndex);
+        fflush(errorStream);
+    }
 }
 
 /**
@@ -1074,9 +1076,10 @@ bool makeExclusiveOnCore() {
     // Already exclusive
     // TODO: Read the new value of localOccupiedAndCount, instead of the value
     // from the previous kernelThread.
-    if (localOccupiedAndCount->load().numOccupied > maxThreadsPerCore) {
+    MaskAndCount originalMask = *localOccupiedAndCount;
+    if (originalMask.numOccupied > maxThreadsPerCore) {
         // If we are not the exclusive thread, then an error has occurred.
-        if (localOccupiedAndCount->load().occupied ==
+        if (originalMask.occupied ==
                 (1U << originalContext->idInCore)) {
             return true;
         } else {
@@ -1095,6 +1098,7 @@ bool makeExclusiveOnCore() {
         success = localOccupiedAndCount->compare_exchange_strong(
                 targetOccupiedAndCount, blockedOccupiedAndCount);
     } while (!success);
+
 
     // Wait out creations that finished CASing before we blocked creations
     bool pendingCreation;
@@ -1119,6 +1123,14 @@ bool makeExclusiveOnCore() {
     // poll approach.
     sleep(COMPLETION_WAIT_TIME);
 
+    blockedOccupiedAndCount = *localOccupiedAndCount;
+    // Sanity check the state of blockedOccupiedAndCount here. See if creations are still blocked.
+    // Sanity checking that we blocked creations successfully
+    if (blockedOccupiedAndCount.numOccupied <= maxThreadsPerCore) {
+        abort();
+    }
+
+
     // Remap this slot in virtualCoreTable to point at the highest number, to
     // make it easier to pawn off work.
     for (uint32_t i = 0; i < maxNumCores; i++)
@@ -1133,9 +1145,12 @@ bool makeExclusiveOnCore() {
     int nextMigrationTarget = 0;
     int coreId = virtualCoreTable[nextMigrationTarget];
 
-    blockedOccupiedAndCount = *localOccupiedAndCount;
+
     for (uint8_t i = 0; i < maxThreadsPerCore; i++) {
-        if (i == originalContext->idInCore) continue;
+        if (i == originalContext->idInCore) {
+            // Skip over ourselves
+            continue;
+        }
         if ((blockedOccupiedAndCount.occupied >> i) & 1) {
             uint8_t index;
             do {
@@ -1161,10 +1176,11 @@ bool makeExclusiveOnCore() {
                 slotMap.numOccupied++;
                 success = occupiedAndCount[coreId]->compare_exchange_strong(
                             oldSlotMap, slotMap);
-                blockedOccupiedAndCount.occupied &= ~(1 << i) & 0x00FFFFFFFFFFFFFF;
             } while (!success);
 
             if (success) {
+                // Now that we have found a slot, we can clear our bit.
+                blockedOccupiedAndCount.occupied &= ~(1 << i) & 0x00FFFFFFFFFFFFFF;
                 // At this point we've reserved a spot on the target, and now we swap.
                 ThreadContext* contextToMigrate =
                     allThreadContexts[coreId][index];
@@ -1179,9 +1195,9 @@ bool makeExclusiveOnCore() {
                     static_cast<uint8_t>(coreId);
                 localThreadContexts[i]->coreId =
                     static_cast<uint8_t>(kernelThreadId);
+                // Only increment if we succeeded.
             } else {
-                // Continue to try migrating this thread with a different
-                // migration target
+                // Try again if we failed to find a slot to pawn our work onto.
                 i--;
             }
 
@@ -1196,8 +1212,9 @@ bool makeExclusiveOnCore() {
     for (int i = 0; i < maxThreadsPerCore; i++)
         if (blockedOccupiedAndCount.occupied & (1L << i))
             count++;
-    if (count != 1)
+    if (count != 1) {
         abort();
+    }
 
     // Update localOccupiedAndCount to a consistent state before exiting. At
     // this point, creations should have already been blocked, and completions
