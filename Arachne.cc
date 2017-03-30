@@ -1010,8 +1010,9 @@ void incrementCoreCount() {
 }
 
 /**
-  * This function can be called from any thread to arrange to decrease the
-  * number of cores used by Arachne. It returns a core is actually released.
+  * This function can be called from any thread to attempt to decrease the
+  * number of cores used by Arachne. It may return before a core is actually
+  * released, and there is no guarantee that a core will be released.
   */
 void decrementCoreCount() {
     std::lock_guard<SpinLock> _(coreChangeMutex);
