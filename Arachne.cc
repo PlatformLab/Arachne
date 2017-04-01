@@ -192,6 +192,25 @@ uint64_t CORE_INCREASE_THRESHOLD = 5;
   */
 uint64_t CORE_DECREASE_THRESHOLD = 3;
 
+/**
+  * The period in ns over which we measure before deciding to ramp down.
+  * Currently 50 ms.
+  */
+const uint64_t MEASUREMENT_PERIOD = 50 * 1000 * 1000;
+
+/**
+  * hq6 is a bad person. Workaround for order of static initialization of C++
+  * objects. This forces Cycles::init() to be called before we attempt to use
+  * Cycles::fromNanoseconds().
+  */
+uint64_t MEASUREMENT_CYCLES = (Cycles::init(),
+        Cycles::fromNanoseconds(MEASUREMENT_PERIOD));
+
+/**
+  * If we spend greater than this fraction of time idle, it is reasonable to ramp down.
+  */
+double IDLE_FRACTION_TO_DECREMENT = 0.5;
+
 void incrementCoreCount();
 void decrementCoreCount();
 
@@ -203,6 +222,16 @@ Semaphore inactiveCores;
 // BEGIN Testing-Specific Flags
 bool disableLoadEstimation;
 // END   Testing-Specific Flags
+
+// Allocate storage for load-tracking pointers.
+thread_local uint64_t *DispatchTimeKeeper::idleCycles;
+uint64_t DispatchTimeKeeper::lastResetTime;
+thread_local uint64_t DispatchTimeKeeper::topOfLastDispatch;
+
+// Globally accessible storage for lastResetTime and idleCycles.
+// Note that this is a ** instead of * because we want the different
+// idleCycleCounts to be in different cache lines.
+uint64_t **allIdleCycles;
 
 /**
   * Allocate a block of memory aligned at the beginning of a cache line.
@@ -248,8 +277,12 @@ threadMain() {
             // Clean up state from the previous thread that was using this data
             // structure.
             *localOccupiedAndCount = {0,0};
+            for (uint8_t i = 0; i < maxNumCores; i++)
+                *(allIdleCycles[i]) = 0;
+            DispatchTimeKeeper::idleCycles = allIdleCycles[numActiveCores];
             // This marks the point at which new thread creations may begin.
             numActiveCores++;
+            DispatchTimeKeeper::lastResetTime = Cycles::rdtsc();
             coreChangeActive = false;
         }
 
@@ -270,6 +303,9 @@ threadMain() {
         if (shutdown) break;
         {
             std::lock_guard<SpinLock> _(coreChangeMutex);
+            for (uint8_t i = 0; i < maxNumCores; i++)
+                *(allIdleCycles[i]) = 0;
+            DispatchTimeKeeper::lastResetTime = Cycles::rdtsc();
             coreChangeActive = false;
         }
     }
@@ -433,6 +469,7 @@ thread_local uint8_t numThreadsRan = 0;
   */
 void
 dispatch() {
+    DispatchTimeKeeper _;
     // Cache the original context so that we can survive across migrations to
     // other kernel threads, since loadedContext is not reloaded correctly from
     // TLS after switching back to this context.
@@ -499,8 +536,22 @@ dispatch() {
                 // Check the number of threads ran in the last iteration.
                 if (numThreadsRan > CORE_INCREASE_THRESHOLD && !coreChangeActive)
                     incrementCoreCount();
-                else if (numThreadsRan < CORE_DECREASE_THRESHOLD && !coreChangeActive)
-                    decrementCoreCount();
+                else if (!coreChangeActive &&
+                        // This check protects against lastResetTime being set
+                        // after we read currentCycles in this round
+                        DispatchTimeKeeper::lastResetTime < currentCycles){
+                    uint64_t cyclesSinceLastReset =
+                        currentCycles - DispatchTimeKeeper::lastResetTime;
+                    double threshold =
+                        static_cast<double>(cyclesSinceLastReset) *
+                        IDLE_FRACTION_TO_DECREMENT;
+                    if (cyclesSinceLastReset > MEASUREMENT_CYCLES &&
+                        *DispatchTimeKeeper::idleCycles > threshold) {
+                        fprintf(stderr, "MEASUREMENT_CYCLES %lu cyclesSinceLastReset %lu, idleCycles %lu\n",
+                                MEASUREMENT_CYCLES, cyclesSinceLastReset, *DispatchTimeKeeper::idleCycles);
+                        decrementCoreCount();
+                    }
+                }
 
                 numThreadsRan = 0;
             }
@@ -609,10 +660,11 @@ void waitForTermination() {
         }
         delete[] allThreadContexts[i];
         free(occupiedAndCount[i]);
+        free(allIdleCycles[i]);
     }
     allThreadContexts.clear();
     occupiedAndCount.clear();
-
+    delete[] allIdleCycles;
     delete[] virtualCoreTable;
     inactiveCores.reset();
     PerfUtils::Util::serialize();
@@ -782,6 +834,8 @@ init(int* argcp, const char** argv) {
     // We assume that maxNumCores will not be exceeded in the lifetime of this
     // application.
     virtualCoreTable = new int[maxNumCores];
+    allIdleCycles = new uint64_t*[maxNumCores];
+
     for (unsigned int i = 0; i < maxNumCores; i++) {
         occupiedAndCount.push_back(
                 reinterpret_cast<std::atomic<Arachne::MaskAndCount>* >(
@@ -799,6 +853,8 @@ init(int* argcp, const char** argv) {
             new (contexts[k]) ThreadContext(static_cast<uint8_t>(i), k);
         }
         allThreadContexts.push_back(contexts);
+        allIdleCycles[i] = reinterpret_cast< uint64_t* >(
+                    cacheAlignAlloc(sizeof(uint64_t)));
         virtualCoreTable[i] = i;
     }
 
