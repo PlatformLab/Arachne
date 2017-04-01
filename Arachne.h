@@ -660,6 +660,47 @@ ConditionVariable::waitFor(LockType& lock, uint64_t ns) {
     lock.lock();
 }
 
+/**
+  * This class keeps a per-core record of recent idle time and recent total
+  * time in Cycles.
+  */
+struct DispatchTimeKeeper {
+    /**
+      * Accumulated idle cycles since the last core change completed.
+      * Then, when a coreChangeEvent occurs, we can set idleCycles to 0 and lastResetTime to Cycles::rdtsc.
+      */
+    static thread_local uint64_t* idleCycles;
+
+    /**
+      * Cycle counter of the last reset. The difference between the current
+      * time in cycles and this value can be used as a denominator in the
+      * calculation of percentage of idle time.
+      */
+    static uint64_t lastResetTime;
+
+    /**
+     * Cycle counter at the top of the last call to Arachne::dispatch() in this
+     * core, regardless of which user thread made the call.
+     */
+    static thread_local uint64_t topOfLastDispatch;
+
+    /**
+     * The number of cycles since the last time we reset the hysteresis cycle.
+     * This returns a delta against a thread_local variable.
+     */
+    static uint64_t cyclesSinceLastReset() {
+        return Cycles::rdtsc() - lastResetTime;
+    }
+
+    DispatchTimeKeeper() {
+        topOfLastDispatch = Cycles::rdtsc();
+    }
+
+    ~DispatchTimeKeeper(){
+        *idleCycles += Cycles::rdtsc() - topOfLastDispatch;
+    }
+};
+
 } // namespace Arachne
 
 #endif // ARACHNE_H_
