@@ -521,10 +521,13 @@ dispatch() {
     size_t currentIndex = nextCandidateIndex;
     mask >>= currentIndex;
 
-    // Count the iterations it took us to find a runnable thread.
-    // Heuristically, if this number is very small, then we may want to ramp up
-    // the number of cores.
     for (;;currentIndex++, mask >>= 1L) {
+        // NB: When a core is fully loaded, no call to dispatch() on this core
+        // will ever enter the next block, because dispatch() will immediately
+        // find work to do and either return immediately or swap out. If the
+        // latter happens, it will return immediately on swapping back in.
+        // Thus it may make sense to check for underload here, but it
+        // definitely does not make sense to check for overload here.
         if (mask == 0) {
             // We have reached the end of the threads, so we should go back to
             // the beginning.
@@ -533,10 +536,8 @@ dispatch() {
             currentCycles = Cycles::rdtsc();
 
             if (!disableLoadEstimation) {
-                // Check the number of threads ran in the last iteration.
-                if (numThreadsRan > CORE_INCREASE_THRESHOLD && !coreChangeActive)
-                    incrementCoreCount();
-                else if (!coreChangeActive &&
+                // Check for ramp-down.
+                if (!coreChangeActive &&
                         // This check protects against lastResetTime being set
                         // after we read currentCycles in this round
                         DispatchTimeKeeper::lastResetTime < currentCycles){
@@ -547,21 +548,29 @@ dispatch() {
                         IDLE_FRACTION_TO_DECREMENT;
                     if (cyclesSinceLastReset > MEASUREMENT_CYCLES &&
                         *DispatchTimeKeeper::idleCycles > threshold) {
-                        fprintf(stderr, "MEASUREMENT_CYCLES %lu cyclesSinceLastReset %lu, idleCycles %lu\n",
-                                MEASUREMENT_CYCLES, cyclesSinceLastReset, *DispatchTimeKeeper::idleCycles);
                         decrementCoreCount();
                     }
                 }
-
-                numThreadsRan = 0;
             }
+        }
 
+        // This block should execute when a core has iterated over exactly one
+        // full cycle over the available ThreadContext's, because the value of
+        // currentIndex will be saved in nextCandidateIndex across calls to
+        // dispatch().
+        if (currentIndex == 0) {
             // Check for termination
             if (shutdown)
                 swapcontext(
                         &kernelThreadStacks[kernelThreadId],
                         &loadedContext->sp);
+
+            // Check for ramp-up
+            if (!disableLoadEstimation && numThreadsRan > CORE_INCREASE_THRESHOLD && !coreChangeActive)
+                incrementCoreCount();
+            numThreadsRan = 0;
         }
+
         // Optimize to eliminate unoccupied contexts
         if (!(mask & 1))
             continue;
@@ -911,6 +920,9 @@ testInit() {
     }
     loadedContext = *localThreadContexts;
     *localOccupiedAndCount = {1, 1};
+    DispatchTimeKeeper::idleCycles = reinterpret_cast< uint64_t* >(
+                    cacheAlignAlloc(sizeof(uint64_t)));
+
 }
 
 /**
@@ -927,6 +939,7 @@ void testDestroy() {
         free(localThreadContexts[k]);
     }
     delete[] localThreadContexts;
+    free(DispatchTimeKeeper::idleCycles);
     loadedContext = NULL;
     *localOccupiedAndCount = {0, 0};
 }
