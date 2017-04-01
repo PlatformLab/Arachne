@@ -28,6 +28,7 @@
 
 
 #include "PerfUtils/Cycles.h"
+#include "Logger.h"
 
 namespace Arachne {
 
@@ -178,10 +179,9 @@ class SpinLock {
             } else {
                 uint64_t now = Cycles::rdtsc();
                 if (Cycles::toSeconds(now - startOfContention) > 1.0) {
-                    fprintf(errorStream,
+                    LOG(WARNING,
                             "%s SpinLock locked for one second; deadlock?\n",
                             name.c_str());
-                    fflush(errorStream);
                     startOfContention = now;
                 }
             }
@@ -534,8 +534,9 @@ template<typename _Callable, typename... _Args>
 ThreadId
 createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
     if (virtualCoreId >= numActiveCores) {
-        fprintf(stderr, "createThread failure, virtualCoreId = %u, numActiveCores = %d\n",
-                virtualCoreId, numActiveCores.load());
+        LOG(DEBUG, "createThread failure, virtualCoreId = %u, "
+                   "numActiveCores = %d\n", virtualCoreId,
+                   numActiveCores.load());
         return Arachne::NullThread;
     }
 
@@ -555,8 +556,9 @@ createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
         MaskAndCount oldSlotMap = slotMap;
 
         if (slotMap.numOccupied >= maxThreadsPerCore) {
-//            fprintf(stderr, "createThread failure, virtualCoreId = %u, coreId = %u, numOccupied = %d\n",
-//                    virtualCoreId, coreId, slotMap.numOccupied);
+            LOG(DEBUG, "createThread failure, virtualCoreId = %u, coreId = %u,"
+                       "numOccupied = %d\n", virtualCoreId, coreId,
+                       slotMap.numOccupied);
             return NullThread;
         }
 

@@ -244,7 +244,7 @@ cacheAlignAlloc(size_t size) {
     void *temp;
     int result = posix_memalign(&temp, CACHE_LINE_SIZE, size);
     if (result != 0) {
-        fprintf(errorStream, "posix_memalign returned %s", strerror(result));
+        LOG(ERROR, "posix_memalign returned %s", strerror(result));
         exit(1);
     }
     assert((reinterpret_cast<uint64_t>(temp) & (CACHE_LINE_SIZE - 1)) == 0);
@@ -476,9 +476,8 @@ dispatch() {
     ThreadContext* originalContext = loadedContext;
     // Check the stack canary on the current context.
     if (*reinterpret_cast<uint64_t*>(loadedContext->stack) != StackCanary) {
-        fprintf(errorStream, "Stack overflow detected on %p. Aborting...\n",
+        LOG(ERROR, "Stack overflow detected on %p. Aborting...\n",
                 loadedContext);
-        fflush(errorStream);
         abort();
     }
     uint64_t currentCycles = Cycles::rdtsc();
@@ -723,7 +722,7 @@ parseOptions(int* argcp, const char** argv) {
                         optionName, strlen(candidateName)) == 0) {
                 if (needsArg) {
                     if (i + 1 >= argc) {
-                        fprintf(errorStream,
+                        LOG(ERROR,
                                 "Missing argument to option %s!\n",
                                 candidateName);
                         break;
@@ -1071,9 +1070,8 @@ void incrementCoreCount() {
     if (coreChangeActive) return;
     coreChangeActive = true;
     if (numActiveCores < maxNumCores) {
-        fprintf(errorStream, "Number of cores increasing from %u to %u\n",
+        LOG(NOTICE, "Number of cores increasing from %u to %u\n",
                 numActiveCores.load(), numActiveCores + 1);
-        fflush(errorStream);
         inactiveCores.notify();
     }
 }
@@ -1089,9 +1087,8 @@ void decrementCoreCount() {
     if (numActiveCores <= minNumCores) return;
 
     coreChangeActive = true;
-    fprintf(errorStream, "Number of cores decreasing from %u to %u\n",
+    LOG(NOTICE, "Number of cores decreasing from %u to %u\n",
             numActiveCores.load(), numActiveCores - 1);
-    fflush(errorStream);
 
     // Find a core to deschedule
     uint8_t minLoaded = occupiedAndCount[0]->load().numOccupied;
@@ -1105,8 +1102,7 @@ void decrementCoreCount() {
     // Give up if the minLoaded core is exclusive or full, since that implies
     // we are likely pre-empting must-have cores.
     if (minLoaded >= static_cast<uint8_t>(56)) {
-        fprintf(errorStream, "Failed to find an unoccupied core, giving up!\n");
-        fflush(errorStream);
+        LOG(WARNING, "Failed to find an unoccupied core, giving up!\n");
         return;
     }
 
@@ -1116,8 +1112,7 @@ void decrementCoreCount() {
     // If this creation fails, it would implies that we are overloaded and
     // should not ramp down.
     if (createThreadOnCore(minIndex, releaseCore) == NullThread) {
-        fprintf(errorStream, "Release core thread creation failed to %d!\n", minIndex);
-        fflush(errorStream);
+        LOG(WARNING, "Release core thread creation failed to %d!\n", minIndex);
     }
 }
 
@@ -1315,8 +1310,7 @@ void makeSharedOnCore() {
     if (!success) {
         // If this scenario happens, it means there is a bug since nobody
         // should be able to create threads on an exclusive core.
-        fprintf(errorStream, "Error making core shared again! Aborting...");
-        fflush(errorStream);
+        LOG(ERROR, "Error making core shared again! Aborting...\n");
         abort();
     }
 }
