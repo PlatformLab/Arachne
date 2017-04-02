@@ -296,7 +296,7 @@ threadMain() {
                 allDispatchStartCycles[numActiveCores];
             // This marks the point at which new thread creations may begin.
             numActiveCores++;
-            LOG(DEBUG, "Number of cores increased from %d to %d\n",
+            LOG(NOTICE, "Number of cores increased from %d to %d\n",
                     numActiveCores - 1, numActiveCores.load());
             coreChangeActive = false;
         }
@@ -315,7 +315,7 @@ threadMain() {
         // This call will return iff shutDown is called from the main thread.
         swapcontext(&loadedContext->sp, &kernelThreadStacks[kernelThreadId]);
         numActiveCores--;
-        LOG(DEBUG, "Number of cores decreased from %d to %d\n",
+        LOG(NOTICE, "Number of cores decreased from %d to %d\n",
                 numActiveCores + 1, numActiveCores.load());
         if (shutdown) break;
         {
@@ -1123,7 +1123,7 @@ void incrementCoreCount() {
     if (numActiveCores >= maxNumCores) return;
 
     coreChangeActive = true;
-    LOG(NOTICE, "Number of cores increasing from %u to %u\n",
+    LOG(NOTICE, "Attempting to increase number of cores %u --> %u\n",
             numActiveCores.load(), numActiveCores + 1);
     std::vector<uint32_t> coreRequest({numActiveCores + 1,0,0,0,0,0,0,0});
     coreArbiter.setNumCores(coreRequest);
@@ -1140,7 +1140,7 @@ void decrementCoreCount() {
     if (numActiveCores <= minNumCores) return;
 
     coreChangeActive = true;
-    LOG(NOTICE, "Number of cores decreasing from %u to %u\n",
+    LOG(NOTICE, "Attempting to decrease number of cores %u --> %u\n",
             numActiveCores.load(), numActiveCores - 1);
 
 	std::vector<uint32_t> coreRequest({numActiveCores - 1,0,0,0,0,0,0,0});
