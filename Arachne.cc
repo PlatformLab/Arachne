@@ -283,6 +283,8 @@ threadMain() {
             // This marks the point at which new thread creations may begin.
             numActiveCores++;
             DispatchTimeKeeper::lastResetTime = Cycles::rdtsc();
+            LOG(DEBUG, "Number of cores increased from %d to %d\n",
+                    numActiveCores - 1, numActiveCores.load());
             coreChangeActive = false;
         }
 
@@ -300,6 +302,8 @@ threadMain() {
         // This call will return iff shutDown is called from the main thread.
         swapcontext(&loadedContext->sp, &kernelThreadStacks[kernelThreadId]);
         numActiveCores--;
+        LOG(DEBUG, "Number of cores decreased from %d to %d\n",
+                numActiveCores + 1, numActiveCores.load());
         if (shutdown) break;
         {
             std::lock_guard<SpinLock> _(coreChangeMutex);
@@ -1068,12 +1072,12 @@ void releaseCore() {
 void incrementCoreCount() {
     std::lock_guard<SpinLock> _(coreChangeMutex);
     if (coreChangeActive) return;
+    if (numActiveCores >= maxNumCores) return;
+
     coreChangeActive = true;
-    if (numActiveCores < maxNumCores) {
-        LOG(NOTICE, "Number of cores increasing from %u to %u\n",
-                numActiveCores.load(), numActiveCores + 1);
-        inactiveCores.notify();
-    }
+    LOG(NOTICE, "Number of cores increasing from %u to %u\n",
+            numActiveCores.load(), numActiveCores + 1);
+    inactiveCores.notify();
 }
 
 /**
