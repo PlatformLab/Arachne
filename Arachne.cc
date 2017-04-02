@@ -1113,17 +1113,20 @@ void decrementCoreCount() {
             numActiveCores.load(), numActiveCores - 1);
 
     // Find a core to deschedule
-    uint8_t minLoaded = occupiedAndCount[0]->load().numOccupied;
+    uint8_t minLoaded = occupiedAndCount[virtualCoreTable[0]]->load().numOccupied;
     int minIndex = 0;
-    for (uint32_t i = 1; i < numActiveCores; i++)
-        if (occupiedAndCount[i]->load().numOccupied < minLoaded) {
-            minLoaded = occupiedAndCount[i]->load().numOccupied;
+    for (uint32_t i = 1; i < numActiveCores; i++) {
+        uint32_t coreId = virtualCoreTable[i];
+        if (occupiedAndCount[coreId]->load().numOccupied < minLoaded) {
+            minLoaded = occupiedAndCount[coreId]->load().numOccupied;
             minIndex = i;
         }
+    }
 
     // Give up if the minLoaded core is exclusive or full, since that implies
     // we are likely pre-empting must-have cores.
     if (minLoaded >= static_cast<uint8_t>(56)) {
+        coreChangeActive = false;
         LOG(WARNING, "Failed to find an unoccupied core, giving up!\n");
         return;
     }
@@ -1134,6 +1137,7 @@ void decrementCoreCount() {
     // If this creation fails, it would implies that we are overloaded and
     // should not ramp down.
     if (createThreadOnCore(minIndex, releaseCore) == NullThread) {
+        coreChangeActive = false;
         LOG(WARNING, "Release core thread creation failed to %d!\n", minIndex);
     }
 }
