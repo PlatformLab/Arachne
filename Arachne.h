@@ -687,10 +687,10 @@ struct DispatchTimeKeeper {
     static uint64_t lastResetTime;
 
     /**
-     * Cycle counter at the top of the last call to Arachne::dispatch() in this
+     * Cycle counter at the top of the last call to Arachne::dispatch() on this
      * core, regardless of which user thread made the call.
      */
-    static thread_local uint64_t topOfLastDispatch;
+    static thread_local uint64_t* dispatchStartCycles;
 
     /**
      * The number of cycles since the last time we reset the hysteresis cycle.
@@ -701,11 +701,11 @@ struct DispatchTimeKeeper {
     }
 
     DispatchTimeKeeper() {
-        topOfLastDispatch = Cycles::rdtsc();
+        *dispatchStartCycles = Cycles::rdtsc();
     }
 
     ~DispatchTimeKeeper(){
-        *idleCycles += Cycles::rdtsc() - topOfLastDispatch;
+        *idleCycles += Cycles::rdtsc() - *dispatchStartCycles;
     }
 };
 
