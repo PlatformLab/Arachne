@@ -27,7 +27,7 @@ namespace Arachne {
 /**
  * Log levels from most to least inclusive.
  */
-enum LogLevel { DEBUG, NOTICE, WARNING, ERROR, SILENT };
+enum LogLevel {VERBOSE, DEBUG, NOTICE, WARNING, ERROR, SILENT };
 
 class Logger {
   public:
