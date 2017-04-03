@@ -538,7 +538,7 @@ template<typename _Callable, typename... _Args>
 ThreadId
 createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
     if (virtualCoreId >= numActiveCores) {
-        LOG(DEBUG, "createThread failure, virtualCoreId = %u, "
+        LOG(VERBOSE, "createThread failure, virtualCoreId = %u, "
                    "numActiveCores = %d\n", virtualCoreId,
                    numActiveCores.load());
         return Arachne::NullThread;
@@ -560,7 +560,7 @@ createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
         MaskAndCount oldSlotMap = slotMap;
 
         if (slotMap.numOccupied >= maxThreadsPerCore) {
-            LOG(DEBUG, "createThread failure, virtualCoreId = %u, coreId = %u,"
+            LOG(VERBOSE, "createThread failure, virtualCoreId = %u, coreId = %u,"
                        "numOccupied = %d\n", virtualCoreId, coreId,
                        slotMap.numOccupied);
             return NullThread;
