@@ -716,7 +716,7 @@ TEST_F(ArachneTest, incrementCoreCount) {
     limitedTimeWait([]() -> bool { return numActiveCores > 3;});
     EXPECT_NE(NullThread, createThreadOnCore(3, doNothing));
     fflush(newStream);
-    EXPECT_EQ("Number of cores increasing from 3 to 4\n", std::string(str));
+    EXPECT_EQ("Attempting to increase number of cores 3 --> 4\n", std::string(str));
     free(str);
 }
 
@@ -734,8 +734,9 @@ TEST_F(ArachneTest, decrementCoreCount) {
     limitedTimeWait([]() -> bool { return numActiveCores < 2 && !coreChangeActive;});
     EXPECT_EQ(NullThread, createThreadOnCore(1, doNothing));
     fflush(newStream);
-    EXPECT_EQ("Number of cores decreasing from 3 to 2\n"
-            "Number of cores decreasing from 2 to 1\n", std::string(str));
+    EXPECT_EQ("Attempting to decrease number of cores 3 --> 2\n"
+              "Attempting to decrease number of cores 2 --> 1\n"
+              , std::string(str));
     free(str);
 }
 
