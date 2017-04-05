@@ -689,11 +689,13 @@ void waitForTermination() {
         }
         delete[] allThreadContexts[i];
         free(occupiedAndCount[i]);
+        free(publicPriorityMasks[i]);
         free(allIdleCycles[i]);
         free(allDispatchStartCycles[i]);
     }
     allThreadContexts.clear();
     occupiedAndCount.clear();
+    publicPriorityMasks.clear();
     delete[] allIdleCycles;
     delete[] allDispatchStartCycles;
     delete[] virtualCoreTable;
