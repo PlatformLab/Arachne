@@ -411,6 +411,7 @@ struct ThreadContext {
     /// \endcond
     threadInvocation;
 
+    void initializeStack();
     ThreadContext() = delete;
     ThreadContext(ThreadContext&) = delete;
 
@@ -714,5 +715,10 @@ struct DispatchTimeKeeper {
 };
 
 } // namespace Arachne
+
+// Force instantiation for debugging with operator[]
+template class std::vector<Arachne::ThreadContext**>;
+template class std::vector<std::atomic<Arachne::MaskAndCount> * >;
+template class std::vector< std::atomic<uint64_t> *>;
 
 #endif // ARACHNE_H_

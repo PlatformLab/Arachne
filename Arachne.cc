@@ -203,7 +203,7 @@ uint64_t CORE_DECREASE_THRESHOLD = 3;
   * The period in ns over which we measure before deciding to reduce the number
   * of cores we use.
   */
-const uint64_t MEASUREMENT_PERIOD = 5 * 1000 * 1000;
+const uint64_t MEASUREMENT_PERIOD = 50 * 1000 * 1000;
 
 /**
   * hq6 is a bad person. Workaround for order of static initialization of C++
@@ -287,6 +287,8 @@ threadMain() {
             // Clean up state from the previous thread that was using this data
             // structure.
             *localOccupiedAndCount = {0,0};
+            *publicPriorityMasks[kernelThreadId] = 0;
+            privatePriorityMask = 0;
             for (uint8_t i = 0; i < maxNumCores; i++) {
                 *(allIdleCycles[i]) = 0;
                 *(allDispatchStartCycles[i]) = DispatchTimeKeeper::lastResetTime;
@@ -298,13 +300,14 @@ threadMain() {
             numActiveCores++;
             LOG(DEBUG, "Number of cores increased from %d to %d\n",
                     numActiveCores - 1, numActiveCores.load());
-            coreChangeActive = false;
+            if (coreChangeActive) coreChangeActive = false;
         }
 
 
 		// Correct the ThreadContext.coreId() here to match the existing core.
         for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
 			localThreadContexts[k]->coreId = static_cast<uint8_t>(kernelThreadId);
+            localThreadContexts[k]->initializeStack();
         }
 
         loadedContext = localThreadContexts[0];
@@ -315,8 +318,6 @@ threadMain() {
         // This call will return iff shutDown is called from the main thread.
         swapcontext(&loadedContext->sp, &kernelThreadStacks[kernelThreadId]);
         numActiveCores--;
-        LOG(DEBUG, "Number of cores decreased from %d to %d\n",
-                numActiveCores + 1, numActiveCores.load());
         if (shutdown) break;
         {
             std::lock_guard<SpinLock> _(coreChangeMutex);
@@ -325,6 +326,8 @@ threadMain() {
                 *(allIdleCycles[i]) = 0;
                 *(allDispatchStartCycles[i]) = DispatchTimeKeeper::lastResetTime;
             }
+            LOG(DEBUG, "Number of cores decreased from %d to %d\n",
+                    numActiveCores + 1, numActiveCores.load());
             coreChangeActive = false;
 
             // Cleanup is completed, so we can carry on with the next core release if needed.
@@ -429,7 +432,7 @@ schedulerMainLoop() {
         do {
             MaskAndCount slotMap = *localOccupiedAndCount;
             MaskAndCount oldSlotMap = slotMap;
-
+            if (slotMap.numOccupied == 0) abort();
             slotMap.numOccupied--;
 
             slotMap.occupied &=
@@ -501,10 +504,11 @@ dispatch() {
     ThreadContext* originalContext = loadedContext;
     // Check the stack canary on the current context.
     if (*reinterpret_cast<uint64_t*>(loadedContext->stack) != StackCanary) {
-        LOG(ERROR, "Stack overflow detected on %p. Aborting...\n",
-                loadedContext);
+        LOG(ERROR, "Stack overflow detected on %p. Canary = %lu. Aborting...\n",
+                loadedContext, *reinterpret_cast<uint64_t*>(loadedContext->stack));
         abort();
     }
+
     uint64_t currentCycles = Cycles::rdtsc();
     uint64_t mask = localOccupiedAndCount->load().occupied;
 
@@ -800,9 +804,8 @@ parseOptions(int* argcp, const char** argv) {
 }
 
 ThreadContext::ThreadContext(uint8_t coreId, uint8_t idInCore)
-    : stack(malloc(stackSize))
-    , sp(reinterpret_cast<char*>(stack) +
-            stackSize - 2*sizeof(void*))
+    : stack(NULL)
+    , sp(NULL)
     , wakeupTimeInCycles(UNOCCUPIED)
     , generation(1)
     , joinLock()
@@ -810,6 +813,20 @@ ThreadContext::ThreadContext(uint8_t coreId, uint8_t idInCore)
     , coreId(coreId)
     , idInCore(idInCore)
 {
+    // Allocate memory here so we can error-check.the return value of malloc
+    stack = malloc(stackSize);
+    if (stack == NULL) {
+        abort();
+    }
+}
+
+/**
+  * This method initialize all stacks to point at the schedulerMainLoop.
+  */
+void
+ThreadContext::initializeStack() {
+    sp = reinterpret_cast<char*>(stack) + stackSize - 2*sizeof(void*);
+
     // Immediately before schedulerMainLoop gains control, we want the
     // stack to look like this, so that the swapcontext call will
     // transfer control to schedulerMainLoop.
@@ -964,6 +981,12 @@ testInit() {
                 cacheAlignAlloc(sizeof(ThreadContext)));
         new (localThreadContexts[k]) ThreadContext(~0, k);
         localThreadContexts[k]->wakeupTimeInCycles = BLOCKED;
+        // It is important to re-initialize stacks here because some of the
+        // contexts may be in the middle of dispatch calls from
+        // schedulerMainLoop and switching to them will a spurious return from
+        // dispatch at the start of schedulerMainLoop, which it is expensive to
+        // check for.
+        localThreadContexts[k]->initializeStack();
     }
     loadedContext = *localThreadContexts;
     *localOccupiedAndCount = {1, 1};
@@ -1368,7 +1391,14 @@ void descheduleCore() {
     // we are likely pre-empting must-have cores.
     if (minLoaded >= static_cast<uint8_t>(56)) {
         coreChangeActive = false;
-        LOG(WARNING, "Failed to find an unoccupied core, giving up!\n");
+        LOG(DEBUG, "Failed to find an unoccupied core, giving up!\n");
+        LOG(DEBUG, "minLoaded = %u, minIndex = %u!\n", minLoaded, minIndex);
+        for (uint32_t i = 0; i < numActiveCores; i++) {
+            uint32_t coreId = virtualCoreTable[i];
+            LOG(DEBUG, "virtualCoreId = %d, coreId = %u, numOccupied = %d, occupied = %lu\n",
+                   i, coreId, occupiedAndCount[coreId]->load().numOccupied,
+                    occupiedAndCount[coreId]->load().occupied);
+        }
         return;
     }
 

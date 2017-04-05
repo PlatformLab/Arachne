@@ -512,6 +512,7 @@ TEST_F(ArachneTest, signal) {
     tempContext->wakeupTimeInCycles = BLOCKED;
     Arachne::signal(ThreadId(tempContext, 0));
     EXPECT_EQ(0U, tempContext->wakeupTimeInCycles);
+    free(tempContext);
 }
 
 // This buffer does not need protection because the threads writing to it are
