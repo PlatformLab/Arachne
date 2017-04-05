@@ -510,8 +510,11 @@ TEST_F(ArachneTest, signal) {
                 malloc(sizeof(Arachne::ThreadContext)));
     tempContext->generation = 0;
     tempContext->wakeupTimeInCycles = BLOCKED;
+    tempContext->coreId = 0;
+    tempContext->idInCore = 0;
     Arachne::signal(ThreadId(tempContext, 0));
     EXPECT_EQ(0U, tempContext->wakeupTimeInCycles);
+    publicPriorityMasks[0] = 0;
     free(tempContext);
 }
 
