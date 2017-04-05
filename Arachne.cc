@@ -292,6 +292,8 @@ threadMain() {
             numActiveCores++;
             LOG(DEBUG, "Number of cores increased from %d to %d\n",
                     numActiveCores - 1, numActiveCores.load());
+            TimeTrace::record("Core Count %d --> %d",
+                    numActiveCores - 1, numActiveCores.load());
             if (coreChangeActive) coreChangeActive = false;
         }
 
@@ -319,6 +321,8 @@ threadMain() {
                 *(allDispatchStartCycles[i]) = DispatchTimeKeeper::lastResetTime;
             }
             LOG(DEBUG, "Number of cores decreased from %d to %d\n",
+                    numActiveCores + 1, numActiveCores.load());
+            TimeTrace::record("Core Count %d --> %d",
                     numActiveCores + 1, numActiveCores.load());
             coreChangeActive = false;
         }
@@ -1117,6 +1121,8 @@ void incrementCoreCount() {
     coreChangeActive = true;
     LOG(NOTICE, "Attempting to increase number of cores %u --> %u\n",
             numActiveCores.load(), numActiveCores + 1);
+    TimeTrace::record("Start Core Count %d --> %d",
+            numActiveCores.load(), numActiveCores + 1);
     inactiveCores.notify();
 }
 
@@ -1132,6 +1138,8 @@ void decrementCoreCount() {
 
     coreChangeActive = true;
     LOG(NOTICE, "Attempting to decrease number of cores %u --> %u\n",
+            numActiveCores.load(), numActiveCores - 1);
+    TimeTrace::record("Start Core Count %d --> %d",
             numActiveCores.load(), numActiveCores - 1);
 
     // Find a core to deschedule
