@@ -1005,12 +1005,11 @@ void testDestroy() {
   */
 void
 shutDown() {
-    // Unblock all cores so they can shut down and be joined.
-    for (uint32_t i = 0; i < maxNumCores - numActiveCores; i++)
-        inactiveCores.notify();
-
     // Tell all the kernel threads to terminate at the first opportunity.
     shutdown = true;
+    // Unblock all cores so they can shut down and be joined.
+    for (uint32_t i = 0; i < maxNumCores; i++)
+        inactiveCores.notify();
 }
 
 
