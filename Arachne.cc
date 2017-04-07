@@ -217,7 +217,7 @@ void decrementCoreCount();
 /**
   * Kernel threads which are not actively polling block on this semaphore.
   */
-Semaphore inactiveCores;
+::Semaphore inactiveCores;
 
 // BEGIN Testing-Specific Flags
 bool disableLoadEstimation;
