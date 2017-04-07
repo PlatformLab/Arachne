@@ -25,7 +25,7 @@ namespace Arachne {
 
 extern bool disableLoadEstimation;
 
-extern Semaphore inactiveCores;
+extern ::Semaphore inactiveCores;
 extern std::atomic<uint32_t> numActiveCores;
 extern volatile uint32_t minNumCores;
 extern int* virtualCoreTable;

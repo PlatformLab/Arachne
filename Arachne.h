@@ -289,6 +289,60 @@ class ConditionVariable {
 };
 
 /**
+  * This class enables a thread to block until a resource is available.
+  */
+class Semaphore
+{
+ private:
+    SpinLock countProtector;
+    ConditionVariable countWaiter;
+    uint64_t count; // Initialized as locked.
+
+ public:
+    // Constructor initializing a non-yielding SpinLock.
+    Semaphore() : countProtector(false), countWaiter(), count(0) { }
+
+    /**
+      * Change this Semaphore to a fully locked state.
+      */
+    void reset() {
+        std::unique_lock<decltype(countProtector)> lock(countProtector);
+        count = 0;
+    }
+
+    /**
+      * Wake up one of the waiters on this Semaphore.
+      */
+    void notify() {
+        std::unique_lock<decltype(countProtector)> lock(countProtector);
+        ++count;
+        countWaiter.notifyOne();
+    }
+
+    /**
+      * Block until another thread notifies.
+      */
+    void wait() {
+        std::unique_lock<decltype(countProtector)> lock(countProtector);
+        while(!count) // Handle spurious wake-ups.
+            countWaiter.wait(lock);
+        --count;
+    }
+
+    /**
+      * Attempt to acquire the resource if it is available.
+      */
+    bool try_wait() {
+        std::unique_lock<decltype(countProtector)> lock(countProtector);
+        if(count) {
+            --count;
+            return true;
+        }
+        return false;
+    }
+};
+
+/**
   * This value represents the non-existence of a thread and can be returned by
   * any Arachne function that would normally return a ThreadId.
   *
