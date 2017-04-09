@@ -180,17 +180,6 @@ thread_local uint64_t privatePriorityMask;
   */
 thread_local size_t nextCandidateIndex = 0;
 
-/**
-  * If we ran this many threads or more in one pass over the core array, then
-  * we will attempt to increase the number of cores.
-  */
-uint64_t CORE_INCREASE_THRESHOLD = 5;
-
-/**
-  * If we ran this many threads or more in one pass over the core array, then
-  * we will attempt to decrease the number of cores.
-  */
-uint64_t CORE_DECREASE_THRESHOLD = 3;
 
 /**
   * The period in ns over which we measure before deciding to reduce the number
@@ -199,17 +188,16 @@ uint64_t CORE_DECREASE_THRESHOLD = 3;
 const uint64_t MEASUREMENT_PERIOD = 50 * 1000 * 1000;
 
 /**
-  * hq6 is a bad person. Workaround for order of static initialization of C++
-  * objects. This forces Cycles::init() to be called before we attempt to use
-  * Cycles::fromNanoseconds().
+  * If we spend greater than this fraction of a core's time idle, it is
+  * reasonable to ramp down.
   */
-uint64_t MEASUREMENT_CYCLES = (Cycles::init(),
-        Cycles::fromNanoseconds(MEASUREMENT_PERIOD));
+double IDLE_FRACTION_TO_DECREMENT = 1.0;
 
 /**
-  * If we spend greater than this fraction of time idle, it is reasonable to ramp down.
+  * If there is more than this fraction of a core of extra work, Arachne will
+  * attempt to increase the number of cores.
   */
-double IDLE_FRACTION_TO_DECREMENT = 0.5;
+const double CORE_INCREASE_THRESHOLD = 1.0;
 
 void incrementCoreCount();
 void decrementCoreCount();
@@ -881,6 +869,10 @@ init(int* argcp, const char** argv) {
 
     // Block until minNumCores is active, per the application's requirements.
     while (numActiveCores != minNumCores) usleep(1);
+    if (!disableLoadEstimation) {
+        void coreLoadEstimator();
+        createThread(coreLoadEstimator);
+    }
 }
 
 /**
@@ -1324,6 +1316,49 @@ void makeSharedOnCore() {
         // should be able to create threads on an exclusive core.
         LOG(ERROR, "Error making core shared again! Aborting...\n");
         abort();
+    }
+}
+
+/**
+  * Periodically wake up and observe the current load in Arachne to determine
+  * whether it is necessary to increase or reduce the number of cores used by
+  * Arachne.
+  */
+void coreLoadEstimator() {
+    PerfStats previousStats;
+    PerfStats::collectStats(&previousStats);
+
+
+    for (PerfStats currentStats; ; previousStats = currentStats) {
+        sleep(MEASUREMENT_PERIOD);
+        PerfStats::collectStats(&currentStats);
+
+        // TODO: Under the Core Arbiter, this number may decrement for external
+        // reasons, so we should add in a check here to delay core load
+
+        // estimation if that happens.
+        int numCores = numActiveCores;
+
+        // Evalute idle time precentage multiplied by number of cores to
+        // determine whether we need to decrease the number of cores.
+        uint64_t idleCycles = currentStats.idleCycles - previousStats.idleCycles;
+        uint64_t totalCycles = currentStats.totalCycles - previousStats.totalCycles;
+        double idleCoreFraction =
+            static_cast<double>(idleCycles) / static_cast<double>(totalCycles) * numCores;
+        if (idleCoreFraction > IDLE_FRACTION_TO_DECREMENT) {
+            decrementCoreCount();
+            continue;
+        }
+
+        // Estimate load to determine whether we need to increment the number
+        // of cores.
+        uint64_t numThreadsRan = currentStats.numThreadsRan - previousStats.numThreadsRan;
+        uint64_t numDispatchCycles = currentStats.numDispatchCycles - previousStats.numDispatchCycles;
+        double averageLoadFactor = static_cast<double>(numThreadsRan) / static_cast<double>(numDispatchCycles);
+        if (averageLoadFactor < 1) continue;
+        double overLoad = (averageLoadFactor - 1) * numCores;
+        if (overLoad > CORE_INCREASE_THRESHOLD)
+            incrementCoreCount();
     }
 }
 
