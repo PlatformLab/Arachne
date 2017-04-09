@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2016 Stanford University
+/* Copyright (c) 2015-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -29,6 +29,7 @@
 
 #include "PerfUtils/Cycles.h"
 #include "Logger.h"
+#include "PerfStats.h"
 
 namespace Arachne {
 
@@ -147,99 +148,6 @@ ThreadId getThreadId();
 void setErrorStream(FILE* ptr);
 void testInit();
 void testDestroy();
-
-/**
- * A resource that can be acquired by only one thread at a time.
- */
-class SpinLock {
- public:
-    /** Constructor and destructor for spinlock. */
-    SpinLock(std::string name, bool shouldYield = true)
-        : state(false)
-        , name(name)
-        , shouldYield(shouldYield) {}
-    // Delegating constructor forces const char* to resolve to string instead
-    // of bool.
-    SpinLock(const char* name, bool shouldYield = true)
-        : SpinLock(std::string(name), shouldYield) {}
-    SpinLock(bool shouldYield = true)
-        : state(false)
-        , owner(NULL)
-        , name("unnamed")
-        , shouldYield(shouldYield) {}
-    ~SpinLock(){}
-
-    /** Repeatedly try to acquire this resource until success. */
-    inline void
-    lock() {
-        uint64_t startOfContention = 0;
-        while (state.exchange(true, std::memory_order_acquire) != false) {
-            if (startOfContention == 0) {
-                startOfContention = Cycles::rdtsc();
-            } else {
-                uint64_t now = Cycles::rdtsc();
-                if (Cycles::toSeconds(now - startOfContention) > 1.0) {
-                    LOG(WARNING,
-                            "%s SpinLock locked for one second; deadlock?\n",
-                            name.c_str());
-                    startOfContention = now;
-                }
-            }
-            if (shouldYield) yield();
-        }
-        owner = loadedContext;
-    }
-
-    /**
-     * Attempt to acquire this resource once.
-     * \return
-     *    Whether or not the acquisition succeeded.  inline bool
-     */
-    inline bool
-    try_lock() {
-        // If the original value was false, then we successfully acquired the
-        // lock. Otherwise we failed.
-        if (!state.exchange(true, std::memory_order_acquire)) {
-            owner = loadedContext;
-            return true;
-        }
-        return false;
-    }
-
-    /** Release resource. */
-    inline void
-    unlock() {
-        state.store(false, std::memory_order_release);
-    }
-
-    /** Set the label used for deadlock warning. */
-    inline void
-    setName(std::string name) {
-        this->name = name;
-    }
-
- private:
-    // Implements the lock: false means free, true means locked
-    std::atomic<bool> state;
-
-    // Used to identify the owning context for this lock.
-    ThreadContext* owner;
-
-    // Descriptive name for this SpinLock. Used to identify the purpose of
-    // the lock, what it protects, where it exists in the codebase, etc.
-    //
-    // Used to identify the lock when reporting a potential deadlock.
-    std::string name;
-
-    // Controls whether the acquiring thread should yield control of the core
-    // each time it fails to acquire this SpinLock.
-    //
-    // For short critical sections that hold onto a core throughout, it will
-    // minimize latency to set this to false.
-    // For longer critical sections that may relinguish a core, it is necessary
-    // to set this to true to avoid deadlock.
-    bool shouldYield;
-};
 
 /**
   * A resource which blocks the current thread until it is available.
@@ -729,38 +637,28 @@ ConditionVariable::waitFor(LockType& lock, uint64_t ns) {
   */
 struct DispatchTimeKeeper {
     /**
-      * Accumulated idle cycles since the last core change completed.
-      * Then, when a coreChangeEvent occurs, we can set idleCycles to 0 and lastResetTime to Cycles::rdtsc.
+      * Cycle counter of the last time we accumulated the total running time in
+      * cycles. This variable should be updated each time we update
+      * PerfStats::totalCycles, as well as when a thread gets unblocked,
+      * to avoid counting cycles when we are blocked.
       */
-    static thread_local uint64_t* idleCycles;
-
-    /**
-      * Cycle counter of the last reset. The difference between the current
-      * time in cycles and this value can be used as a denominator in the
-      * calculation of percentage of idle time.
-      */
-    static uint64_t lastResetTime;
+    static thread_local uint64_t lastTotalCollectionTime;
 
     /**
      * Cycle counter at the top of the last call to Arachne::dispatch() on this
      * core, regardless of which user thread made the call.
      */
-    static thread_local uint64_t* dispatchStartCycles;
-
-    /**
-     * The number of cycles since the last time we reset the hysteresis cycle.
-     * This returns a delta against a thread_local variable.
-     */
-    static uint64_t cyclesSinceLastReset() {
-        return Cycles::rdtsc() - lastResetTime;
-    }
+    static thread_local uint64_t dispatchStartCycles;
 
     DispatchTimeKeeper() {
-        *dispatchStartCycles = Cycles::rdtsc();
+        dispatchStartCycles = Cycles::rdtsc();
     }
 
     ~DispatchTimeKeeper(){
-        *idleCycles += Cycles::rdtsc() - *dispatchStartCycles;
+        uint64_t currentTime = Cycles::rdtsc();
+        PerfStats::threadStats.idleCycles += currentTime - dispatchStartCycles;
+        PerfStats::threadStats.totalCycles += currentTime - lastTotalCollectionTime;
+        lastTotalCollectionTime = currentTime;
     }
 };
 
