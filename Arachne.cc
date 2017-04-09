@@ -1356,7 +1356,9 @@ void coreLoadEstimator() {
         uint64_t totalCycles = currentStats.totalCycles - previousStats.totalCycles;
         double idleCoreFraction =
             static_cast<double>(idleCycles) / static_cast<double>(totalCycles) * numCores;
-        if (idleCoreFraction > IDLE_FRACTION_TO_DECREMENT) {
+        if (idleCoreFraction > IDLE_FRACTION_TO_DECREMENT &&
+                numActiveCores > minNumCores) {
+            LOG(DEBUG, "idleCoreFraction = %lf\n", idleCoreFraction);
             decrementCoreCount();
             continue;
         }
@@ -1366,7 +1368,8 @@ void coreLoadEstimator() {
         uint64_t numThreadsRan = currentStats.numThreadsRan - previousStats.numThreadsRan;
         uint64_t numDispatchCycles = currentStats.numDispatchCycles - previousStats.numDispatchCycles;
         double averageLoadFactor = static_cast<double>(numThreadsRan) / static_cast<double>(numDispatchCycles);
-        if (averageLoadFactor < 1) continue;
+        if (averageLoadFactor < 1 || numActiveCores == maxNumCores) continue;
+        LOG(DEBUG, "Load Factor = %lf\n", averageLoadFactor);
         double overLoad = (averageLoadFactor - 1) * numCores;
         if (overLoad > CORE_INCREASE_THRESHOLD)
             incrementCoreCount();
