@@ -203,7 +203,7 @@ double IDLE_FRACTION_TO_DECREMENT = 1.0;
   * If there is more than this fraction of a core of extra work, Arachne will
   * attempt to increase the number of cores.
   */
-const double CORE_INCREASE_THRESHOLD = 1.0;
+double CORE_INCREASE_THRESHOLD = 1.0;
 
 void incrementCoreCount();
 void decrementCoreCount();
