@@ -305,6 +305,7 @@ threadMain() {
             coreChangeActive = false;
         }
     }
+    PerfStats::deregisterStats(&PerfStats::threadStats);
 }
 
 /**

@@ -20,7 +20,7 @@
 
 namespace Arachne {
 
-SpinLock PerfStats::mutex;
+SpinLock PerfStats::mutex(false);
 std::vector<PerfStats*> PerfStats::registeredStats;
 thread_local PerfStats PerfStats::threadStats(true);
 
