@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2016 Stanford University
+/* Copyright (c) 2015-2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -224,15 +224,8 @@ bool disableLoadEstimation;
 // END   Testing-Specific Flags
 
 // Allocate storage for load-tracking pointers.
-thread_local uint64_t *DispatchTimeKeeper::idleCycles;
-uint64_t DispatchTimeKeeper::lastResetTime;
-thread_local uint64_t* DispatchTimeKeeper::dispatchStartCycles;
-
-// Globally accessible storage for lastResetTime and idleCycles.
-// Note that this is a ** instead of * because we want the different
-// idleCycleCounts to be in different cache lines.
-uint64_t **allIdleCycles;
-uint64_t **allDispatchStartCycles;
+thread_local uint64_t DispatchTimeKeeper::lastTotalCollectionTime;
+thread_local uint64_t DispatchTimeKeeper::dispatchStartCycles;
 
 /**
   * Allocate a block of memory aligned at the beginning of a cache line.
@@ -275,19 +268,13 @@ threadMain() {
             localOccupiedAndCount = occupiedAndCount[kernelThreadId];
             localThreadContexts = allThreadContexts[kernelThreadId];
 
-            DispatchTimeKeeper::lastResetTime = Cycles::rdtsc();
+            DispatchTimeKeeper::lastTotalCollectionTime = Cycles::rdtsc();
             // Clean up state from the previous thread that was using this data
             // structure.
             *localOccupiedAndCount = {0,0};
             *publicPriorityMasks[kernelThreadId] = 0;
             privatePriorityMask = 0;
-            for (uint8_t i = 0; i < maxNumCores; i++) {
-                *(allIdleCycles[i]) = 0;
-                *(allDispatchStartCycles[i]) = DispatchTimeKeeper::lastResetTime;
-            }
-            DispatchTimeKeeper::idleCycles = allIdleCycles[numActiveCores];
-            DispatchTimeKeeper::dispatchStartCycles =
-                allDispatchStartCycles[numActiveCores];
+
             // This marks the point at which new thread creations may begin.
             numActiveCores++;
             LOG(DEBUG, "Number of cores increased from %d to %d\n",
@@ -299,6 +286,8 @@ threadMain() {
 
 
 		// Correct the ThreadContext.coreId() here to match the existing core.
+        // It is valid to initialize this after incrementing numActiveCores
+        // because thread creations do not touch these variables.
         for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
 			localThreadContexts[k]->coreId = static_cast<uint8_t>(kernelThreadId);
             localThreadContexts[k]->initializeStack();
@@ -315,11 +304,6 @@ threadMain() {
         if (shutdown) break;
         {
             std::lock_guard<SpinLock> _(coreChangeMutex);
-            DispatchTimeKeeper::lastResetTime = Cycles::rdtsc();
-            for (uint8_t i = 0; i < maxNumCores; i++) {
-                *(allIdleCycles[i]) = 0;
-                *(allDispatchStartCycles[i]) = DispatchTimeKeeper::lastResetTime;
-            }
             LOG(DEBUG, "Number of cores decreased from %d to %d\n",
                     numActiveCores + 1, numActiveCores.load());
             TimeTrace::record("Core Count %d --> %d",
@@ -477,7 +461,6 @@ getThreadId() {
         : Arachne::NullThread;
 }
 
-thread_local uint8_t numThreadsRan = 0;
 /**
   * Deschedule the current thread until its wakeup time is reached (which may
   * have already happened) and find another thread to run. All direct and
@@ -524,12 +507,14 @@ dispatch() {
                     ((mask >> firstSetBit) & 1)) {
                 if (targetContext == loadedContext) {
                     loadedContext->wakeupTimeInCycles = BLOCKED;
+                    PerfStats::threadStats.numThreadsRan++;
                     return;
                 }
                 void** saved = &loadedContext->sp;
                 loadedContext = targetContext;
                 swapcontext(&loadedContext->sp, saved);
                 originalContext->wakeupTimeInCycles = BLOCKED;
+                PerfStats::threadStats.numThreadsRan++;
                 return;
             }
         }
@@ -552,26 +537,9 @@ dispatch() {
             mask = localOccupiedAndCount->load().occupied;
             currentCycles = Cycles::rdtsc();
 
-            if (!disableLoadEstimation) {
-                // Check for ramp-down.
-                if (!coreChangeActive &&
-                        // This check protects against lastResetTime being set
-                        // after we read currentCycles in this round
-                        DispatchTimeKeeper::lastResetTime < currentCycles){
-                    uint64_t cyclesSinceLastReset =
-                        currentCycles - DispatchTimeKeeper::lastResetTime;
-                    double threshold =
-                        static_cast<double>(cyclesSinceLastReset) *
-                        IDLE_FRACTION_TO_DECREMENT;
-                    uint64_t idleCycles = *DispatchTimeKeeper::idleCycles +
-                        (currentCycles -
-                         *DispatchTimeKeeper::dispatchStartCycles);
-                    if (cyclesSinceLastReset > MEASUREMENT_CYCLES &&
-                        idleCycles > threshold) {
-                        decrementCoreCount();
-                    }
-                }
-            }
+            // Reconstruct the guard to keep times up to date
+            _.~DispatchTimeKeeper();
+            new (&_) DispatchTimeKeeper();
         }
 
         // This block should execute when a core has iterated over exactly one
@@ -585,10 +553,7 @@ dispatch() {
                         &kernelThreadStacks[kernelThreadId],
                         &loadedContext->sp);
 
-            // Check for ramp-up
-            if (!disableLoadEstimation && numThreadsRan > CORE_INCREASE_THRESHOLD && !coreChangeActive)
-                incrementCoreCount();
-            numThreadsRan = 0;
+            PerfStats::threadStats.numDispatchCycles++;
         }
 
         // Optimize to eliminate unoccupied contexts
@@ -602,7 +567,7 @@ dispatch() {
 
             if (currentContext == loadedContext) {
                 loadedContext->wakeupTimeInCycles = BLOCKED;
-                numThreadsRan++;
+                PerfStats::threadStats.numThreadsRan++;
                 return;
             }
             void** saved = &loadedContext->sp;
@@ -611,7 +576,7 @@ dispatch() {
             // After the old context is swapped out above, this line executes
             // in the new context.
             originalContext->wakeupTimeInCycles = BLOCKED;
-            numThreadsRan++;
+            PerfStats::threadStats.numThreadsRan++;
             return;
         }
     }
@@ -690,14 +655,10 @@ void waitForTermination() {
         delete[] allThreadContexts[i];
         free(occupiedAndCount[i]);
         free(publicPriorityMasks[i]);
-        free(allIdleCycles[i]);
-        free(allDispatchStartCycles[i]);
     }
     allThreadContexts.clear();
     occupiedAndCount.clear();
     publicPriorityMasks.clear();
-    delete[] allIdleCycles;
-    delete[] allDispatchStartCycles;
     delete[] virtualCoreTable;
     inactiveCores.reset();
     PerfUtils::Util::serialize();
@@ -880,8 +841,6 @@ init(int* argcp, const char** argv) {
     // We assume that maxNumCores will not be exceeded in the lifetime of this
     // application.
     virtualCoreTable = new int[maxNumCores];
-    allIdleCycles = new uint64_t*[maxNumCores];
-    allDispatchStartCycles = new uint64_t*[maxNumCores];
 
     for (unsigned int i = 0; i < maxNumCores; i++) {
         occupiedAndCount.push_back(
@@ -900,10 +859,6 @@ init(int* argcp, const char** argv) {
             new (contexts[k]) ThreadContext(static_cast<uint8_t>(i), k);
         }
         allThreadContexts.push_back(contexts);
-        allIdleCycles[i] = reinterpret_cast< uint64_t* >(
-                    cacheAlignAlloc(sizeof(uint64_t)));
-        allDispatchStartCycles[i] = reinterpret_cast< uint64_t* >(
-                    cacheAlignAlloc(sizeof(uint64_t)));
         virtualCoreTable[i] = i;
     }
 
@@ -966,11 +921,6 @@ testInit() {
     }
     loadedContext = *localThreadContexts;
     *localOccupiedAndCount = {1, 1};
-    DispatchTimeKeeper::idleCycles = reinterpret_cast< uint64_t* >(
-                    cacheAlignAlloc(sizeof(uint64_t)));
-    DispatchTimeKeeper::dispatchStartCycles = reinterpret_cast< uint64_t* >(
-                    cacheAlignAlloc(sizeof(uint64_t)));
-
 }
 
 /**
@@ -987,8 +937,6 @@ void testDestroy() {
         free(localThreadContexts[k]);
     }
     delete[] localThreadContexts;
-    free(DispatchTimeKeeper::idleCycles);
-    free(DispatchTimeKeeper::dispatchStartCycles);
     loadedContext = NULL;
     *localOccupiedAndCount = {0, 0};
 }

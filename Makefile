@@ -10,10 +10,12 @@ endif
 
 CCFLAGS=-Wall -Werror -Wformat=2 -Wextra -Wwrite-strings -Wno-unused-parameter -Wmissing-format-attribute -Wno-non-template-friend -Woverloaded-virtual -Wcast-qual -Wcast-align -Wconversion -fomit-frame-pointer
 
-libArachne.a: Arachne.o Logger.o
+libArachne.a: Arachne.o Logger.o PerfStats.o
 	ar rcs $@ $^
 
 Arachne.o:  Arachne.h Semaphore.h Logger.h
+
+PerfStats.o: Arachne.h PerfStats.h
 
 %.o: %.cc
 	g++ $(CCFLAGS)  -O3 $(DEBUG) $(LIBS) -fPIC -c -std=c++11 -o $@ $<
