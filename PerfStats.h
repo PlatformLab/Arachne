@@ -70,6 +70,7 @@ namespace Arachne {
 
         PerfStats(bool shouldRegister = false);
         static void registerStats(PerfStats* stats);
+        static void deregisterStats(PerfStats* stats);
         static void collectStats(PerfStats* total);
     };
 }

@@ -262,7 +262,7 @@ threadMain() {
             localOccupiedAndCount = occupiedAndCount[kernelThreadId];
             localThreadContexts = allThreadContexts[kernelThreadId];
 
-            DispatchTimeKeeper::lastTotalCollectionTime = Cycles::rdtsc();
+            DispatchTimeKeeper::lastTotalCollectionTime = 0;
             // Clean up state from the previous thread that was using this data
             // structure.
             *localOccupiedAndCount = {0,0};
@@ -531,9 +531,8 @@ dispatch() {
             mask = localOccupiedAndCount->load().occupied;
             currentCycles = Cycles::rdtsc();
 
-            // Reconstruct the guard to keep times up to date
-            _.~DispatchTimeKeeper();
-            new (&_) DispatchTimeKeeper();
+            // Flush counters to keep times up to date
+            _.flush();
         }
 
         // This block should execute when a core has iterated over exactly one
@@ -1295,8 +1294,10 @@ bool makeExclusiveOnCore(bool forScaleDown) {
     // cannot occur because we are running, so we can just directly assign.
     *localOccupiedAndCount = blockedOccupiedAndCount;
 
-    if (!forScaleDown)
+    if (!forScaleDown) {
         numExclusiveCores++;
+        PerfStats::deregisterStats(&PerfStats::threadStats);
+    }
 
     return true;
 }
@@ -1326,6 +1327,7 @@ void makeSharedOnCore() {
         abort();
     }
     numExclusiveCores--;
+    PerfStats::registerStats(&PerfStats::threadStats);
 }
 
 /**
@@ -1344,7 +1346,6 @@ void coreLoadEstimator() {
 
         // TODO: Under the Core Arbiter, this number may decrement for external
         // reasons, so we should add in a check here to delay core load
-
         // estimation if that happens.
         int numCores = numActiveCores - numExclusiveCores;
 

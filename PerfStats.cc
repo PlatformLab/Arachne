@@ -14,6 +14,7 @@
  */
 
 #include <string.h>
+#include <algorithm>
 
 #include "PerfStats.h"
 
@@ -58,6 +59,23 @@ PerfStats::registerStats(PerfStats* stats)
     memset(stats, 0, sizeof(*stats));
     registeredStats.push_back(stats);
 }
+
+/**
+ * This method can be called to deregister a PerfStats structure that has been
+ * registered using registerStats. It is a no-op if the stat is already
+ * deregistered.
+ *
+ * \param stats
+ *      PerfStats structure to drop from usage by collectStats.
+ */
+void
+PerfStats::deregisterStats(PerfStats* stats)
+{
+    std::lock_guard<SpinLock> lock(mutex);
+    registeredStats.erase(std::remove(registeredStats.begin(),
+                registeredStats.end(), stats), registeredStats.end());
+}
+
 
 /**
  * This method aggregates performance information from all of the
