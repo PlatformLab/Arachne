@@ -62,6 +62,12 @@ volatile uint32_t minNumCores;
 std::atomic<uint32_t> numActiveCores;
 
 /**
+  * Track the number of exclusive cores so that we can calculate utilization
+  * accurately among the remaining cores.
+  */
+std::atomic<uint32_t> numExclusiveCores;
+
+/**
   * The largest number of cores that Arachne is permitted to utilize.
   * It is an invariant that maxNumCores >= numActiveCores, but if the user explicitly
   * sets both then numActiveCores will push maxNumCores up to satisfy the invariant.
@@ -1044,9 +1050,8 @@ void setErrorStream(FILE* stream) {
  * that all other threads' contexts on this core are saved.
  */
 void releaseCore() {
-    bool makeExclusiveOnCore();
     // Remove all other threads from this core.
-    makeExclusiveOnCore();
+    makeExclusiveOnCore(true);
     threadShouldYield = true;
 }
 
@@ -1135,7 +1140,7 @@ void decrementCoreCount() {
   * thread which never exits until program termination has no need to invoke
   * makeSharedOnCore.
   */
-bool makeExclusiveOnCore() {
+bool makeExclusiveOnCore(bool forScaleDown) {
     // Cache the original context so that we can survive across migrations to
     // other kernel threads, since loadedContext is not reloaded correctly from
     // TLS after switching back to this context.
@@ -1290,6 +1295,9 @@ bool makeExclusiveOnCore() {
     // cannot occur because we are running, so we can just directly assign.
     *localOccupiedAndCount = blockedOccupiedAndCount;
 
+    if (!forScaleDown)
+        numExclusiveCores++;
+
     return true;
 }
 
@@ -1317,6 +1325,7 @@ void makeSharedOnCore() {
         LOG(ERROR, "Error making core shared again! Aborting...\n");
         abort();
     }
+    numExclusiveCores--;
 }
 
 /**
@@ -1337,7 +1346,7 @@ void coreLoadEstimator() {
         // reasons, so we should add in a check here to delay core load
 
         // estimation if that happens.
-        int numCores = numActiveCores;
+        int numCores = numActiveCores - numExclusiveCores;
 
         // Evalute idle time precentage multiplied by number of cores to
         // determine whether we need to decrease the number of cores.

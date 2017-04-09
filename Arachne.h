@@ -51,6 +51,8 @@ struct ThreadContext;
 // This is used in createThread.
 extern std::atomic<uint32_t> numActiveCores;
 
+extern std::atomic<uint32_t> numExclusiveCores;
+
 extern volatile uint32_t minNumCores;
 extern volatile uint32_t maxNumCores;
 
@@ -131,7 +133,7 @@ void waitForTermination();
 void yield();
 void sleep(uint64_t ns);
 
-bool makeExclusiveOnCore();
+bool makeExclusiveOnCore(bool forScaleDown = false);
 void makeSharedOnCore();
 
 /**
