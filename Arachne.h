@@ -656,8 +656,8 @@ struct DispatchTimeKeeper {
 
     ~DispatchTimeKeeper(){
         uint64_t currentTime = Cycles::rdtsc();
-        PerfStats::threadStats.idleCycles += currentTime - dispatchStartCycles;
         PerfStats::threadStats.totalCycles += currentTime - lastTotalCollectionTime;
+        PerfStats::threadStats.idleCycles += currentTime - dispatchStartCycles;
         lastTotalCollectionTime = currentTime;
     }
 };
