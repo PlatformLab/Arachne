@@ -178,8 +178,8 @@ void sleepOnLock(int id) {
 }
 void lockHolder() {
     std::lock_guard<SleepLock> guard(sleepLock);
-    yield();
-    completionCounter++;
+    while (!completionCounter)
+        yield();
 }
 
 void silentLocker() {
@@ -192,10 +192,16 @@ TEST_F(ArachneTest, SleepLock_fairness) {
     completionCounter = 0;
     createThreadOnCore(0, lockHolder);
     for (int i = 0; i < 20; i ++) {
-        createThreadOnCore(0, sleepOnLock, i);
+        ThreadId tid = createThreadOnCore(0, sleepOnLock, i);
+        // Wait until this thread is actually running.
+        limitedTimeWait([tid]()->bool {
+                return tid.context->wakeupTimeInCycles == BLOCKED;});
+
         // Interference on another core should not change the order
         createThreadOnCore(1, silentLocker);
     }
+    // Allow the lockHolder to awaken and release the lock.
+    completionCounter++;
 
     limitedTimeWait([]()->bool {
             return completionCounter == 41;});
