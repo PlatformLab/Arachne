@@ -99,10 +99,12 @@ PerfStats::collectStats(PerfStats* total)
     for (PerfStats* stats : registeredStats) {
         // Note: the order of the statements below should match the
         // declaration order in PerfStats.h.
-        total->idleCycles        += stats->idleCycles;
-        total->totalCycles       += stats->totalCycles;
-        total->numDispatchCycles += stats->numDispatchCycles;
-        total->numThreadsRan     += stats->numThreadsRan;
+        total->idleCycles         += stats->idleCycles;
+        total->totalCycles        += stats->totalCycles;
+        total->numDispatchCycles  += stats->numDispatchCycles;
+        total->numThreadsRan      += stats->numThreadsRan;
+        total->numThreadsCreated  += stats->numThreadsCreated;
+        total->numThreadsFinished += stats->numThreadsFinished;
     }
 }
 }  // namespace Arachne

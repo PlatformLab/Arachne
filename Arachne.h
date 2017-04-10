@@ -544,6 +544,8 @@ createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
     new (&allThreadContexts[coreId][index]->threadInvocation)
         Arachne::ThreadInvocation<decltype(task)>(task);
     threadContext->wakeupTimeInCycles = 0;
+
+    PerfStats::threadStats.numThreadsCreated++;
     return ThreadId(allThreadContexts[coreId][index],
             allThreadContexts[coreId][index]->generation);
 }

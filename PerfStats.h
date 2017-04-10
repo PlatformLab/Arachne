@@ -55,6 +55,12 @@ namespace Arachne {
         // Number of times the dispatch() loop returned to execute a thread.
         uint64_t numThreadsRan;
 
+        // Number of times this core created a thread.
+        uint64_t numThreadsCreated;
+
+        // Number of times a thread finished running on this core.
+        uint64_t numThreadsFinished;
+
         /// Used to protect the registeredStats vector.
         static SpinLock mutex;
 

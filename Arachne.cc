@@ -205,6 +205,12 @@ double IDLE_FRACTION_TO_DECREMENT = 1.0;
   */
 double CORE_INCREASE_THRESHOLD = 1.0;
 
+/**
+  * The percentage of slots which are occupied that will prevent reducing the
+  * number of cores.
+  */
+double SLOT_OCCUPANCY_THRESHOLD = 0.5;
+
 void incrementCoreCount();
 void decrementCoreCount();
 
@@ -414,6 +420,7 @@ schedulerMainLoop() {
         // predecessors had leftover priority
         privatePriorityMask &= ~(1L << (loadedContext->idInCore));
         *publicPriorityMasks[kernelThreadId] &= ~(1L << (loadedContext->idInCore));
+        PerfStats::threadStats.numThreadsFinished++;
     }
 }
 
@@ -1356,8 +1363,15 @@ void coreLoadEstimator() {
         uint64_t totalCycles = currentStats.totalCycles - previousStats.totalCycles;
         double idleCoreFraction =
             static_cast<double>(idleCycles) / static_cast<double>(totalCycles) * numCores;
+
+        // We should not ramp down if we have high occupancy of slots.
+        double averageNumSlotsUsed = static_cast<double>(
+                currentStats.numThreadsCreated -
+                currentStats.numThreadsFinished) / numCores / maxThreadsPerCore;
+
         if (idleCoreFraction > IDLE_FRACTION_TO_DECREMENT &&
-                numActiveCores > minNumCores) {
+                numActiveCores > minNumCores && averageNumSlotsUsed <
+                SLOT_OCCUPANCY_THRESHOLD) {
             ARACHNE_LOG(DEBUG, "idleCoreFraction = %lf\n", idleCoreFraction);
             decrementCoreCount();
             continue;
