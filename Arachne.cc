@@ -232,7 +232,7 @@ cacheAlignAlloc(size_t size) {
     void *temp;
     int result = posix_memalign(&temp, CACHE_LINE_SIZE, size);
     if (result != 0) {
-        LOG(ERROR, "posix_memalign returned %s", strerror(result));
+        ARACHNE_LOG(ERROR, "posix_memalign returned %s", strerror(result));
         exit(1);
     }
     assert((reinterpret_cast<uint64_t>(temp) & (CACHE_LINE_SIZE - 1)) == 0);
@@ -271,7 +271,7 @@ threadMain() {
 
             // This marks the point at which new thread creations may begin.
             numActiveCores++;
-            LOG(DEBUG, "Number of cores increased from %d to %d\n",
+            ARACHNE_LOG(DEBUG, "Number of cores increased from %d to %d\n",
                     numActiveCores - 1, numActiveCores.load());
             TimeTrace::record("Core Count %d --> %d",
                     numActiveCores - 1, numActiveCores.load());
@@ -298,7 +298,7 @@ threadMain() {
         if (shutdown) break;
         {
             std::lock_guard<SpinLock> _(coreChangeMutex);
-            LOG(DEBUG, "Number of cores decreased from %d to %d\n",
+            ARACHNE_LOG(DEBUG, "Number of cores decreased from %d to %d\n",
                     numActiveCores + 1, numActiveCores.load());
             TimeTrace::record("Core Count %d --> %d",
                     numActiveCores + 1, numActiveCores.load());
@@ -471,7 +471,7 @@ dispatch() {
     ThreadContext* originalContext = loadedContext;
     // Check the stack canary on the current context.
     if (*reinterpret_cast<uint64_t*>(loadedContext->stack) != StackCanary) {
-        LOG(ERROR, "Stack overflow detected on %p. Canary = %lu. Aborting...\n",
+        ARACHNE_LOG(ERROR, "Stack overflow detected on %p. Canary = %lu. Aborting...\n",
                 loadedContext, *reinterpret_cast<uint64_t*>(loadedContext->stack));
         abort();
     }
@@ -702,7 +702,7 @@ parseOptions(int* argcp, const char** argv) {
                         optionName, strlen(candidateName)) == 0) {
                 if (needsArg) {
                     if (i + 1 >= argc) {
-                        LOG(ERROR,
+                        ARACHNE_LOG(ERROR,
                                 "Missing argument to option %s!\n",
                                 candidateName);
                         break;
@@ -1065,7 +1065,7 @@ void incrementCoreCount() {
     if (numActiveCores >= maxNumCores) return;
 
     coreChangeActive = true;
-    LOG(NOTICE, "Attempting to increase number of cores %u --> %u\n",
+    ARACHNE_LOG(NOTICE, "Attempting to increase number of cores %u --> %u\n",
             numActiveCores.load(), numActiveCores + 1);
     TimeTrace::record("Start Core Count %d --> %d",
             numActiveCores.load(), numActiveCores + 1);
@@ -1083,7 +1083,7 @@ void decrementCoreCount() {
     if (numActiveCores <= minNumCores) return;
 
     coreChangeActive = true;
-    LOG(NOTICE, "Attempting to decrease number of cores %u --> %u\n",
+    ARACHNE_LOG(NOTICE, "Attempting to decrease number of cores %u --> %u\n",
             numActiveCores.load(), numActiveCores - 1);
     TimeTrace::record("Start Core Count %d --> %d",
             numActiveCores.load(), numActiveCores - 1);
@@ -1103,11 +1103,11 @@ void decrementCoreCount() {
     // we are likely pre-empting must-have cores.
     if (minLoaded >= static_cast<uint8_t>(56)) {
         coreChangeActive = false;
-        LOG(DEBUG, "Failed to find an unoccupied core, giving up!\n");
-        LOG(DEBUG, "minLoaded = %u, minIndex = %u!\n", minLoaded, minIndex);
+        ARACHNE_LOG(DEBUG, "Failed to find an unoccupied core, giving up!\n");
+        ARACHNE_LOG(DEBUG, "minLoaded = %u, minIndex = %u!\n", minLoaded, minIndex);
         for (uint32_t i = 0; i < numActiveCores; i++) {
             uint32_t coreId = virtualCoreTable[i];
-            LOG(DEBUG, "virtualCoreId = %d, coreId = %u, numOccupied = %d, occupied = %lu\n",
+            ARACHNE_LOG(DEBUG, "virtualCoreId = %d, coreId = %u, numOccupied = %d, occupied = %lu\n",
                    i, coreId, occupiedAndCount[coreId]->load().numOccupied,
                     occupiedAndCount[coreId]->load().occupied);
         }
@@ -1121,7 +1121,7 @@ void decrementCoreCount() {
     // should not ramp down.
     if (createThreadOnCore(minIndex, releaseCore) == NullThread) {
         coreChangeActive = false;
-        LOG(WARNING, "Release core thread creation failed to %d!\n", minIndex);
+        ARACHNE_LOG(WARNING, "Release core thread creation failed to %d!\n", minIndex);
     }
 }
 
@@ -1324,7 +1324,7 @@ void makeSharedOnCore() {
     if (!success) {
         // If this scenario happens, it means there is a bug since nobody
         // should be able to create threads on an exclusive core.
-        LOG(ERROR, "Error making core shared again! Aborting...\n");
+        ARACHNE_LOG(ERROR, "Error making core shared again! Aborting...\n");
         abort();
     }
     numExclusiveCores--;
@@ -1358,7 +1358,7 @@ void coreLoadEstimator() {
             static_cast<double>(idleCycles) / static_cast<double>(totalCycles) * numCores;
         if (idleCoreFraction > IDLE_FRACTION_TO_DECREMENT &&
                 numActiveCores > minNumCores) {
-            LOG(DEBUG, "idleCoreFraction = %lf\n", idleCoreFraction);
+            ARACHNE_LOG(DEBUG, "idleCoreFraction = %lf\n", idleCoreFraction);
             decrementCoreCount();
             continue;
         }
@@ -1369,7 +1369,7 @@ void coreLoadEstimator() {
         uint64_t numDispatchCycles = currentStats.numDispatchCycles - previousStats.numDispatchCycles;
         double averageLoadFactor = static_cast<double>(numThreadsRan) / static_cast<double>(numDispatchCycles);
         if (averageLoadFactor < 1 || numActiveCores == maxNumCores) continue;
-        LOG(DEBUG, "Load Factor = %lf\n", averageLoadFactor);
+        ARACHNE_LOG(DEBUG, "Load Factor = %lf\n", averageLoadFactor);
         double overLoad = (averageLoadFactor - 1) * numCores;
         if (overLoad > CORE_INCREASE_THRESHOLD)
             incrementCoreCount();

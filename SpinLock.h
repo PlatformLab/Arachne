@@ -62,7 +62,7 @@ class SpinLock {
             } else {
                 uint64_t now = Cycles::rdtsc();
                 if (Cycles::toSeconds(now - startOfContention) > 1.0) {
-                    LOG(WARNING,
+                    ARACHNE_LOG(WARNING,
                             "%s SpinLock locked for one second; deadlock?\n",
                             name.c_str());
                     startOfContention = now;

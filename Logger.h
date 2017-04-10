@@ -20,7 +20,7 @@
 #include <stdint.h>
 #include <mutex>
 
-#define LOG Logger::log
+#define ARACHNE_LOG Logger::log
 
 namespace Arachne {
 
