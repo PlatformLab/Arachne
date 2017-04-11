@@ -654,6 +654,16 @@ struct DispatchTimeKeeper {
      */
     static thread_local uint64_t dispatchStartCycles;
 
+    /**
+     * Cycle counter for the beginning of the last iteration through the dispatch loop
+     */
+    static thread_local uint64_t lastDispatchIterationStart;
+
+    /**
+     * The number of threads ran in the last loop through all contexts.
+     */
+    static thread_local uint8_t numThreadsRan;
+
     DispatchTimeKeeper() {
         dispatchStartCycles = Cycles::rdtsc();
         // Initialize here instead of in threadMain, since this is the first

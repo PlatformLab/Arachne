@@ -48,12 +48,9 @@ namespace Arachne {
         // useful work and idle time.
         uint64_t totalCycles;
 
-        // Number of times the dispatch() loop has passed through all contexts
-        // on a core.
-        uint64_t numDispatchCycles;
-
-        // Number of times the dispatch() loop returned to execute a thread.
-        uint64_t numThreadsRan;
+        // Number of threads run in one pass through a dispatch cycle
+        // multiplied by the number of cycles that dispatch cycle took.
+        uint64_t weightedLoadedCycles;
 
         // Number of times this core created a thread.
         uint64_t numThreadsCreated;
