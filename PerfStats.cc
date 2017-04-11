@@ -105,6 +105,8 @@ PerfStats::collectStats(PerfStats* total)
         total->numThreadsRan      += stats->numThreadsRan;
         total->numThreadsCreated  += stats->numThreadsCreated;
         total->numThreadsFinished += stats->numThreadsFinished;
+        total->numCoreIncrements  += stats->numCoreIncrements;
+        total->numCoreDecrements  += stats->numCoreDecrements;
     }
 }
 }  // namespace Arachne
