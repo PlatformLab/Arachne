@@ -226,6 +226,8 @@ bool disableLoadEstimation;
 // Allocate storage for load-tracking pointers.
 thread_local uint64_t DispatchTimeKeeper::lastTotalCollectionTime;
 thread_local uint64_t DispatchTimeKeeper::dispatchStartCycles;
+thread_local uint64_t DispatchTimeKeeper::lastDispatchIterationStart;
+thread_local uint8_t  DispatchTimeKeeper::numThreadsRan;
 
 /**
   * Allocate a block of memory aligned at the beginning of a cache line.
@@ -293,6 +295,10 @@ threadMain() {
 			localThreadContexts[k]->coreId = static_cast<uint8_t>(kernelThreadId);
             localThreadContexts[k]->initializeStack();
         }
+
+        // Correct statistics
+        DispatchTimeKeeper::numThreadsRan = 0;
+        DispatchTimeKeeper::lastDispatchIterationStart = Cycles::rdtsc();
 
         loadedContext = localThreadContexts[0];
 
@@ -511,14 +517,14 @@ dispatch() {
                     ((mask >> firstSetBit) & 1)) {
                 if (targetContext == loadedContext) {
                     loadedContext->wakeupTimeInCycles = BLOCKED;
-                    PerfStats::threadStats.numThreadsRan++;
+                    DispatchTimeKeeper::numThreadsRan++;
                     return;
                 }
                 void** saved = &loadedContext->sp;
                 loadedContext = targetContext;
                 swapcontext(&loadedContext->sp, saved);
                 originalContext->wakeupTimeInCycles = BLOCKED;
-                PerfStats::threadStats.numThreadsRan++;
+                DispatchTimeKeeper::numThreadsRan++;
                 return;
             }
         }
@@ -556,7 +562,13 @@ dispatch() {
                         &kernelThreadStacks[kernelThreadId],
                         &loadedContext->sp);
 
-            PerfStats::threadStats.numDispatchCycles++;
+            currentCycles = Cycles::rdtsc();
+            PerfStats::threadStats.weightedLoadedCycles +=
+                DispatchTimeKeeper::numThreadsRan * (currentCycles -
+                        DispatchTimeKeeper::lastDispatchIterationStart);
+
+            DispatchTimeKeeper::numThreadsRan = 0;
+            DispatchTimeKeeper::lastDispatchIterationStart = currentCycles;
         }
 
         // Optimize to eliminate unoccupied contexts
@@ -570,7 +582,7 @@ dispatch() {
 
             if (currentContext == loadedContext) {
                 loadedContext->wakeupTimeInCycles = BLOCKED;
-                PerfStats::threadStats.numThreadsRan++;
+                DispatchTimeKeeper::numThreadsRan++;
                 return;
             }
             void** saved = &loadedContext->sp;
@@ -579,7 +591,7 @@ dispatch() {
             // After the old context is swapped out above, this line executes
             // in the new context.
             originalContext->wakeupTimeInCycles = BLOCKED;
-            PerfStats::threadStats.numThreadsRan++;
+            DispatchTimeKeeper::numThreadsRan++;
             return;
         }
     }
@@ -1381,9 +1393,8 @@ void coreLoadEstimator() {
 
         // Estimate load to determine whether we need to increment the number
         // of cores.
-        uint64_t numThreadsRan = currentStats.numThreadsRan - previousStats.numThreadsRan;
-        uint64_t numDispatchCycles = currentStats.numDispatchCycles - previousStats.numDispatchCycles;
-        double averageLoadFactor = static_cast<double>(numThreadsRan) / static_cast<double>(numDispatchCycles);
+        uint64_t weightedLoadedCycles = currentStats.weightedLoadedCycles - previousStats.weightedLoadedCycles;
+        double averageLoadFactor = static_cast<double>(weightedLoadedCycles) / static_cast<double>(totalCycles);
         if (averageLoadFactor < 1 || numActiveCores == maxNumCores) continue;
         ARACHNE_LOG(DEBUG, "Load Factor = %lf\n", averageLoadFactor);
         double overLoad = (averageLoadFactor - 1) * numCores;
