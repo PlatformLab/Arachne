@@ -282,6 +282,7 @@ threadMain() {
             TimeTrace::record("Core Count %d --> %d",
                     numActiveCores - 1, numActiveCores.load());
             if (coreChangeActive) coreChangeActive = false;
+            PerfStats::threadStats.numCoreIncrements++;
         }
 
 
@@ -310,6 +311,7 @@ threadMain() {
                     numActiveCores + 1, numActiveCores.load());
             coreChangeActive = false;
         }
+        PerfStats::threadStats.numCoreDecrements++;
     }
     PerfStats::deregisterStats(&PerfStats::threadStats);
 }

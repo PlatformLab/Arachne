@@ -61,6 +61,12 @@ namespace Arachne {
         // Number of times a thread finished running on this core.
         uint64_t numThreadsFinished;
 
+        // Number of times the number of cores increased.
+        uint64_t numCoreIncrements;
+
+        // Number of times the number of cores decreased.
+        uint64_t numCoreDecrements;
+
         /// Used to protect the registeredStats vector.
         static SpinLock mutex;
 
