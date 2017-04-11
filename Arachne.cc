@@ -1379,13 +1379,6 @@ void coreLoadEstimator() {
             continue;
         }
 
-        // Sometimes we need to ramp up because we are running out of slots for
-        // new thread creations.
-        if (averageNumSlotsUsed > SLOT_OCCUPANCY_THRESHOLD) {
-            incrementCoreCount();
-            continue;
-        }
-
         // Estimate load to determine whether we need to increment the number
         // of cores.
         uint64_t numThreadsRan = currentStats.numThreadsRan - previousStats.numThreadsRan;
