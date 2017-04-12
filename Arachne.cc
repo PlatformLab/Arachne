@@ -1318,7 +1318,6 @@ bool makeExclusiveOnCore(bool forScaleDown) {
 
     if (!forScaleDown) {
         numExclusiveCores++;
-        PerfStats::deregisterStats(&PerfStats::threadStats);
     }
 
     return true;
@@ -1349,7 +1348,6 @@ void makeSharedOnCore() {
         abort();
     }
     numExclusiveCores--;
-    PerfStats::registerStats(&PerfStats::threadStats);
 }
 
 /**
@@ -1369,24 +1367,26 @@ void coreLoadEstimator() {
         // TODO: Under the Core Arbiter, this number may decrement for external
         // reasons, so we should add in a check here to delay core load
         // estimation if that happens.
-        int numCores = numActiveCores - numExclusiveCores;
+        int numSharedCores = numActiveCores - numExclusiveCores;
 
         // Evalute idle time precentage multiplied by number of cores to
         // determine whether we need to decrease the number of cores.
         uint64_t idleCycles = currentStats.idleCycles - previousStats.idleCycles;
         uint64_t totalCycles = currentStats.totalCycles - previousStats.totalCycles;
-        double idleCoreFraction =
-            static_cast<double>(idleCycles) / static_cast<double>(totalCycles) * numCores;
+        double idleCoreFraction = static_cast<double>(idleCycles) / static_cast<double>(totalCycles);
+        double totalIdleCores = idleCoreFraction * numSharedCores;
 
         // We should not ramp down if we have high occupancy of slots.
         double averageNumSlotsUsed = static_cast<double>(
                 currentStats.numThreadsCreated -
-                currentStats.numThreadsFinished) / numCores / maxThreadsPerCore;
+                currentStats.numThreadsFinished) / numSharedCores / maxThreadsPerCore;
 
-        if (idleCoreFraction > IDLE_FRACTION_TO_DECREMENT &&
+        ARACHNE_LOG(DEBUG, "totalIdleCores = %lf, numActiveCores = %u,"
+                "numSharedCores = %d,averageNumSlotsUsed = %lf\n", totalIdleCores,
+                numActiveCores.load(), numSharedCores, averageNumSlotsUsed);
+        if (totalIdleCores > IDLE_FRACTION_TO_DECREMENT &&
                 numActiveCores > minNumCores && averageNumSlotsUsed <
                 SLOT_OCCUPANCY_THRESHOLD) {
-            ARACHNE_LOG(DEBUG, "idleCoreFraction = %lf\n", idleCoreFraction);
             decrementCoreCount();
             continue;
         }
@@ -1395,9 +1395,10 @@ void coreLoadEstimator() {
         // of cores.
         uint64_t weightedLoadedCycles = currentStats.weightedLoadedCycles - previousStats.weightedLoadedCycles;
         double averageLoadFactor = static_cast<double>(weightedLoadedCycles) / static_cast<double>(totalCycles);
-        if (averageLoadFactor < 1 || numActiveCores == maxNumCores) continue;
         ARACHNE_LOG(DEBUG, "Load Factor = %lf\n", averageLoadFactor);
-        double overLoad = (averageLoadFactor - 1) * numCores;
+        if (averageLoadFactor < 1 || numActiveCores == maxNumCores) continue;
+
+        double overLoad = (averageLoadFactor - 1) * numSharedCores;
         if (overLoad > CORE_INCREASE_THRESHOLD)
             incrementCoreCount();
     }
