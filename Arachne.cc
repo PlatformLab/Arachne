@@ -1381,12 +1381,12 @@ void coreLoadEstimator() {
                 currentStats.numThreadsCreated -
                 currentStats.numThreadsFinished) / numSharedCores / maxThreadsPerCore;
 
-        ARACHNE_LOG(DEBUG, "totalIdleCores = %lf, numActiveCores = %u,"
-                "numSharedCores = %d,averageNumSlotsUsed = %lf\n", totalIdleCores,
-                numActiveCores.load(), numSharedCores, averageNumSlotsUsed);
         if (totalIdleCores > IDLE_FRACTION_TO_DECREMENT &&
                 numActiveCores > minNumCores && averageNumSlotsUsed <
                 SLOT_OCCUPANCY_THRESHOLD) {
+            ARACHNE_LOG(DEBUG, "totalIdleCores = %lf, numActiveCores = %u,"
+                    "numSharedCores = %d,averageNumSlotsUsed = %lf\n", totalIdleCores,
+                    numActiveCores.load(), numSharedCores, averageNumSlotsUsed);
             decrementCoreCount();
             continue;
         }
@@ -1395,12 +1395,19 @@ void coreLoadEstimator() {
         // of cores.
         uint64_t weightedLoadedCycles = currentStats.weightedLoadedCycles - previousStats.weightedLoadedCycles;
         double averageLoadFactor = static_cast<double>(weightedLoadedCycles) / static_cast<double>(totalCycles);
-        ARACHNE_LOG(DEBUG, "Load Factor = %lf\n", averageLoadFactor);
         if (averageLoadFactor < 1 || numActiveCores == maxNumCores) continue;
 
+        // Do not ramp up if we would ramp down immediately afterwards
+        double anticipatedIdleCores = idleCoreFraction * (numSharedCores + 1);
+        if (anticipatedIdleCores > IDLE_FRACTION_TO_DECREMENT) continue;
+
         double overLoad = (averageLoadFactor - 1) * numSharedCores;
-        if (overLoad > CORE_INCREASE_THRESHOLD)
+        if (overLoad > CORE_INCREASE_THRESHOLD) {
+            ARACHNE_LOG(DEBUG, "overLoad = %lf, Anticipated Idle Cores = %lf,"
+                    " current Idle Cores = %lf\n",
+                    overLoad, anticipatedIdleCores, totalIdleCores);
             incrementCoreCount();
+        }
     }
 }
 
