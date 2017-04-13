@@ -201,6 +201,18 @@ const uint64_t MEASUREMENT_PERIOD = 50 * 1000 * 1000;
 double maxIdleCoreFraction = 0.1;
 
 /**
+  * Arachne will attempt to increase the number of cores if the load factor
+  * increase beyond this threshold.
+  */
+double loadFactorThreshold = 1.0;
+
+/**
+  * Save the core fraction at which we ramped up based on load factor, so we
+  * can decide whether to ramp down.
+  */
+double *idleCoreFractionThresholds;
+
+/**
   * The difference in load, expressed as a fraction of a core, between a
   * ramp-down threshold and the corresponding ramp-up threshold.
   */
@@ -659,6 +671,7 @@ void waitForTermination() {
 
     kernelThreads.clear();
     kernelThreadStacks.clear();
+    delete[] idleCoreFractionThresholds;
 
 
     for (size_t i = 0; i < maxNumCores; i++) {
@@ -851,6 +864,7 @@ init(int* argcp, const char** argv) {
     if (maxNumCores == 0)
         maxNumCores = std::thread::hardware_concurrency();
     maxNumCores = std::max(minNumCores, maxNumCores);
+    idleCoreFractionThresholds = new double[maxNumCores];
     for (uint32_t i = 0; i < minNumCores; i++)
         inactiveCores.notify();
 
@@ -1377,42 +1391,29 @@ void coreLoadEstimator() {
         double idleCoreFraction = static_cast<double>(idleCycles) / static_cast<double>(totalCycles);
         double totalIdleCores = idleCoreFraction * numSharedCores;
 
+        // Estimate load to determine whether we need to increment the number
+        // of cores.
+        uint64_t weightedLoadedCycles = currentStats.weightedLoadedCycles - previousStats.weightedLoadedCycles;
+        double averageLoadFactor = static_cast<double>(weightedLoadedCycles) / static_cast<double>(totalCycles);
+        if (numActiveCores < maxNumCores &&  averageLoadFactor > loadFactorThreshold) {
+            // Record our current totalIdleCores, so we will only ramp down if
+            // utilization would drop below this level.
+            idleCoreFractionThresholds[numActiveCores] = totalIdleCores;
+            incrementCoreCount();
+            continue;
+        }
+
         // We should not ramp down if we have high occupancy of slots.
         double averageNumSlotsUsed = static_cast<double>(
                 currentStats.numThreadsCreated -
                 currentStats.numThreadsFinished) / numSharedCores / maxThreadsPerCore;
 
-        if (totalIdleCores > 1 + maxIdleCoreFraction + idleCoreFractionHysteresis &&
-                numActiveCores > minNumCores && averageNumSlotsUsed <
-                SLOT_OCCUPANCY_THRESHOLD) {
-            ARACHNE_LOG(DEBUG, "totalIdleCores = %lf, numActiveCores = %u,"
-                    "numSharedCores = %d,averageNumSlotsUsed = %lf\n", totalIdleCores,
-                    numActiveCores.load(), numSharedCores, averageNumSlotsUsed);
+        // Scale down if the idle time after scale down is greater than the
+        // time at which we scaled up, plus a hysteresis threshold.
+        if (totalIdleCores - 1 > idleCoreFractionThresholds[numActiveCores - 1] + idleCoreFractionHysteresis  &&
+                averageNumSlotsUsed < SLOT_OCCUPANCY_THRESHOLD) {
             decrementCoreCount();
-            continue;
         }
-
-        if (totalIdleCores < maxIdleCoreFraction &&
-                numActiveCores < maxNumCores) {
-            incrementCoreCount();
-        }
-        // Estimate load to determine whether we need to increment the number
-        // of cores.
-//        uint64_t weightedLoadedCycles = currentStats.weightedLoadedCycles - previousStats.weightedLoadedCycles;
-//        double averageLoadFactor = static_cast<double>(weightedLoadedCycles) / static_cast<double>(totalCycles);
-//        if (averageLoadFactor < 1 || numActiveCores == maxNumCores) continue;
-//
-//        // Do not ramp up if we would ramp down immediately afterwards
-//        double anticipatedIdleCores = idleCoreFraction * (numSharedCores + 1);
-//        if (anticipatedIdleCores > IDLE_FRACTION_TO_DECREMENT) continue;
-//
-//        double overLoad = (averageLoadFactor - 1) * numSharedCores;
-//        if (overLoad > CORE_INCREASE_THRESHOLD) {
-//            ARACHNE_LOG(DEBUG, "overLoad = %lf, Anticipated Idle Cores = %lf,"
-//                    " current Idle Cores = %lf\n",
-//                    overLoad, anticipatedIdleCores, totalIdleCores);
-//            incrementCoreCount();
-//        }
     }
 }
 
