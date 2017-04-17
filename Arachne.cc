@@ -413,13 +413,26 @@ schedulerMainLoop() {
         // exiting.
         loadedContext->wakeupTimeInCycles = UNOCCUPIED;
 
-        // Bump the generation number for the next newborn thread.
+        // The positioning of this lock is rather subtle, and makes the
+        // following three operations atomic.
+        //   1. Bumping the generation number.
+        //   2. Clearing the occupied bit for this context.
+        //   3. Notifying joiners that this thread has fully exited.
+
+        // It is important to notify joiners only after we have cleared our
+        // occupied bit, because thread creations by the joiner will fail
+        // even if this thread has logically exited. However, this context
+        // cannot contend for a lock after its occupied bit has been cleared,
+        // because it would never awaken once it started to spin. Thus, the
+        // lock must be taken and held throughout the process of clearing the
+        // occupied bit and notifying threads attempting to join this thread.
+        std::lock_guard<SpinLock> joinGuard(loadedContext->joinLock);
+
+        // Bump the generation number for the next newborn thread. This must be
+        // done under the joinLock, since any joiner that observed the new
+        // generation number might assume that the occupied bit for this
+        // context is already cleared.
         loadedContext->generation++;
-        {
-            // Handle joins
-            std::lock_guard<SpinLock> joinGuard(loadedContext->joinLock);
-            loadedContext->joinCV.notifyAll();
-        }
 
         // The code below clears the occupied flag for the current
         // ThreadContext.
@@ -447,6 +460,8 @@ schedulerMainLoop() {
         privatePriorityMask &= ~(1L << (loadedContext->idInCore));
         *publicPriorityMasks[kernelThreadId] &= ~(1L << (loadedContext->idInCore));
         PerfStats::threadStats.numThreadsFinished++;
+
+        loadedContext->joinCV.notifyAll();
     }
 }
 
