@@ -614,8 +614,15 @@ TEST_F(ArachneTest, parseOptions_mixedOptions) {
     EXPECT_EQ(stackSize, 2048);
     EXPECT_EQ("--appOptionB", argv[1]);
     EXPECT_EQ("--appOptionA", argv[3]);
-    // Restore the stackSize
+    // Restore the stackSize. This races with cores trying to initialize
+    // stacks, since the stack memory that was allocated is smaller than the
+    // original stack size. We would like to allow thread creations before
+    // we finish initializing stacks, since those operations are orthogonal. 
+    // Therefore, we have to 
+    shutDown();
+    waitForTermination();
     stackSize = originalStackSize;
+    Arachne::init();
 }
 
 TEST_F(ArachneTest, parseOptions_appOptionsOnly) {
