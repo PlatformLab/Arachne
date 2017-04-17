@@ -543,11 +543,16 @@ createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
     // Copy the thread invocation into the byte array.
     new (&allThreadContexts[coreId][index]->threadInvocation)
         Arachne::ThreadInvocation<decltype(task)>(task);
+
+    // Read the generation number *before* waking up the thread, to avoid a
+    // race where the thread finishes executing so fast that we read the next
+    // generation number instead of the current one.
+    uint32_t generation = allThreadContexts[coreId][index]->generation;
     threadContext->wakeupTimeInCycles = 0;
 
     PerfStats::threadStats.numThreadsCreated++;
     return ThreadId(allThreadContexts[coreId][index],
-            allThreadContexts[coreId][index]->generation);
+            generation);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
