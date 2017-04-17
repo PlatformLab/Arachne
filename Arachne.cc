@@ -207,6 +207,11 @@ double maxIdleCoreFraction = 0.1;
 double loadFactorThreshold = 1.0;
 
 /**
+  * Only here to satisfy compiling benchmark.
+  */
+double maxUtilization = 0.9;
+
+/**
   * Save the core fraction at which we ramped up based on load factor, so we
   * can decide whether to ramp down.
   */
