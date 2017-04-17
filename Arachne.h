@@ -18,6 +18,7 @@
 
 #include <assert.h>
 #include <stdio.h>
+#include <string.h>
 #include <functional>
 #include <vector>
 #include <mutex>
@@ -25,7 +26,6 @@
 #include <atomic>
 #include <queue>
 #include <string>
-
 
 #include "PerfUtils/Cycles.h"
 #include "Logger.h"
@@ -528,9 +528,16 @@ createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
         }
 
         // Search for a non-occupied slot and attempt to reserve the slot
-        index = 0;
-        while ((slotMap.occupied & (1L << index)) && index < maxThreadsPerCore)
-            index++;
+        index = ffsll(~slotMap.occupied);
+        if (!index) {
+            ARACHNE_LOG(WARNING, "createThread failed after passing numOccupied "
+                    "check, virtualCoreId = %u, coreId = %u, numOccupied = %d\n",
+                    virtualCoreId, coreId, slotMap.numOccupied);
+            return NullThread;
+        }
+
+        // ffsll returns a 1-based index.
+        index--;
 
         slotMap.occupied =
             (slotMap.occupied | (1L << index)) & 0x00FFFFFFFFFFFFFF;

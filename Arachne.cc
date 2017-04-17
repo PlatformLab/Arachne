@@ -14,7 +14,6 @@
  */
 
 #include <stdio.h>
-#include <string.h>
 #include <thread>
 #include "PerfUtils/TimeTrace.h"
 #include "PerfUtils/Util.h"
