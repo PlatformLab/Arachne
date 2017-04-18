@@ -601,6 +601,9 @@ dispatch() {
 
             DispatchTimeKeeper::numThreadsRan = 0;
             DispatchTimeKeeper::lastDispatchIterationStart = currentCycles;
+        } else if (currentIndex == maxThreadsPerCore / 2) {
+            // Refresh mask at the halfway point to get lower latency for new creations.
+            mask = localOccupiedAndCount->load().occupied >> currentIndex;
         }
 
         // Optimize to eliminate unoccupied contexts
