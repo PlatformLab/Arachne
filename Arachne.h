@@ -551,7 +551,7 @@ createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
     } while (!success);
 
     // Copy the thread invocation into the byte array.
-    new (&allThreadContexts[coreId][index]->threadInvocation)
+    new (&threadContext->threadInvocation)
         Arachne::ThreadInvocation<decltype(task)>(task);
 
     // Read the generation number *before* waking up the thread, to avoid a
@@ -561,7 +561,7 @@ createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
     threadContext->wakeupTimeInCycles = 0;
 
     PerfStats::threadStats.numThreadsCreated++;
-    return ThreadId(allThreadContexts[coreId][index],
+    return ThreadId(threadContext,
             generation);
 }
 
