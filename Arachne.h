@@ -563,7 +563,7 @@ createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
 
     PerfStats::threadStats.numThreadsCreated++;
     if (failureCount)
-        PerfStats::threadStats.numTimesContended+= failureCount;
+        PerfStats::threadStats.numContendedCreations++;
 
     return ThreadId(threadContext,
             generation);

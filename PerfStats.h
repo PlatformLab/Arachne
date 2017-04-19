@@ -64,9 +64,10 @@ namespace Arachne {
         // Number of times the number of cores decreased.
         uint64_t numCoreDecrements;
 
-        // Number of times a createThread call had to be retried because of a
-        // CAS failure on the occupied bitmask.
-        uint64_t numTimesContended;
+        // Number of createThread calls which had to be retried at least once
+        // because of a CAS failure resulting from a conflict on the occupied
+        // bitmask.
+        uint64_t numContendedCreations;
 
         /// Used to protect the registeredStats vector.
         static SpinLock mutex;
