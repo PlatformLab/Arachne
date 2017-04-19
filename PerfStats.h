@@ -64,6 +64,8 @@ namespace Arachne {
         // Number of times the number of cores decreased.
         uint64_t numCoreDecrements;
 
+        uint64_t numTimesContended;
+
         /// Used to protect the registeredStats vector.
         static SpinLock mutex;
 

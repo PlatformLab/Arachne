@@ -545,6 +545,9 @@ createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
         threadContext = allThreadContexts[coreId][index];
         success = occupiedAndCount[coreId]->compare_exchange_strong(oldSlotMap,
                 slotMap);
+        if (!success) {
+          PerfStats::threadStats.numTimesContended++;
+        }
     } while (!success);
 
     // Copy the thread invocation into the byte array.
@@ -568,7 +571,7 @@ createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
 
 /**
   * Spawn a new thread with a function and arguments.
-  * 
+  *
   * \param __f
   *     The main function for the new thread.
   * \param __args
@@ -579,7 +582,7 @@ createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
   *     The return value is an identifier for the newly created thread. If
   *     there are insufficient resources for creating a new thread, then
   *     NullThread will be returned.
-  * 
+  *
   * \ingroup api
   */
 template<typename _Callable, typename... _Args>
