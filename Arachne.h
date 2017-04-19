@@ -513,6 +513,7 @@ createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
     ThreadContext* threadContext;
     bool success;
     uint32_t index;
+    int failureCount = 0;
     do {
         // Each iteration through this loop makes one attempt to enqueue the
         // task to the specified core. Multiple iterations are required only if
@@ -546,7 +547,7 @@ createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
         success = occupiedAndCount[coreId]->compare_exchange_strong(oldSlotMap,
                 slotMap);
         if (!success) {
-          PerfStats::threadStats.numTimesContended++;
+          failureCount++;
         }
     } while (!success);
 
@@ -561,6 +562,9 @@ createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
     threadContext->wakeupTimeInCycles = 0;
 
     PerfStats::threadStats.numThreadsCreated++;
+    if (failureCount)
+        PerfStats::threadStats.numTimesContended+= failureCount;
+
     return ThreadId(threadContext,
             generation);
 }
