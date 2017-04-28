@@ -524,7 +524,6 @@ dispatch() {
     }
 
     uint64_t currentCycles = Cycles::rdtsc();
-    uint64_t mask = localOccupiedAndCount->load().occupied;
 
     // Check for high priority threads.
     if (!privatePriorityMask) {
@@ -545,8 +544,7 @@ dispatch() {
             ThreadContext* targetContext = localThreadContexts[firstSetBit];
 
             // Verify wakeup and occupied.
-            if (targetContext->wakeupTimeInCycles == 0 &&
-                    ((mask >> firstSetBit) & 1)) {
+            if (targetContext->wakeupTimeInCycles == 0) {
                 if (targetContext == loadedContext) {
                     loadedContext->wakeupTimeInCycles = BLOCKED;
                     DispatchTimeKeeper::numThreadsRan++;
@@ -563,31 +561,21 @@ dispatch() {
     }
     // Find a thread to switch to
     size_t currentIndex = nextCandidateIndex;
-    mask >>= currentIndex;
 
-    for (;;currentIndex++, mask >>= 1L) {
-        // NB: When a core is fully loaded, no call to dispatch() on this core
-        // will ever enter the next block, because dispatch() will immediately
-        // find work to do and either return immediately or swap out. If the
-        // latter happens, it will return immediately on swapping back in.
-        // Thus it may make sense to check for underload here, but it
-        // definitely does not make sense to check for overload here.
-        if (mask == 0) {
-            // We have reached the end of the threads, so we should go back to
-            // the beginning.
-            currentIndex = 0;
-            mask = localOccupiedAndCount->load().occupied;
-            currentCycles = Cycles::rdtsc();
-
-            // Flush counters to keep times up to date
-            _.flush();
-        }
+    for (;;currentIndex++) {
 
         // This block should execute when a core has iterated over exactly one
         // full cycle over the available ThreadContext's, because the value of
         // currentIndex will be saved in nextCandidateIndex across calls to
         // dispatch().
-        if (currentIndex == 0) {
+        if (currentIndex == maxThreadsPerCore) {
+            // We have reached the end of the threads, so we should go back to
+            // the beginning.
+            currentIndex = 0;
+            currentCycles = Cycles::rdtsc();
+
+            // Flush counters to keep times up to date
+            _.flush();
             // Check for termination
             if (shutdown)
                 swapcontext(
@@ -602,10 +590,6 @@ dispatch() {
             DispatchTimeKeeper::numThreadsRan = 0;
             DispatchTimeKeeper::lastDispatchIterationStart = currentCycles;
         }
-
-        // Optimize to eliminate unoccupied contexts
-        if (!(mask & 1))
-            continue;
 
         ThreadContext* currentContext = localThreadContexts[currentIndex];
         if (currentCycles >= currentContext->wakeupTimeInCycles) {
