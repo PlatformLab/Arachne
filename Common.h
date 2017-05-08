@@ -23,9 +23,9 @@ struct Core {
 
     /**
       * Holds the identifier for the thread in which it is stored: allows each
-      * kernel thread to identify itself. This should eventually become a coreId,
-      * when we support multiple kernel threads per core to handle blocking system
-      * calls.
+      * kernel thread to identify itself. This should eventually become a
+      * coreId, when we support multiple kernel threads per core to handle
+      * blocking system calls.
       */
     int kernelThreadId = -1;
 
@@ -40,23 +40,23 @@ struct Core {
     std::atomic<MaskAndCount> *localOccupiedAndCount;
 
     /**
-      * This represents each core's local copy of the high-priority mask. Each call
-      * to dispatch() will first examine this bitmask. It will clear the first set
-      * bit and switch to that context. If there are no set bits, it will copy the
-      * current value of publicPriorityMasks for the current core to here, and then
-      * atomically clear those bits using an atomic OR.
+      * This represents each core's local copy of the high-priority mask. Each
+      * call to dispatch() will first examine this bitmask. It will clear the
+      * first set bit and switch to that context. If there are no set bits, it
+      * will copy the current value of publicPriorityMasks for the current core
+      * to here, and then atomically clear those bits using an atomic OR.
       *
-      * When ramping down cores, this value (if nonzero) should be cleared, since
-      * all non-terminated threads on this core will be migrated away from this
-      * thread.
+      * When ramping down cores, this value (if nonzero) should be cleared,
+      * since all non-terminated threads on this core will be migrated away
+      * from this thread.
       */
     uint64_t privatePriorityMask;
 
     /**
       * This variable holds the index into the current kernel thread's
-      * localThreadContexts that it will check first the next time it looks for a
-      * thread to run. It is used to implement round-robin scheduling of Arachne
-      * threads.
+      * localThreadContexts that it will check first the next time it looks for
+      * a thread to run. It is used to implement round-robin scheduling of
+      * Arachne threads.
       */
     size_t nextCandidateIndex = 0;
 };

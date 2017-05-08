@@ -67,9 +67,10 @@ std::atomic<uint32_t> numActiveCores;
 std::atomic<uint32_t> numExclusiveCores;
 
 /**
-  * The largest number of cores that Arachne is permitted to utilize.
-  * It is an invariant that maxNumCores >= numActiveCores, but if the user explicitly
-  * sets both then numActiveCores will push maxNumCores up to satisfy the invariant.
+  * The largest number of cores that Arachne is permitted to utilize.  It is an
+  * invariant that maxNumCores >= numActiveCores, but if the user explicitly
+  * sets both then numActiveCores will push maxNumCores up to satisfy the
+  * invariant.
   */
 volatile uint32_t maxNumCores;
 
@@ -265,7 +266,8 @@ threadMain() {
         // It is valid to initialize this after incrementing numActiveCores
         // because thread creations do not touch these variables.
         for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
-			core.localThreadContexts[k]->coreId = static_cast<uint8_t>(core.kernelThreadId);
+            core.localThreadContexts[k]->coreId =
+                static_cast<uint8_t>(core.kernelThreadId);
             core.localThreadContexts[k]->initializeStack();
         }
 
@@ -279,7 +281,8 @@ threadMain() {
         // This context has been pre-initialized by init so it will "return"
         // to the schedulerMainLoop.
         // This call will return iff shutDown is called from the main thread.
-        swapcontext(&core.loadedContext->sp, &kernelThreadStacks[core.kernelThreadId]);
+        swapcontext(&core.loadedContext->sp,
+                &kernelThreadStacks[core.kernelThreadId]);
         numActiveCores--;
         if (shutdown) break;
         {
@@ -413,7 +416,8 @@ schedulerMainLoop() {
         // Newborn threads should not have elevated priority, even if the
         // predecessors had leftover priority
         core.privatePriorityMask &= ~(1L << (core.loadedContext->idInCore));
-        *publicPriorityMasks[core.kernelThreadId] &= ~(1L << (core.loadedContext->idInCore));
+        *publicPriorityMasks[core.kernelThreadId] &= ~(1L <<
+                (core.loadedContext->idInCore));
         PerfStats::threadStats.numThreadsFinished++;
 
         core.loadedContext->joinCV.notifyAll();
@@ -455,7 +459,8 @@ sleep(uint64_t ns) {
   */
 ThreadId
 getThreadId() {
-    return core.loadedContext ? ThreadId(core.loadedContext, core.loadedContext->generation)
+    return core.loadedContext ? ThreadId(core.loadedContext,
+            core.loadedContext->generation)
         : Arachne::NullThread;
 }
 
@@ -470,13 +475,16 @@ dispatch() {
     DispatchTimeKeeper dispatchTimeTracker;
     Core& core = Arachne::core;
     // Cache the original context so that we can survive across migrations to
-    // other kernel threads, since core.loadedContext is not reloaded correctly from
-    // TLS after switching back to this context.
+    // other kernel threads, since core.loadedContext is not reloaded correctly
+    // from TLS after switching back to this context.
     ThreadContext* originalContext = core.loadedContext;
     // Check the stack canary on the current context.
-    if (*reinterpret_cast<uint64_t*>(core.loadedContext->stack) != StackCanary) {
-        ARACHNE_LOG(ERROR, "Stack overflow detected on %p. Canary = %lu. Aborting...\n",
-                core.loadedContext, *reinterpret_cast<uint64_t*>(core.loadedContext->stack));
+    if (*reinterpret_cast<uint64_t*>(core.loadedContext->stack) !=
+            StackCanary) {
+        ARACHNE_LOG(ERROR, "Stack overflow detected on %p. Canary = %lu."
+                " Aborting...\n",
+                core.loadedContext,
+                *reinterpret_cast<uint64_t*>(core.loadedContext->stack));
         abort();
     }
 
@@ -487,7 +495,8 @@ dispatch() {
         // Copy & paste from the public list.
         core.privatePriorityMask = *publicPriorityMasks[core.kernelThreadId];
         if (core.privatePriorityMask)
-            *publicPriorityMasks[core.kernelThreadId] &= ~core.privatePriorityMask;
+            *publicPriorityMasks[core.kernelThreadId] &=
+                ~core.privatePriorityMask;
     }
 
     if (core.privatePriorityMask) {
@@ -498,7 +507,8 @@ dispatch() {
             firstSetBit--;
             core.privatePriorityMask &= ~(1L << (firstSetBit));
 
-            ThreadContext* targetContext = core.localThreadContexts[firstSetBit];
+            ThreadContext* targetContext =
+                core.localThreadContexts[firstSetBit];
 
             // Verify wakeup and occupied.
             if (targetContext->wakeupTimeInCycles == 0) {
@@ -541,17 +551,21 @@ dispatch() {
                         &core.loadedContext->sp);
 
             PerfStats::threadStats.weightedLoadedCycles +=
-                DispatchTimeKeeper::numThreadsRan * (dispatchIterationStartCycles -
+                DispatchTimeKeeper::numThreadsRan * (
+                        dispatchIterationStartCycles -
                         DispatchTimeKeeper::lastDispatchIterationStart);
 
             DispatchTimeKeeper::numThreadsRan = 0;
-            DispatchTimeKeeper::lastDispatchIterationStart = dispatchIterationStartCycles;
+            DispatchTimeKeeper::lastDispatchIterationStart =
+                dispatchIterationStartCycles;
         }
 
         ThreadContext* currentContext = core.localThreadContexts[currentIndex];
-        if (dispatchIterationStartCycles >= currentContext->wakeupTimeInCycles) {
+        if (dispatchIterationStartCycles >=
+                currentContext->wakeupTimeInCycles) {
             core.nextCandidateIndex = currentIndex + 1;
-            if (core.nextCandidateIndex == maxThreadsPerCore) core.nextCandidateIndex = 0;
+            if (core.nextCandidateIndex == maxThreadsPerCore)
+                core.nextCandidateIndex = 0;
 
             if (currentContext == core.loadedContext) {
                 core.loadedContext->wakeupTimeInCycles = BLOCKED;
@@ -1085,7 +1099,8 @@ void decrementCoreCount() {
             numActiveCores.load(), numActiveCores - 1);
 
     // Find a core to deschedule
-    uint8_t minLoaded = occupiedAndCount[virtualCoreTable[0]]->load().numOccupied;
+    uint8_t minLoaded =
+        occupiedAndCount[virtualCoreTable[0]]->load().numOccupied;
     int minIndex = 0;
     for (uint32_t i = 1; i < numActiveCores; i++) {
         uint32_t coreId = virtualCoreTable[i];
@@ -1100,10 +1115,12 @@ void decrementCoreCount() {
     if (minLoaded >= static_cast<uint8_t>(56)) {
         coreChangeActive = false;
         ARACHNE_LOG(DEBUG, "Failed to find an unoccupied core, giving up!\n");
-        ARACHNE_LOG(DEBUG, "minLoaded = %u, minIndex = %u!\n", minLoaded, minIndex);
+        ARACHNE_LOG(DEBUG, "minLoaded = %u, minIndex = %u!\n",
+                minLoaded, minIndex);
         for (uint32_t i = 0; i < numActiveCores; i++) {
             uint32_t coreId = virtualCoreTable[i];
-            ARACHNE_LOG(DEBUG, "virtualCoreId = %d, coreId = %u, numOccupied = %d, occupied = %lu\n",
+            ARACHNE_LOG(DEBUG, "virtualCoreId = %d, coreId = %u,"
+                    " numOccupied = %d, occupied = %lu\n",
                    i, coreId, occupiedAndCount[coreId]->load().numOccupied,
                     occupiedAndCount[coreId]->load().occupied);
         }
@@ -1117,7 +1134,8 @@ void decrementCoreCount() {
     // should not ramp down.
     if (createThreadOnCore(minIndex, releaseCore) == NullThread) {
         coreChangeActive = false;
-        ARACHNE_LOG(WARNING, "Release core thread creation failed to %d!\n", minIndex);
+        ARACHNE_LOG(WARNING, "Release core thread creation failed to %d!\n",
+                minIndex);
     }
 }
 
@@ -1138,14 +1156,14 @@ void decrementCoreCount() {
   */
 bool makeExclusiveOnCore(bool forScaleDown) {
     // Cache the original context so that we can survive across migrations to
-    // other kernel threads, since core.loadedContext is not reloaded correctly from
-    // TLS after switching back to this context.
+    // other kernel threads, since core.loadedContext is not reloaded correctly
+    // from TLS after switching back to this context.
     ThreadContext* originalContext = core.loadedContext;
 
     std::lock_guard<SleepLock> _(coreExclusionMutex);
     // Already exclusive
-    // TODO: Read the new value of core.localOccupiedAndCount, instead of the value
-    // from the previous kernelThread.
+    // TODO: Read the new value of core.localOccupiedAndCount, instead of the
+    // value from the previous kernelThread.
     MaskAndCount originalMask = *core.localOccupiedAndCount;
     if (originalMask.numOccupied > maxThreadsPerCore) {
         // If we are not the exclusive thread, then an error has occurred.
@@ -1181,7 +1199,8 @@ bool makeExclusiveOnCore(bool forScaleDown) {
             // There is no race with completions here because no other thread
             // can be running on this core since we are running.
             if (((targetOccupiedAndCount.occupied >> i) & 1) &&
-                    core.localThreadContexts[i]->wakeupTimeInCycles == UNOCCUPIED) {
+                    core.localThreadContexts[i]->wakeupTimeInCycles ==
+                    UNOCCUPIED) {
                 pendingCreation = true;
                 break;
             }
@@ -1194,7 +1213,6 @@ bool makeExclusiveOnCore(bool forScaleDown) {
     sleep(COMPLETION_WAIT_TIME);
 
     blockedOccupiedAndCount = *core.localOccupiedAndCount;
-    // Sanity check the state of blockedOccupiedAndCount here. See if creations are still blocked.
     // Sanity checking that we blocked creations successfully
     if (blockedOccupiedAndCount.numOccupied <= maxThreadsPerCore) {
         abort();
@@ -1224,21 +1242,25 @@ bool makeExclusiveOnCore(bool forScaleDown) {
         if ((blockedOccupiedAndCount.occupied >> i) & 1) {
             uint8_t index;
             do {
-                // Each iteration through this loop makes one attempt to enqueue the
-                // task to the specified core. Multiple iterations are required only if
-                // there is contention for the core's state variables.
+                // Each iteration through this loop makes one attempt to
+                // enqueue the task to the specified core. Multiple iterations
+                // are required only if there is contention for the core's
+                // state variables.
                 MaskAndCount slotMap = *occupiedAndCount[coreId];
                 MaskAndCount oldSlotMap = slotMap;
 
-                // Skip this core since it might be an exclusive or fully loaded.
+                // Skip this core since it might be an exclusive or fully
+                // loaded.
                 if (slotMap.numOccupied >= maxThreadsPerCore) {
                     success = false;
                     break;
                 }
 
-                // Search for a non-occupied slot and attempt to reserve the slot
+                // Search for a non-occupied slot and attempt to reserve the
+                // slot
                 index = 0;
-                while ((slotMap.occupied & (1L << index)) && index < maxThreadsPerCore)
+                while ((slotMap.occupied & (1L << index)) &&
+                        index < maxThreadsPerCore)
                     index++;
 
                 slotMap.occupied =
@@ -1250,8 +1272,10 @@ bool makeExclusiveOnCore(bool forScaleDown) {
 
             if (success) {
                 // Now that we have found a slot, we can clear our bit.
-                blockedOccupiedAndCount.occupied &= ~(1 << i) & 0x00FFFFFFFFFFFFFF;
-                // At this point we've reserved a spot on the target, and now we swap.
+                blockedOccupiedAndCount.occupied &=
+                    ~(1 << i) & 0x00FFFFFFFFFFFFFF;
+                // At this point we've reserved a spot on the target, and now
+                // we swap.
                 ThreadContext* contextToMigrate =
                     allThreadContexts[coreId][index];
                 allThreadContexts[coreId][index] = core.localThreadContexts[i];
@@ -1272,7 +1296,8 @@ bool makeExclusiveOnCore(bool forScaleDown) {
             }
 
             // The next victim core that we will pawn our work on.
-            nextMigrationTarget = (nextMigrationTarget + 1) % (numActiveCores - 1);
+            nextMigrationTarget =
+                (nextMigrationTarget + 1) % (numActiveCores - 1);
             coreId = virtualCoreTable[nextMigrationTarget];
         }
     }
@@ -1286,9 +1311,10 @@ bool makeExclusiveOnCore(bool forScaleDown) {
         abort();
     }
 
-    // Update core.localOccupiedAndCount to a consistent state before exiting. At
-    // this point, creations should have already been blocked, and completions
-    // cannot occur because we are running, so we can just directly assign.
+    // Update core.localOccupiedAndCount to a consistent state before exiting.
+    // At this point, creations should have already been blocked, and
+    // completions cannot occur because we are running, so we can just directly
+    // assign.
     *core.localOccupiedAndCount = blockedOccupiedAndCount;
 
     if (!forScaleDown) {
@@ -1346,16 +1372,24 @@ void coreLoadEstimator() {
 
         // Evalute idle time precentage multiplied by number of cores to
         // determine whether we need to decrease the number of cores.
-        uint64_t idleCycles = currentStats.idleCycles - previousStats.idleCycles;
-        uint64_t totalCycles = currentStats.totalCycles - previousStats.totalCycles;
-        double idleCoreFraction = static_cast<double>(idleCycles) / static_cast<double>(totalCycles);
+        uint64_t idleCycles =
+            currentStats.idleCycles - previousStats.idleCycles;
+        uint64_t totalCycles =
+            currentStats.totalCycles - previousStats.totalCycles;
+        double idleCoreFraction =
+            static_cast<double>(idleCycles) / static_cast<double>(totalCycles);
         double totalIdleCores = idleCoreFraction * numSharedCores;
 
         // Estimate load to determine whether we need to increment the number
         // of cores.
-        uint64_t weightedLoadedCycles = currentStats.weightedLoadedCycles - previousStats.weightedLoadedCycles;
-        double averageLoadFactor = static_cast<double>(weightedLoadedCycles) / static_cast<double>(totalCycles);
-        if (numActiveCores < maxNumCores &&  averageLoadFactor > loadFactorThreshold) {
+        uint64_t weightedLoadedCycles =
+            currentStats.weightedLoadedCycles -
+            previousStats.weightedLoadedCycles;
+        double averageLoadFactor =
+            static_cast<double>(weightedLoadedCycles) /
+            static_cast<double>(totalCycles);
+        if (numActiveCores < maxNumCores &&
+                averageLoadFactor > loadFactorThreshold) {
             // Record our current totalIdleCores, so we will only ramp down if
             // utilization would drop below this level.
             idleCoreFractionThresholds[numActiveCores] = totalIdleCores;
@@ -1366,11 +1400,13 @@ void coreLoadEstimator() {
         // We should not ramp down if we have high occupancy of slots.
         double averageNumSlotsUsed = static_cast<double>(
                 currentStats.numThreadsCreated -
-                currentStats.numThreadsFinished) / numSharedCores / maxThreadsPerCore;
+                currentStats.numThreadsFinished) /
+                numSharedCores / maxThreadsPerCore;
 
         // Scale down if the idle time after scale down is greater than the
         // time at which we scaled up, plus a hysteresis threshold.
-        if (totalIdleCores - 1 > idleCoreFractionThresholds[numActiveCores - 1] + idleCoreFractionHysteresis  &&
+        if (totalIdleCores - 1 > idleCoreFractionThresholds[numActiveCores - 1]
+                + idleCoreFractionHysteresis  &&
                 averageNumSlotsUsed < SLOT_OCCUPANCY_THRESHOLD) {
             decrementCoreCount();
         }

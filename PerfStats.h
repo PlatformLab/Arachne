@@ -23,10 +23,11 @@
 namespace Arachne {
     /**
      * An object of this class records various performance-related information.
-     * Each kernel thread has a private instance of this object, which eliminates
-     * cache conflicts when updating statistics and makes the class thread-safe.
-     * In addition, an object of this class is returned by collectStats, which
-     * aggregates the statistics from all of the individual threads.
+     * Each kernel thread has a private instance of this object, which
+     * eliminates cache conflicts when updating statistics and makes the class
+     * thread-safe.  In addition, an object of this class is returned by
+     * collectStats, which aggregates the statistics from all of the individual
+     * threads.
      *
      * If you add a new metric, be sure to update all of the relevant methods
      * in PerfStats.cc. For example, search for all of the places where
@@ -78,8 +79,8 @@ namespace Arachne {
         /// aggregate their statistics in collectStats.
         static std::vector<PerfStats*> registeredStats;
 
-        /// The following thread-local variable is used to access the statistics
-        /// for the current thread.
+        /// The following thread-local variable is used to access the
+        /// statistics for the current thread.
         static thread_local PerfStats threadStats;
 
         PerfStats(bool shouldRegister = false);

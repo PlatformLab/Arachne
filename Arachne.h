@@ -522,8 +522,8 @@ createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
         MaskAndCount oldSlotMap = slotMap;
 
         if (slotMap.numOccupied >= maxThreadsPerCore) {
-            ARACHNE_LOG(VERBOSE, "createThread failure, virtualCoreId = %u, coreId = %u,"
-                       "numOccupied = %d\n", virtualCoreId, coreId,
+            ARACHNE_LOG(VERBOSE, "createThread failure, virtualCoreId = %u, "
+                    "coreId = %u," "numOccupied = %d\n", virtualCoreId, coreId,
                        slotMap.numOccupied);
             return NullThread;
         }
@@ -531,8 +531,9 @@ createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
         // Search for a non-occupied slot and attempt to reserve the slot
         index = ffsll(~slotMap.occupied);
         if (!index) {
-            ARACHNE_LOG(WARNING, "createThread failed after passing numOccupied "
-                    "check, virtualCoreId = %u, coreId = %u, numOccupied = %d\n",
+            ARACHNE_LOG(WARNING, "createThread failed after passing numOccupied"
+                    " check, virtualCoreId = %u, coreId = %u,"
+                    " numOccupied = %d\n",
                     virtualCoreId, coreId, slotMap.numOccupied);
             return NullThread;
         }
@@ -674,7 +675,8 @@ struct DispatchTimeKeeper {
     static thread_local uint64_t dispatchStartCycles;
 
     /**
-     * Cycle counter for the beginning of the last iteration through the dispatch loop
+     * Cycle counter for the beginning of the last iteration through the
+     * dispatch loop.
      */
     static thread_local uint64_t lastDispatchIterationStart;
 
@@ -699,7 +701,8 @@ struct DispatchTimeKeeper {
     void
     flush() {
         uint64_t currentTime = Cycles::rdtsc();
-        PerfStats::threadStats.totalCycles += currentTime - lastTotalCollectionTime;
+        PerfStats::threadStats.totalCycles += currentTime -
+            lastTotalCollectionTime;
         PerfStats::threadStats.idleCycles += currentTime - dispatchStartCycles;
         lastTotalCollectionTime = currentTime;
         dispatchStartCycles = currentTime;
@@ -707,7 +710,8 @@ struct DispatchTimeKeeper {
 
     ~DispatchTimeKeeper(){
         uint64_t currentTime = Cycles::rdtsc();
-        PerfStats::threadStats.totalCycles += currentTime - lastTotalCollectionTime;
+        PerfStats::threadStats.totalCycles += currentTime -
+            lastTotalCollectionTime;
         PerfStats::threadStats.idleCycles += currentTime - dispatchStartCycles;
         lastTotalCollectionTime = currentTime;
     }
