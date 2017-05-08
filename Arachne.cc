@@ -468,6 +468,7 @@ getThreadId() {
 void
 dispatch() {
     DispatchTimeKeeper _;
+    Core& core = Arachne::core;
     // Cache the original context so that we can survive across migrations to
     // other kernel threads, since core.loadedContext is not reloaded correctly from
     // TLS after switching back to this context.
