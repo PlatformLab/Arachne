@@ -467,7 +467,7 @@ getThreadId() {
   */
 void
 dispatch() {
-    DispatchTimeKeeper _;
+    DispatchTimeKeeper dispatchTimeTracker;
     Core& core = Arachne::core;
     // Cache the original context so that we can survive across migrations to
     // other kernel threads, since core.loadedContext is not reloaded correctly from
@@ -480,7 +480,7 @@ dispatch() {
         abort();
     }
 
-    uint64_t currentCycles = Cycles::rdtsc();
+    uint64_t dispatchIterationStartCycles = Cycles::rdtsc();
 
     // Check for high priority threads.
     if (!core.privatePriorityMask) {
@@ -529,27 +529,27 @@ dispatch() {
             // We have reached the end of the threads, so we should go back to
             // the beginning.
             currentIndex = 0;
-            currentCycles = Cycles::rdtsc();
+            dispatchIterationStartCycles = Cycles::rdtsc();
 
             // Flush counters to keep times up to date
-            _.flush();
+            dispatchTimeTracker.flush();
+
             // Check for termination
             if (shutdown)
                 swapcontext(
                         &kernelThreadStacks[core.kernelThreadId],
                         &core.loadedContext->sp);
 
-            currentCycles = Cycles::rdtsc();
             PerfStats::threadStats.weightedLoadedCycles +=
-                DispatchTimeKeeper::numThreadsRan * (currentCycles -
+                DispatchTimeKeeper::numThreadsRan * (dispatchIterationStartCycles -
                         DispatchTimeKeeper::lastDispatchIterationStart);
 
             DispatchTimeKeeper::numThreadsRan = 0;
-            DispatchTimeKeeper::lastDispatchIterationStart = currentCycles;
+            DispatchTimeKeeper::lastDispatchIterationStart = dispatchIterationStartCycles;
         }
 
         ThreadContext* currentContext = core.localThreadContexts[currentIndex];
-        if (currentCycles >= currentContext->wakeupTimeInCycles) {
+        if (dispatchIterationStartCycles >= currentContext->wakeupTimeInCycles) {
             core.nextCandidateIndex = currentIndex + 1;
             if (core.nextCandidateIndex == maxThreadsPerCore) core.nextCandidateIndex = 0;
 
