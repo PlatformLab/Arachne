@@ -115,41 +115,14 @@ std::vector<void*> kernelThreadStacks;
 volatile bool shutdown;
 
 /**
-  * Alert the kernel thread that cleanup is complete and it should block for
-  * ramp-down.
-  */
-thread_local bool threadShouldYield;
-
-/**
   * The collection of possibly runnable contexts for each kernel thread.
   */
 std::vector<ThreadContext**> allThreadContexts;
 
 /**
-  * This pointer allows fast access to the current kernel thread's
-  * localThreadContexts without computing an offset from the global
-  * allThreadContexts vector on each access.
-  */
-thread_local ThreadContext** localThreadContexts;
-
-/**
-  * Holds the identifier for the thread in which it is stored: allows each
-  * kernel thread to identify itself. This should eventually become a coreId,
-  * when we support multiple kernel threads per core to handle blocking system
-  * calls.
-  */
-thread_local int kernelThreadId = -1;
-
-/**
-  * This is the context that a given kernel thread is currently executing.
-  */
-thread_local ThreadContext *loadedContext;
-
-/**
   * See documentation for MaskAndCount.
   */
 std::vector<std::atomic<MaskAndCount> * > occupiedAndCount;
-thread_local std::atomic<MaskAndCount> *localOccupiedAndCount;
 
 /**
   * This table maps a contiguous range of virtual core ID's to indices into an
@@ -163,28 +136,6 @@ int* virtualCoreTable;
   * priority of the thread living at index j on core i is temporarily raised.
   */
 std::vector< std::atomic<uint64_t> *> publicPriorityMasks;
-
-/**
-  * This represents each core's local copy of the high-priority mask. Each call
-  * to dispatch() will first examine this bitmask. It will clear the first set
-  * bit and switch to that context. If there are no set bits, it will copy the
-  * current value of publicPriorityMasks for the current core to here, and then
-  * atomically clear those bits using an atomic OR.
-  *
-  * When ramping down cores, this value (if nonzero) should be cleared, since
-  * all non-terminated threads on this core will be migrated away from this
-  * thread.
-  */
-thread_local uint64_t privatePriorityMask;
-
-/**
-  * This variable holds the index into the current kernel thread's
-  * localThreadContexts that it will check first the next time it looks for a
-  * thread to run. It is used to implement round-robin scheduling of Arachne
-  * threads.
-  */
-thread_local size_t nextCandidateIndex = 0;
-
 
 /**
   * The period in ns over which we measure before deciding to reduce the number
@@ -236,6 +187,11 @@ void decrementCoreCount();
   */
 ::Semaphore inactiveCores;
 
+/**
+  * All core-specific state that is not associated with other classes.
+  */
+thread_local Core core;
+
 // BEGIN Testing-Specific Flags
 bool disableLoadEstimation;
 // END   Testing-Specific Flags
@@ -283,16 +239,16 @@ threadMain() {
         if (shutdown) break;
         {
             std::lock_guard<SpinLock> _(coreChangeMutex);
-            kernelThreadId = virtualCoreTable[numActiveCores];
-            localOccupiedAndCount = occupiedAndCount[kernelThreadId];
-            localThreadContexts = allThreadContexts[kernelThreadId];
+            core.kernelThreadId = virtualCoreTable[numActiveCores];
+            core.localOccupiedAndCount = occupiedAndCount[core.kernelThreadId];
+            core.localThreadContexts = allThreadContexts[core.kernelThreadId];
 
             DispatchTimeKeeper::lastTotalCollectionTime = 0;
             // Clean up state from the previous thread that was using this data
             // structure.
-            *localOccupiedAndCount = {0,0};
-            *publicPriorityMasks[kernelThreadId] = 0;
-            privatePriorityMask = 0;
+            *core.localOccupiedAndCount = {0,0};
+            *publicPriorityMasks[core.kernelThreadId] = 0;
+            core.privatePriorityMask = 0;
 
             // This marks the point at which new thread creations may begin.
             numActiveCores++;
@@ -309,21 +265,21 @@ threadMain() {
         // It is valid to initialize this after incrementing numActiveCores
         // because thread creations do not touch these variables.
         for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
-			localThreadContexts[k]->coreId = static_cast<uint8_t>(kernelThreadId);
-            localThreadContexts[k]->initializeStack();
+			core.localThreadContexts[k]->coreId = static_cast<uint8_t>(core.kernelThreadId);
+            core.localThreadContexts[k]->initializeStack();
         }
 
         // Correct statistics
         DispatchTimeKeeper::numThreadsRan = 0;
         DispatchTimeKeeper::lastDispatchIterationStart = Cycles::rdtsc();
 
-        loadedContext = localThreadContexts[0];
+        core.loadedContext = core.localThreadContexts[0];
 
         // Transfers control to the Arachne dispatcher.
         // This context has been pre-initialized by init so it will "return"
         // to the schedulerMainLoop.
         // This call will return iff shutDown is called from the main thread.
-        swapcontext(&loadedContext->sp, &kernelThreadStacks[kernelThreadId]);
+        swapcontext(&core.loadedContext->sp, &kernelThreadStacks[core.kernelThreadId]);
         numActiveCores--;
         if (shutdown) break;
         {
@@ -392,25 +348,25 @@ schedulerMainLoop() {
     while (true) {
         // Check for whether this thread should exit, for the purposes of
         // ramping down.
-        if (threadShouldYield) {
+        if (core.threadShouldYield) {
 			// Switch back to our kernel-provided stack to block in the Core
 			// Arbiter, since the next time this thread unblocks, it may not
 			// live on the same core, and will use a different set of user
 			// contexts.
-            threadShouldYield = false;
+            core.threadShouldYield = false;
             swapcontext(
-                    &kernelThreadStacks[kernelThreadId],
-                    &loadedContext->sp);
+                    &kernelThreadStacks[core.kernelThreadId],
+                    &core.loadedContext->sp);
         }
         // No thread to execute yet. This call will not return until we have
         // been assigned a new Arachne thread.
         dispatch();
         reinterpret_cast<ThreadInvocationEnabler*>(
-                &loadedContext->threadInvocation)->runThread();
+                &core.loadedContext->threadInvocation)->runThread();
         // The thread has exited.
         // Cancel any wakeups the thread may have scheduled for itself before
         // exiting.
-        loadedContext->wakeupTimeInCycles = UNOCCUPIED;
+        core.loadedContext->wakeupTimeInCycles = UNOCCUPIED;
 
         // The positioning of this lock is rather subtle, and makes the
         // following three operations atomic.
@@ -425,13 +381,13 @@ schedulerMainLoop() {
         // because it would never awaken once it started to spin. Thus, the
         // lock must be taken and held throughout the process of clearing the
         // occupied bit and notifying threads attempting to join this thread.
-        std::lock_guard<SpinLock> joinGuard(loadedContext->joinLock);
+        std::lock_guard<SpinLock> joinGuard(core.loadedContext->joinLock);
 
         // Bump the generation number for the next newborn thread. This must be
         // done under the joinLock, since any joiner that observed the new
         // generation number might assume that the occupied bit for this
         // context is already cleared.
-        loadedContext->generation++;
+        core.loadedContext->generation++;
 
         // The code below clears the occupied flag for the current
         // ThreadContext.
@@ -442,25 +398,25 @@ schedulerMainLoop() {
         // get wiped out by this code.
         bool success;
         do {
-            MaskAndCount slotMap = *localOccupiedAndCount;
+            MaskAndCount slotMap = *core.localOccupiedAndCount;
             MaskAndCount oldSlotMap = slotMap;
             if (slotMap.numOccupied == 0) abort();
             slotMap.numOccupied--;
 
-            slotMap.occupied &=
-                ~(1L << loadedContext->idInCore) & 0x00FFFFFFFFFFFFFF;
-            success = localOccupiedAndCount->compare_exchange_strong(
+            slotMap.occupied = slotMap.occupied &
+                ~(1L << core.loadedContext->idInCore) & 0x00FFFFFFFFFFFFFF;
+            success = core.localOccupiedAndCount->compare_exchange_strong(
                     oldSlotMap,
                     slotMap);
         } while (!success);
 
         // Newborn threads should not have elevated priority, even if the
         // predecessors had leftover priority
-        privatePriorityMask &= ~(1L << (loadedContext->idInCore));
-        *publicPriorityMasks[kernelThreadId] &= ~(1L << (loadedContext->idInCore));
+        core.privatePriorityMask &= ~(1L << (core.loadedContext->idInCore));
+        *publicPriorityMasks[core.kernelThreadId] &= ~(1L << (core.loadedContext->idInCore));
         PerfStats::threadStats.numThreadsFinished++;
 
-        loadedContext->joinCV.notifyAll();
+        core.loadedContext->joinCV.notifyAll();
     }
 }
 
@@ -471,11 +427,11 @@ schedulerMainLoop() {
   */
 void
 yield() {
-    if (!loadedContext) return;
-    if (localOccupiedAndCount->load().numOccupied == 1 &&
-            !shutdown && !threadShouldYield) return;
+    if (!core.loadedContext) return;
+    if (core.localOccupiedAndCount->load().numOccupied == 1 &&
+            !shutdown && !core.threadShouldYield) return;
     // This thread is still runnable since it is merely yielding.
-    loadedContext->wakeupTimeInCycles = 0L;
+    core.loadedContext->wakeupTimeInCycles = 0L;
     dispatch();
 }
 
@@ -485,7 +441,7 @@ yield() {
   */
 void
 sleep(uint64_t ns) {
-    loadedContext->wakeupTimeInCycles =
+    core.loadedContext->wakeupTimeInCycles =
         Cycles::rdtsc() + Cycles::fromNanoseconds(ns);
     dispatch();
 }
@@ -499,7 +455,7 @@ sleep(uint64_t ns) {
   */
 ThreadId
 getThreadId() {
-    return loadedContext ? ThreadId(loadedContext, loadedContext->generation)
+    return core.loadedContext ? ThreadId(core.loadedContext, core.loadedContext->generation)
         : Arachne::NullThread;
 }
 
@@ -513,46 +469,46 @@ void
 dispatch() {
     DispatchTimeKeeper _;
     // Cache the original context so that we can survive across migrations to
-    // other kernel threads, since loadedContext is not reloaded correctly from
+    // other kernel threads, since core.loadedContext is not reloaded correctly from
     // TLS after switching back to this context.
-    ThreadContext* originalContext = loadedContext;
+    ThreadContext* originalContext = core.loadedContext;
     // Check the stack canary on the current context.
-    if (*reinterpret_cast<uint64_t*>(loadedContext->stack) != StackCanary) {
+    if (*reinterpret_cast<uint64_t*>(core.loadedContext->stack) != StackCanary) {
         ARACHNE_LOG(ERROR, "Stack overflow detected on %p. Canary = %lu. Aborting...\n",
-                loadedContext, *reinterpret_cast<uint64_t*>(loadedContext->stack));
+                core.loadedContext, *reinterpret_cast<uint64_t*>(core.loadedContext->stack));
         abort();
     }
 
     uint64_t currentCycles = Cycles::rdtsc();
 
     // Check for high priority threads.
-    if (!privatePriorityMask) {
+    if (!core.privatePriorityMask) {
         // Copy & paste from the public list.
-        privatePriorityMask = *publicPriorityMasks[kernelThreadId];
-        if (privatePriorityMask)
-            *publicPriorityMasks[kernelThreadId] &= ~privatePriorityMask;
+        core.privatePriorityMask = *publicPriorityMasks[core.kernelThreadId];
+        if (core.privatePriorityMask)
+            *publicPriorityMasks[core.kernelThreadId] &= ~core.privatePriorityMask;
     }
 
-    if (privatePriorityMask) {
+    if (core.privatePriorityMask) {
         // This position is one-indexed with zero meaning that no bits were
         // set.
-        int firstSetBit = ffsll(privatePriorityMask);
+        int firstSetBit = ffsll(core.privatePriorityMask);
         if (firstSetBit) {
             firstSetBit--;
-            privatePriorityMask &= ~(1L << (firstSetBit));
+            core.privatePriorityMask &= ~(1L << (firstSetBit));
 
-            ThreadContext* targetContext = localThreadContexts[firstSetBit];
+            ThreadContext* targetContext = core.localThreadContexts[firstSetBit];
 
             // Verify wakeup and occupied.
             if (targetContext->wakeupTimeInCycles == 0) {
-                if (targetContext == loadedContext) {
-                    loadedContext->wakeupTimeInCycles = BLOCKED;
+                if (targetContext == core.loadedContext) {
+                    core.loadedContext->wakeupTimeInCycles = BLOCKED;
                     DispatchTimeKeeper::numThreadsRan++;
                     return;
                 }
-                void** saved = &loadedContext->sp;
-                loadedContext = targetContext;
-                swapcontext(&loadedContext->sp, saved);
+                void** saved = &core.loadedContext->sp;
+                core.loadedContext = targetContext;
+                swapcontext(&core.loadedContext->sp, saved);
                 originalContext->wakeupTimeInCycles = BLOCKED;
                 DispatchTimeKeeper::numThreadsRan++;
                 return;
@@ -560,13 +516,13 @@ dispatch() {
         }
     }
     // Find a thread to switch to
-    size_t currentIndex = nextCandidateIndex;
+    size_t currentIndex = core.nextCandidateIndex;
 
     for (;;currentIndex++) {
 
         // This block should execute when a core has iterated over exactly one
         // full cycle over the available ThreadContext's, because the value of
-        // currentIndex will be saved in nextCandidateIndex across calls to
+        // currentIndex will be saved in core.nextCandidateIndex across calls to
         // dispatch().
         if (currentIndex == maxThreadsPerCore) {
             // We have reached the end of the threads, so we should go back to
@@ -579,8 +535,8 @@ dispatch() {
             // Check for termination
             if (shutdown)
                 swapcontext(
-                        &kernelThreadStacks[kernelThreadId],
-                        &loadedContext->sp);
+                        &kernelThreadStacks[core.kernelThreadId],
+                        &core.loadedContext->sp);
 
             currentCycles = Cycles::rdtsc();
             PerfStats::threadStats.weightedLoadedCycles +=
@@ -591,19 +547,19 @@ dispatch() {
             DispatchTimeKeeper::lastDispatchIterationStart = currentCycles;
         }
 
-        ThreadContext* currentContext = localThreadContexts[currentIndex];
+        ThreadContext* currentContext = core.localThreadContexts[currentIndex];
         if (currentCycles >= currentContext->wakeupTimeInCycles) {
-            nextCandidateIndex = currentIndex + 1;
-            if (nextCandidateIndex == maxThreadsPerCore) nextCandidateIndex = 0;
+            core.nextCandidateIndex = currentIndex + 1;
+            if (core.nextCandidateIndex == maxThreadsPerCore) core.nextCandidateIndex = 0;
 
-            if (currentContext == loadedContext) {
-                loadedContext->wakeupTimeInCycles = BLOCKED;
+            if (currentContext == core.loadedContext) {
+                core.loadedContext->wakeupTimeInCycles = BLOCKED;
                 DispatchTimeKeeper::numThreadsRan++;
                 return;
             }
-            void** saved = &loadedContext->sp;
-            loadedContext = currentContext;
-            swapcontext(&loadedContext->sp, saved);
+            void** saved = &core.loadedContext->sp;
+            core.loadedContext = currentContext;
+            swapcontext(&core.loadedContext->sp, saved);
             // After the old context is swapped out above, this line executes
             // in the new context.
             originalContext->wakeupTimeInCycles = BLOCKED;
@@ -932,32 +888,32 @@ init(int* argcp, const char** argv) {
 void
 testInit() {
     // NB: This technically leads to sharing memory with the highest index of
-    // publicPriorityMasks, as well any other place where kernelThreadId is
+    // publicPriorityMasks, as well any other place where core.kernelThreadId is
     // used as an index.
-    kernelThreadId = maxNumCores - 1;
-    localOccupiedAndCount =
+    core.kernelThreadId = maxNumCores - 1;
+    core.localOccupiedAndCount =
         reinterpret_cast<std::atomic<Arachne::MaskAndCount>* >(
             cacheAlignAlloc(sizeof(MaskAndCount)));
-    memset(localOccupiedAndCount, 0, sizeof(MaskAndCount));
+    memset(core.localOccupiedAndCount, 0, sizeof(MaskAndCount));
 
-    localThreadContexts = new ThreadContext*[maxThreadsPerCore];
+    core.localThreadContexts = new ThreadContext*[maxThreadsPerCore];
     for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
         // Technically, this allocates a bunch of user stacks which will never
         // be used, and it can be optimized out if it turns out to be too
         // expensive.
-        localThreadContexts[k] = reinterpret_cast<ThreadContext*>(
+        core.localThreadContexts[k] = reinterpret_cast<ThreadContext*>(
                 cacheAlignAlloc(sizeof(ThreadContext)));
-        new (localThreadContexts[k]) ThreadContext(~0, k);
-        localThreadContexts[k]->wakeupTimeInCycles = BLOCKED;
+        new (core.localThreadContexts[k]) ThreadContext(~0, k);
+        core.localThreadContexts[k]->wakeupTimeInCycles = BLOCKED;
         // It is important to re-initialize stacks here because some of the
         // contexts may be in the middle of dispatch calls from
         // schedulerMainLoop and switching to them will a spurious return from
         // dispatch at the start of schedulerMainLoop, which it is expensive to
         // check for.
-        localThreadContexts[k]->initializeStack();
+        core.localThreadContexts[k]->initializeStack();
     }
-    loadedContext = *localThreadContexts;
-    *localOccupiedAndCount = {1, 1};
+    core.loadedContext = *core.localThreadContexts;
+    *core.localOccupiedAndCount = {1, 1};
 }
 
 /**
@@ -965,17 +921,17 @@ testInit() {
   * that makes Arachne functions callable from the unit test.
   */
 void testDestroy() {
-    free(localOccupiedAndCount);
+    free(core.localOccupiedAndCount);
     for (int k = 0; k < maxThreadsPerCore; k++) {
-        free(localThreadContexts[k]->stack);
-        localThreadContexts[k]->joinLock.~SpinLock();
-        localThreadContexts[k]->joinCV.~ConditionVariable();
+        free(core.localThreadContexts[k]->stack);
+        core.localThreadContexts[k]->joinLock.~SpinLock();
+        core.localThreadContexts[k]->joinCV.~ConditionVariable();
 
-        free(localThreadContexts[k]);
+        free(core.localThreadContexts[k]);
     }
-    delete[] localThreadContexts;
-    loadedContext = NULL;
-    *localOccupiedAndCount = {0, 0};
+    delete[] core.localThreadContexts;
+    core.loadedContext = NULL;
+    *core.localOccupiedAndCount = {0, 0};
 }
 
 /**
@@ -1005,16 +961,16 @@ void
 SleepLock::lock() {
     std::unique_lock<SpinLock> guard(blockedThreadsLock);
     if (owner == NULL) {
-        owner = loadedContext;
+        owner = core.loadedContext;
         return;
     }
     blockedThreads.push_back(getThreadId());
     guard.unlock();
     do {
         // Spurious wake-ups can happen due to signalers of past inhabitants of
-        // this loadedContext.
+        // this core.loadedContext.
         dispatch();
-    } while(owner != loadedContext);
+    } while(owner != core.loadedContext);
 }
 
 /** 
@@ -1026,7 +982,7 @@ bool
 SleepLock::try_lock() {
     std::lock_guard<SpinLock> guard(blockedThreadsLock);
     if (owner == NULL) {
-        owner = loadedContext;
+        owner = core.loadedContext;
         return true;
     }
     return false;
@@ -1091,7 +1047,7 @@ void setErrorStream(FILE* stream) {
 void releaseCore() {
     // Remove all other threads from this core.
     makeExclusiveOnCore(true);
-    threadShouldYield = true;
+    core.threadShouldYield = true;
 }
 
 /**
@@ -1181,15 +1137,15 @@ void decrementCoreCount() {
   */
 bool makeExclusiveOnCore(bool forScaleDown) {
     // Cache the original context so that we can survive across migrations to
-    // other kernel threads, since loadedContext is not reloaded correctly from
+    // other kernel threads, since core.loadedContext is not reloaded correctly from
     // TLS after switching back to this context.
-    ThreadContext* originalContext = loadedContext;
+    ThreadContext* originalContext = core.loadedContext;
 
     std::lock_guard<SleepLock> _(coreExclusionMutex);
     // Already exclusive
-    // TODO: Read the new value of localOccupiedAndCount, instead of the value
+    // TODO: Read the new value of core.localOccupiedAndCount, instead of the value
     // from the previous kernelThread.
-    MaskAndCount originalMask = *localOccupiedAndCount;
+    MaskAndCount originalMask = *core.localOccupiedAndCount;
     if (originalMask.numOccupied > maxThreadsPerCore) {
         // If we are not the exclusive thread, then an error has occurred.
         if (originalMask.occupied ==
@@ -1205,10 +1161,10 @@ bool makeExclusiveOnCore(bool forScaleDown) {
     MaskAndCount blockedOccupiedAndCount;
     bool success = false;
     do {
-        targetOccupiedAndCount = *localOccupiedAndCount;
+        targetOccupiedAndCount = *core.localOccupiedAndCount;
         blockedOccupiedAndCount = targetOccupiedAndCount;
         blockedOccupiedAndCount.numOccupied = EXCLUSIVE;
-        success = localOccupiedAndCount->compare_exchange_strong(
+        success = core.localOccupiedAndCount->compare_exchange_strong(
                 targetOccupiedAndCount, blockedOccupiedAndCount);
     } while (!success);
 
@@ -1224,7 +1180,7 @@ bool makeExclusiveOnCore(bool forScaleDown) {
             // There is no race with completions here because no other thread
             // can be running on this core since we are running.
             if (((targetOccupiedAndCount.occupied >> i) & 1) &&
-                    localThreadContexts[i]->wakeupTimeInCycles == UNOCCUPIED) {
+                    core.localThreadContexts[i]->wakeupTimeInCycles == UNOCCUPIED) {
                 pendingCreation = true;
                 break;
             }
@@ -1236,7 +1192,7 @@ bool makeExclusiveOnCore(bool forScaleDown) {
     // poll approach.
     sleep(COMPLETION_WAIT_TIME);
 
-    blockedOccupiedAndCount = *localOccupiedAndCount;
+    blockedOccupiedAndCount = *core.localOccupiedAndCount;
     // Sanity check the state of blockedOccupiedAndCount here. See if creations are still blocked.
     // Sanity checking that we blocked creations successfully
     if (blockedOccupiedAndCount.numOccupied <= maxThreadsPerCore) {
@@ -1247,9 +1203,9 @@ bool makeExclusiveOnCore(bool forScaleDown) {
     // Remap this slot in virtualCoreTable to point at the highest number, to
     // make it easier to pawn off work.
     for (uint32_t i = 0; i < maxNumCores; i++)
-        if (virtualCoreTable[i] == kernelThreadId) {
+        if (virtualCoreTable[i] == core.kernelThreadId) {
             virtualCoreTable[i] = virtualCoreTable[numActiveCores - 1];
-            virtualCoreTable[numActiveCores - 1] = kernelThreadId;
+            virtualCoreTable[numActiveCores - 1] = core.kernelThreadId;
             break;
         }
 
@@ -1297,17 +1253,17 @@ bool makeExclusiveOnCore(bool forScaleDown) {
                 // At this point we've reserved a spot on the target, and now we swap.
                 ThreadContext* contextToMigrate =
                     allThreadContexts[coreId][index];
-                allThreadContexts[coreId][index] = localThreadContexts[i];
-                localThreadContexts[i] = contextToMigrate;
+                allThreadContexts[coreId][index] = core.localThreadContexts[i];
+                core.localThreadContexts[i] = contextToMigrate;
 
                 // Update idInCore to a consistent value
                 allThreadContexts[coreId][index]->idInCore = index;
-                localThreadContexts[i]->idInCore = i;
+                core.localThreadContexts[i]->idInCore = i;
 
                 allThreadContexts[coreId][index]->coreId =
                     static_cast<uint8_t>(coreId);
-                localThreadContexts[i]->coreId =
-                    static_cast<uint8_t>(kernelThreadId);
+                core.localThreadContexts[i]->coreId =
+                    static_cast<uint8_t>(core.kernelThreadId);
                 // Only increment if we succeeded.
             } else {
                 // Try again if we failed to find a slot to pawn our work onto.
@@ -1329,10 +1285,10 @@ bool makeExclusiveOnCore(bool forScaleDown) {
         abort();
     }
 
-    // Update localOccupiedAndCount to a consistent state before exiting. At
+    // Update core.localOccupiedAndCount to a consistent state before exiting. At
     // this point, creations should have already been blocked, and completions
     // cannot occur because we are running, so we can just directly assign.
-    *localOccupiedAndCount = blockedOccupiedAndCount;
+    *core.localOccupiedAndCount = blockedOccupiedAndCount;
 
     if (!forScaleDown) {
         numExclusiveCores++;
@@ -1351,13 +1307,13 @@ bool makeExclusiveOnCore(bool forScaleDown) {
 void makeSharedOnCore() {
     std::lock_guard<SleepLock> _(coreExclusionMutex);
     // If not exclusive, this is a no-op.
-    if (localOccupiedAndCount->load().numOccupied < maxThreadsPerCore)
+    if (core.localOccupiedAndCount->load().numOccupied < maxThreadsPerCore)
         return;
     // Assume already exclusive
-    MaskAndCount original = *localOccupiedAndCount;
+    MaskAndCount original = *core.localOccupiedAndCount;
     MaskAndCount shared = original;
     shared.numOccupied = 1;
-    bool success = localOccupiedAndCount->compare_exchange_strong(
+    bool success = core.localOccupiedAndCount->compare_exchange_strong(
             original, shared);
     if (!success) {
         // If this scenario happens, it means there is a bug since nobody

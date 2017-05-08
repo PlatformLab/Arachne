@@ -86,13 +86,13 @@ static void
 lockTaker(L *mutex) {
     flag = 1;
     mutex->lock();
-    EXPECT_EQ(loadedContext, mutex->owner);
+    EXPECT_EQ(core.loadedContext, mutex->owner);
     mutex->unlock();
     flag = 0;
 }
 
 TEST_F(ArachneTest, SpinLock_lockUnlock) {
-    EXPECT_EQ(NULL, loadedContext);
+    EXPECT_EQ(NULL, core.loadedContext);
     flag = 0;
     mutex.lock();
     EXPECT_NE(Arachne::NullThread,
@@ -155,7 +155,7 @@ void sleepLockTest() {
     EXPECT_EQ(Arachne::BLOCKED, tid.context->wakeupTimeInCycles);
     Arachne::sleep(1000);
     EXPECT_EQ(1, flag);
-    EXPECT_EQ(Arachne::loadedContext, sleepLock.owner);
+    EXPECT_EQ(Arachne::core.loadedContext, sleepLock.owner);
     sleepLock.unlock();
     limitedTimeWait([]() -> bool {return !flag;});
     EXPECT_EQ(0, flag);
@@ -163,7 +163,7 @@ void sleepLockTest() {
 }
 
 TEST_F(ArachneTest, SleepLock) {
-    EXPECT_EQ(NULL, loadedContext);
+    EXPECT_EQ(NULL, core.loadedContext);
     Arachne::createThreadOnCore(1, sleepLockTest);
     limitedTimeWait([]() -> bool {return flag == 2;});
 }
@@ -348,9 +348,9 @@ extern std::vector<void*> kernelThreadStacks;
 // Helper method for schedulerMainLoop
 void
 checkSchedulerState() {
-    EXPECT_EQ(BLOCKED, loadedContext->wakeupTimeInCycles);
-    EXPECT_EQ(1U, localOccupiedAndCount->load().numOccupied);
-    EXPECT_EQ(1U, localOccupiedAndCount->load().occupied);
+    EXPECT_EQ(BLOCKED, core.loadedContext->wakeupTimeInCycles);
+    EXPECT_EQ(1U, core.localOccupiedAndCount->load().numOccupied);
+    EXPECT_EQ(1U, core.localOccupiedAndCount->load().occupied);
 }
 
 TEST_F(ArachneTest, schedulerMainLoop) {

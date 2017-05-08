@@ -30,6 +30,7 @@
 #include "PerfUtils/Cycles.h"
 #include "Logger.h"
 #include "PerfStats.h"
+#include "Common.h"
 
 namespace Arachne {
 
@@ -47,6 +48,9 @@ using PerfUtils::Cycles;
 // Forward declare to break circular dependency between ThreadContext and
 // ConditionVariable
 struct ThreadContext;
+struct Core;
+
+extern thread_local Core core;
 
 // This is used in createThread.
 extern std::atomic<uint32_t> numActiveCores;
@@ -65,9 +69,6 @@ void dispatch();
 // Used for user per-core data structure initialization.
 extern std::function<void()> initCore;
 
-extern thread_local int kernelThreadId;
-extern thread_local ThreadContext *loadedContext;
-extern thread_local ThreadContext** localThreadContexts;
 extern std::vector<ThreadContext**> allThreadContexts;
 
 extern int* virtualCoreTable;
@@ -377,6 +378,7 @@ struct ThreadContext {
     explicit ThreadContext(uint8_t coreId, uint8_t idInCore);
 };
 
+
 // Largest number of Arachne threads that can be simultaneously created on each
 // core.
 const int maxThreadsPerCore = 56;
@@ -434,10 +436,8 @@ struct MaskAndCount{
 };
 
 extern std::vector< std::atomic<MaskAndCount> *> occupiedAndCount;
-extern thread_local std::atomic<MaskAndCount> *localOccupiedAndCount;
 
 extern std::vector< std::atomic<uint64_t> *> publicPriorityMasks;
-extern thread_local uint64_t privatePriorityMask;
 
 #ifdef TEST
 static std::deque<uint64_t> mockRandomValues;
@@ -619,10 +619,10 @@ createThread(_Callable&& __f, _Args&&... __args) {
 template <typename LockType> void
 ConditionVariable::wait(LockType& lock) {
 #if TIME_TRACE
-    TimeTrace::record("Wait on Core %d", kernelThreadId);
+    TimeTrace::record("Wait on Core %d", core.kernelThreadId);
 #endif
     blockedThreads.push_back(
-            ThreadId(loadedContext, loadedContext->generation));
+            ThreadId(core.loadedContext, core.loadedContext->generation));
     lock.unlock();
     dispatch();
 #if TIME_TRACE
@@ -646,8 +646,8 @@ ConditionVariable::wait(LockType& lock) {
 template <typename LockType> void
 ConditionVariable::waitFor(LockType& lock, uint64_t ns) {
     blockedThreads.push_back(
-            ThreadId(loadedContext, loadedContext->generation));
-    loadedContext->wakeupTimeInCycles =
+            ThreadId(core.loadedContext, core.loadedContext->generation));
+    core.loadedContext->wakeupTimeInCycles =
         Cycles::rdtsc() + Cycles::fromNanoseconds(ns);
     lock.unlock();
     dispatch();

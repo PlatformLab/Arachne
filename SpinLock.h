@@ -20,6 +20,7 @@
 
 #include "PerfUtils/Cycles.h"
 #include "Logger.h"
+#include "Common.h"
 
 namespace Arachne {
 
@@ -29,7 +30,7 @@ using PerfUtils::Cycles;
 // this out.
 struct ThreadContext;
 void yield();
-extern thread_local ThreadContext *loadedContext;
+extern thread_local Core core;
 
 /**
  * A resource that can be acquired by only one thread at a time.
@@ -70,7 +71,7 @@ class SpinLock {
             }
             if (shouldYield) yield();
         }
-        owner = loadedContext;
+        owner = core.loadedContext;
     }
 
     /**
@@ -83,7 +84,7 @@ class SpinLock {
         // If the original value was false, then we successfully acquired the
         // lock. Otherwise we failed.
         if (!state.exchange(true, std::memory_order_acquire)) {
-            owner = loadedContext;
+            owner = core.loadedContext;
             return true;
         }
         return false;
