@@ -515,6 +515,14 @@ dispatch() {
                 if (targetContext == core.loadedContext) {
                     core.loadedContext->wakeupTimeInCycles = BLOCKED;
                     DispatchTimeKeeper::numThreadsRan++;
+
+                    // It is necessary to update core.highestOccupiedContext here
+                    // because two simultaneous returns from these priority
+                    // checks (the higher index blocking and the lower index
+                    // exiting) can result in a gap that cannot be bridged by
+                    // the core.highestOccupiedContext increment mechanism below.
+                    core.highestOccupiedContext = std::max(core.highestOccupiedContext,
+                            core.loadedContext->idInCore);
                     return;
                 }
                 void** saved = &core.loadedContext->sp;
@@ -522,12 +530,14 @@ dispatch() {
                 swapcontext(&core.loadedContext->sp, saved);
                 originalContext->wakeupTimeInCycles = BLOCKED;
                 DispatchTimeKeeper::numThreadsRan++;
+                core.highestOccupiedContext = std::max(core.highestOccupiedContext,
+                        core.loadedContext->idInCore);
                 return;
             }
         }
     }
     // Find a thread to switch to
-    size_t currentIndex = core.nextCandidateIndex;
+    uint8_t currentIndex = core.nextCandidateIndex;
 
     for (;;currentIndex++) {
 
@@ -535,7 +545,21 @@ dispatch() {
         // full cycle over the available ThreadContext's, because the value of
         // currentIndex will be saved in core.nextCandidateIndex across calls to
         // dispatch().
-        if (currentIndex == maxThreadsPerCore) {
+        if (currentIndex == core.highestOccupiedContext + 1) {
+            // Check if we need to decrement core.highestOccupiedContext
+            if (core.highestOccupiedContext > 0 && core.highestOccupiedContext <
+                    maxThreadsPerCore - 1 &&
+                    core.localThreadContexts[currentIndex]->wakeupTimeInCycles ==
+                    UNOCCUPIED &&
+                    core.localThreadContexts[currentIndex-1]->wakeupTimeInCycles ==
+                    UNOCCUPIED)
+                core.highestOccupiedContext--;
+            else if (core.highestOccupiedContext < maxThreadsPerCore - 1 &&
+                    core.localThreadContexts[currentIndex]->wakeupTimeInCycles !=
+                    UNOCCUPIED) {
+                core.highestOccupiedContext++;
+            }
+
             // We have reached the end of the threads, so we should go back to
             // the beginning.
             currentIndex = 0;
@@ -563,7 +587,7 @@ dispatch() {
         ThreadContext* currentContext = core.localThreadContexts[currentIndex];
         if (dispatchIterationStartCycles >=
                 currentContext->wakeupTimeInCycles) {
-            core.nextCandidateIndex = currentIndex + 1;
+            core.nextCandidateIndex = static_cast<uint8_t>(currentIndex + 1);
             if (core.nextCandidateIndex == maxThreadsPerCore)
                 core.nextCandidateIndex = 0;
 
