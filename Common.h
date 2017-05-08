@@ -58,7 +58,13 @@ struct Core {
       * a thread to run. It is used to implement round-robin scheduling of
       * Arachne threads.
       */
-    size_t nextCandidateIndex = 0;
+    uint8_t nextCandidateIndex = 0;
+
+    /**
+     * This is the highest-indexed context known to be occupied by the dispatch
+     * loop of a given core.
+     */
+    uint8_t highestOccupiedContext;
 };
 }
 
