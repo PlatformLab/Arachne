@@ -547,17 +547,17 @@ dispatch() {
         // dispatch().
         if (currentIndex == core.highestOccupiedContext + 1) {
             // Check if we need to decrement core.highestOccupiedContext
-            if (core.highestOccupiedContext > 0 && core.highestOccupiedContext <
-                    maxThreadsPerCore - 1 &&
-                    core.localThreadContexts[currentIndex]->wakeupTimeInCycles ==
-                    UNOCCUPIED &&
-                    core.localThreadContexts[currentIndex-1]->wakeupTimeInCycles ==
-                    UNOCCUPIED)
-                core.highestOccupiedContext--;
-            else if (core.highestOccupiedContext < maxThreadsPerCore - 1 &&
-                    core.localThreadContexts[currentIndex]->wakeupTimeInCycles !=
-                    UNOCCUPIED) {
-                core.highestOccupiedContext++;
+            if (core.highestOccupiedContext < maxThreadsPerCore - 1) {
+                uint64_t currentWakeupCycles =
+                    core.localThreadContexts[currentIndex]->wakeupTimeInCycles;
+                uint64_t previousWakeupCycles =
+                    core.localThreadContexts[currentIndex-1]->wakeupTimeInCycles;
+                if (currentWakeupCycles != UNOCCUPIED) {
+                    core.highestOccupiedContext++;
+                }
+                else if (core.highestOccupiedContext > 0 &&
+                        previousWakeupCycles == UNOCCUPIED)
+                    core.highestOccupiedContext--;
             }
 
             // We have reached the end of the threads, so we should go back to
