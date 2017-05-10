@@ -545,7 +545,7 @@ dispatch() {
         // full cycle over the available ThreadContext's, because the value of
         // currentIndex will be saved in core.nextCandidateIndex across calls to
         // dispatch().
-        if (currentIndex == core.highestOccupiedContext + 1) {
+        while (currentIndex == core.highestOccupiedContext + 1) {
             // Check if we need to decrement core.highestOccupiedContext
             if (core.highestOccupiedContext < maxThreadsPerCore - 1) {
                 uint64_t currentWakeupCycles =
@@ -554,6 +554,10 @@ dispatch() {
                     core.localThreadContexts[currentIndex-1]->wakeupTimeInCycles;
                 if (currentWakeupCycles != UNOCCUPIED) {
                     core.highestOccupiedContext++;
+                    // If we find something to run at the highest indexed
+                    // context, then we should continue the current loop,
+                    // skipping the code below which resets the loop state.
+                    break;
                 }
                 else if (core.highestOccupiedContext > 0 &&
                         previousWakeupCycles == UNOCCUPIED)
@@ -582,6 +586,7 @@ dispatch() {
             DispatchTimeKeeper::numThreadsRan = 0;
             DispatchTimeKeeper::lastDispatchIterationStart =
                 dispatchIterationStartCycles;
+            break;
         }
 
         ThreadContext* currentContext = core.localThreadContexts[currentIndex];
