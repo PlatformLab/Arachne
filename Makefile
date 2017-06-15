@@ -1,7 +1,7 @@
 # Compile a static library
 
 DEBUG=-g
-LIBS=-I../Arachne -L../Arachne -lArachne -LPerfUtils -lPerfUtils
+INCLUDE=-I../Arachne
 TOP := $(shell echo $${PWD-`pwd`})
 
 ifndef CHECK_TARGET
@@ -18,7 +18,7 @@ Arachne.o:  Arachne.h Semaphore.h Logger.h
 PerfStats.o: Arachne.h PerfStats.h
 
 %.o: %.cc
-	g++ $(CCFLAGS)  -O3 $(DEBUG) $(LIBS) -fPIC -c -std=c++11 -o $@ $<
+	g++ $(CCFLAGS)  -O3 $(DEBUG) $(INCLUDE) -fPIC -c -std=c++11 -o $@ $<
 
 test: libArachne.a
 	make -C tests
