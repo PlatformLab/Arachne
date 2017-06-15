@@ -17,6 +17,7 @@
 #include <thread>
 #include "PerfUtils/TimeTrace.h"
 #include "PerfUtils/Util.h"
+#include "CoreArbiter/CoreArbiterClient.h"
 
 #include "Arachne.h"
 #include "Semaphore.h"
@@ -29,6 +30,7 @@ namespace Arachne {
 
 using PerfUtils::Cycles;
 using PerfUtils::TimeTrace;
+using CoreArbiter::CoreArbiterClient;
 
 /**
   * This variable prevents multiple initializations of the library, but does
@@ -59,6 +61,11 @@ volatile uint32_t minNumCores;
   * This tracks the actual number of unblocked cores in the system.
   */
 std::atomic<uint32_t> numActiveCores;
+
+/**
+  * Number of outstanding requests to yield cores back to the arbiter.
+  */
+uint32_t coreReleaseRequestCount = 0;
 
 /**
   * Track the number of exclusive cores so that we can calculate utilization
@@ -182,12 +189,7 @@ double SLOT_OCCUPANCY_THRESHOLD = 0.5;
 
 void incrementCoreCount();
 void decrementCoreCount();
-
-/**
-  * Kernel threads which are not actively polling block on this semaphore.
-  */
-::Semaphore inactiveCores;
-
+void descheduleCore();
 /**
   * All core-specific state that is not associated with other classes.
   */
@@ -202,6 +204,14 @@ thread_local uint64_t DispatchTimeKeeper::lastTotalCollectionTime;
 thread_local uint64_t DispatchTimeKeeper::dispatchStartCycles;
 thread_local uint64_t DispatchTimeKeeper::lastDispatchIterationStart;
 thread_local uint8_t  DispatchTimeKeeper::numThreadsRan;
+
+/**
+  * A handle to the CoreArbiterClient, which we use for requesting and
+  * returning cores.
+  */
+CoreArbiterClient& coreArbiter =
+    CoreArbiterClient::getInstance("/tmp/CoreArbiter/testsocket");
+
 
 /**
   * Allocate a block of memory aligned at the beginning of a cache line.
@@ -230,11 +240,10 @@ cacheAlignAlloc(size_t size) {
  */
 void
 threadMain() {
-    PerfUtils::Util::pinAvailableCore();
     if (initCore) initCore();
 
     for(;;) {
-        inactiveCores.wait();
+        coreArbiter.blockUntilCoreAvailable();
         // Prevent the use of abandoned ThreadContext which occurred as a
         // result of a shutdown request.
         if (shutdown) break;
@@ -262,7 +271,7 @@ threadMain() {
         }
 
 
-		// Correct the ThreadContext.coreId() here to match the existing core.
+        // Correct the ThreadContext.coreId() here to match the existing core.
         // It is valid to initialize this after incrementing numActiveCores
         // because thread creations do not touch these variables.
         for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
@@ -292,10 +301,16 @@ threadMain() {
             TimeTrace::record("Core Count %d --> %d",
                     numActiveCores + 1, numActiveCores.load());
             coreChangeActive = false;
+
+            // Cleanup is completed, so we can carry on with the next core release if needed.
+            coreReleaseRequestCount--;
+            if (coreReleaseRequestCount)
+                descheduleCore();
         }
         PerfStats::threadStats.numCoreDecrements++;
     }
     PerfStats::deregisterStats(&PerfStats::threadStats);
+    coreArbiter.unregisterThread();
 }
 
 /**
@@ -352,10 +367,10 @@ schedulerMainLoop() {
         // Check for whether this thread should exit, for the purposes of
         // ramping down.
         if (core.threadShouldYield) {
-			// Switch back to our kernel-provided stack to block in the Core
-			// Arbiter, since the next time this thread unblocks, it may not
-			// live on the same core, and will use a different set of user
-			// contexts.
+            // Switch back to our kernel-provided stack to block in the Core
+            // Arbiter, since the next time this thread unblocks, it may not
+            // live on the same core, and will use a different set of user
+            // contexts.
             core.threadShouldYield = false;
             swapcontext(
                     &kernelThreadStacks[core.kernelThreadId],
@@ -488,6 +503,11 @@ dispatch() {
         abort();
     }
 
+    // Check for core release request once before checking for high priority
+    // threads.
+    void checkForArbiterRequest();
+    checkForArbiterRequest();
+
     uint64_t dispatchIterationStartCycles = Cycles::rdtsc();
 
     // Check for high priority threads.
@@ -546,6 +566,7 @@ dispatch() {
         // currentIndex will be saved in core.nextCandidateIndex across calls to
         // dispatch().
         while (currentIndex == core.highestOccupiedContext + 1) {
+            checkForArbiterRequest();
             // Check if we need to decrement core.highestOccupiedContext
             if (core.highestOccupiedContext < maxThreadsPerCore - 1) {
                 uint64_t currentWakeupCycles =
@@ -692,7 +713,6 @@ void waitForTermination() {
     occupiedAndCount.clear();
     publicPriorityMasks.clear();
     delete[] virtualCoreTable;
-    inactiveCores.reset();
     PerfUtils::Util::serialize();
     initialized = false;
 }
@@ -868,8 +888,10 @@ init(int* argcp, const char** argv) {
         maxNumCores = std::thread::hardware_concurrency();
     maxNumCores = std::max(minNumCores, maxNumCores);
     idleCoreFractionThresholds = new double[maxNumCores];
-    for (uint32_t i = 0; i < minNumCores; i++)
-        inactiveCores.notify();
+
+    std::vector<uint32_t> coreRequest({minNumCores,0,0,0,0,0,0,0});
+    coreArbiter.setNumCores(coreRequest);
+    coreReleaseRequestCount = 0;
 
     // We assume that maxNumCores will not be exceeded in the lifetime of this
     // application.
@@ -992,9 +1014,11 @@ void
 shutDown() {
     // Tell all the kernel threads to terminate at the first opportunity.
     shutdown = true;
+
     // Unblock all cores so they can shut down and be joined.
-    for (uint32_t i = 0; i < maxNumCores; i++)
-        inactiveCores.notify();
+    std::vector<uint32_t> coreRequest({maxNumCores,0,0,0,0,0,0,0});
+    coreArbiter.setNumCores(coreRequest);
+
 }
 
 
@@ -1108,7 +1132,8 @@ void incrementCoreCount() {
             numActiveCores.load(), numActiveCores + 1);
     TimeTrace::record("Start Core Count %d --> %d",
             numActiveCores.load(), numActiveCores + 1);
-    inactiveCores.notify();
+    std::vector<uint32_t> coreRequest({numActiveCores + 1,0,0,0,0,0,0,0});
+    coreArbiter.setNumCores(coreRequest);
 }
 
 /**
@@ -1127,6 +1152,17 @@ void decrementCoreCount() {
     TimeTrace::record("Start Core Count %d --> %d",
             numActiveCores.load(), numActiveCores - 1);
 
+    std::vector<uint32_t> coreRequest({numActiveCores - 1,0,0,0,0,0,0,0});
+    coreArbiter.setNumCores(coreRequest);
+}
+
+/*
+ * If the Core Arbiter asks the Arachne runtime to yield a core, this function
+ * shall begin the process of descheduling a core.
+ *
+ * The caller must hold the coreChangeMutex when making this call.
+ */
+void descheduleCore() {
     // Find a core to deschedule
     uint8_t minLoaded =
         occupiedAndCount[virtualCoreTable[0]]->load().numOccupied;
@@ -1166,6 +1202,24 @@ void decrementCoreCount() {
         ARACHNE_LOG(WARNING, "Release core thread creation failed to %d!\n",
                 minIndex);
     }
+}
+
+/**
+  * Detect requests for cores from the core arbiter.
+  */
+void checkForArbiterRequest() {
+    if (!coreArbiter.mustReleaseCore())
+        return;
+    std::lock_guard<SpinLock> _(coreChangeMutex);
+    coreReleaseRequestCount++;
+
+    if (coreReleaseRequestCount >= numActiveCores)
+        abort();
+
+    // Deschedule a core iff we are the first thread to read that a
+    // core release is needed.
+    if (coreReleaseRequestCount == 1)
+        descheduleCore();
 }
 
 /**
