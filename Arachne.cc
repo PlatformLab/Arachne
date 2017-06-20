@@ -173,7 +173,7 @@ double maxUtilization = 0.9;
   * Save the core fraction at which we ramped up based on load factor, so we
   * can decide whether to ramp down.
   */
-double *idleCoreFractionThresholds;
+double *utilizationThresholds;
 
 /**
   * The difference in load, expressed as a fraction of a core, between a
@@ -695,7 +695,7 @@ void waitForTermination() {
 
     kernelThreads.clear();
     kernelThreadStacks.clear();
-    delete[] idleCoreFractionThresholds;
+    delete[] utilizationThresholds;
 
 
     for (size_t i = 0; i < maxNumCores; i++) {
@@ -887,7 +887,7 @@ init(int* argcp, const char** argv) {
     if (maxNumCores == 0)
         maxNumCores = std::thread::hardware_concurrency();
     maxNumCores = std::max(minNumCores, maxNumCores);
-    idleCoreFractionThresholds = new double[maxNumCores];
+    utilizationThresholds = new double[maxNumCores];
 
     std::vector<uint32_t> coreRequest({minNumCores,0,0,0,0,0,0,0});
     coreArbiter.setNumCores(coreRequest);
@@ -1432,6 +1432,10 @@ void makeSharedOnCore() {
         abort();
     }
     numExclusiveCores--;
+
+    // The time that this core spent in exclusive mode should not be counted
+    // towards utilization of shared cores.
+    DispatchTimeKeeper::lastTotalCollectionTime = 0;
 }
 
 /**
@@ -1448,10 +1452,14 @@ void coreLoadEstimator() {
         sleep(MEASUREMENT_PERIOD);
         PerfStats::collectStats(&currentStats);
 
-        // TODO: Under the Core Arbiter, this number may decrement for external
-        // reasons, so we should add in a check here to delay core load
-        // estimation if that happens.
-        int numSharedCores = numActiveCores - numExclusiveCores;
+        // Take a snapshot of currently active cores before performing
+        // estimation to avoid races between estimation and the fulfillment of
+        // a previous core request.
+        uint32_t curActiveCores = numActiveCores;
+
+        // Exclusive cores should contribute nothing to statistics relevant to
+        // core estimation during the period over which they are exclusive.
+        int numSharedCores = curActiveCores - numExclusiveCores;
 
         // Evalute idle time precentage multiplied by number of cores to
         // determine whether we need to decrease the number of cores.
@@ -1459,9 +1467,12 @@ void coreLoadEstimator() {
             currentStats.idleCycles - previousStats.idleCycles;
         uint64_t totalCycles =
             currentStats.totalCycles - previousStats.totalCycles;
-        double idleCoreFraction =
-            static_cast<double>(idleCycles) / static_cast<double>(totalCycles);
-        double totalIdleCores = idleCoreFraction * numSharedCores;
+        uint64_t utilizedCycles = totalCycles - idleCycles;
+        uint64_t totalMeasurementCycles =
+            Cycles::fromNanoseconds(MEASUREMENT_PERIOD);
+        double totalUtilizedCores =
+            static_cast<double>(utilizedCycles) /
+            static_cast<double>(totalMeasurementCycles);
 
         // Estimate load to determine whether we need to increment the number
         // of cores.
@@ -1471,11 +1482,11 @@ void coreLoadEstimator() {
         double averageLoadFactor =
             static_cast<double>(weightedLoadedCycles) /
             static_cast<double>(totalCycles);
-        if (numActiveCores < maxNumCores &&
+        if (curActiveCores < maxNumCores &&
                 averageLoadFactor > loadFactorThreshold) {
-            // Record our current totalIdleCores, so we will only ramp down if
-            // utilization would drop below this level.
-            idleCoreFractionThresholds[numActiveCores] = totalIdleCores;
+            // Record our current totalUtilizedCores, so we will only ramp down
+            // if utilization would drop below this level.
+            utilizationThresholds[numSharedCores] = totalUtilizedCores;
             incrementCoreCount();
             continue;
         }
@@ -1488,8 +1499,8 @@ void coreLoadEstimator() {
 
         // Scale down if the idle time after scale down is greater than the
         // time at which we scaled up, plus a hysteresis threshold.
-        if (totalIdleCores - 1 > idleCoreFractionThresholds[numActiveCores - 1]
-                + idleCoreFractionHysteresis  &&
+        if (totalUtilizedCores < utilizationThresholds[numSharedCores - 1]
+                - idleCoreFractionHysteresis &&
                 averageNumSlotsUsed < SLOT_OCCUPANCY_THRESHOLD) {
             decrementCoreCount();
         }
