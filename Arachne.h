@@ -301,7 +301,7 @@ struct ThreadInvocation : public ThreadInvocationEnabler {
     /// std::bind.
     explicit ThreadInvocation(F mainFunction)
         : mainFunction(mainFunction) {
-        static_assert(sizeof(ThreadInvocation<F>) <= CACHE_LINE_SIZE,
+        static_assert(sizeof(ThreadInvocation<F>) <= CACHE_LINE_SIZE - 8,
                 "Arachne requires the function and arguments for a thread to "
                 "fit within one cache line.");
     }
@@ -325,13 +325,6 @@ struct ThreadContext {
     /// This holds the value that rsp, the stack pointer register, will be set
     /// to when this thread is swapped in.
     void* sp;
-
-    /// This variable holds the minimum value of the cycle counter for which
-    /// this thread can run.
-    /// 0 is a signal that this thread should run at the next opportunity.
-    /// ~0 is used as an infinitely large time: a sleeping thread will not
-    /// awaken as long as wakeupTimeInCycles has this value.
-    volatile uint64_t wakeupTimeInCycles;
 
     /// Used as part of ThreadIds to differentiate Arachne threads that use this
     /// ThreadContext; incremented whenever an Arachne thread finishes execution
@@ -366,10 +359,20 @@ struct ThreadContext {
 
     /// \cond SuppressDoxygen
     struct alignas(CACHE_LINE_SIZE) {
-        char data[CACHE_LINE_SIZE];
+        char data[CACHE_LINE_SIZE - 8];
+        // This variable lives here to share a cache line with the thread
+        // invocation, thereby removing a cache miss for thread creation.
+        volatile uint64_t wakeupTimeInCycles;
     }
     /// \endcond
     threadInvocation;
+
+    /// This variable holds the minimum value of the cycle counter for which
+    /// this thread can run.
+    /// 0 is a signal that this thread should run at the next opportunity.
+    /// ~0 is used as an infinitely large time: a sleeping thread will not
+    /// awaken as long as wakeupTimeInCycles has this value.
+    volatile uint64_t& wakeupTimeInCycles;
 
     void initializeStack();
     ThreadContext() = delete;
@@ -553,7 +556,7 @@ createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
     } while (!success);
 
     // Copy the thread invocation into the byte array.
-    new (&threadContext->threadInvocation)
+    new (&threadContext->threadInvocation.data)
         Arachne::ThreadInvocation<decltype(task)>(task);
 
     // Read the generation number *before* waking up the thread, to avoid a
