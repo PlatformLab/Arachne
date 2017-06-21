@@ -797,13 +797,15 @@ parseOptions(int* argcp, const char** argv) {
 ThreadContext::ThreadContext(uint8_t coreId, uint8_t idInCore)
     : stack(NULL)
     , sp(NULL)
-    , wakeupTimeInCycles(UNOCCUPIED)
     , generation(1)
     , joinLock()
     , joinCV()
     , coreId(coreId)
     , idInCore(idInCore)
+    , threadInvocation()
+    , wakeupTimeInCycles(threadInvocation.wakeupTimeInCycles)
 {
+    wakeupTimeInCycles = UNOCCUPIED;
     // Allocate memory here so we can error-check.the return value of malloc
     stack = malloc(stackSize);
     if (stack == NULL) {
