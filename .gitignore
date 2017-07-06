@@ -6,4 +6,3 @@ libArachne.a
 tags
 tests/ArachneTest
 tests/libgtest.a
-CoreArbiter/
