@@ -28,7 +28,7 @@ OBJECT_NAMES := Arachne.o Logger.o PerfStats.o
 
 OBJECTS = $(patsubst %,$(OBJECT_DIR)/%,$(OBJECT_NAMES))
 HEADERS= $(shell find src -name '*.h')
-
+DEP=$(OBJECTS:.o=.d)
 
 install: $(OBJECT_DIR)/libArachne.a
 	mkdir -p $(LIB_DIR) $(INCLUDE_DIR)
@@ -37,6 +37,11 @@ install: $(OBJECT_DIR)/libArachne.a
 
 $(OBJECT_DIR)/libArachne.a: $(OBJECTS)
 	ar rcs $@ $^
+
+-include $(DEP)
+
+$(OBJECT_DIR)/%.d: $(SRC_DIR)/%.cc | $(OBJECT_DIR)
+	$(CC) $(INCLUDE) $(CCFLAGS) $< -MM -MT $(@:.d=.o) > $@
 
 $(OBJECT_DIR)/%.o: $(SRC_DIR)/%.cc $(HEADERS) | $(OBJECT_DIR)
 	$(CC) $(INCLUDE) $(CCFLAGS) -c $< -o $@
