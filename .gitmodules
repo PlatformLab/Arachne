@@ -1,9 +1,0 @@
-[submodule "googletest"]
-	path = googletest
-	url = https://github.com/google/googletest
-[submodule "PerfUtils"]
-	path = PerfUtils
-	url = https://github.com/PlatformLab/PerfUtils.git
-[submodule "CoreArbiter"]
-	path = CoreArbiter
-	url = https://github.com/PlatformLab/CoreArbiter.git

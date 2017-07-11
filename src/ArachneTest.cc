@@ -14,7 +14,7 @@
  */
 
 #include <thread>
-#include "Cycles.h"
+#include "PerfUtils/Cycles.h"
 #include "gtest/gtest.h"
 
 #define private public

@@ -1,8 +1,6 @@
-*.err
-*.o
-*.swp
+*.tmp
 .gdb_history
-libArachne.a
 tags
-tests/ArachneTest
-tests/libgtest.a
+include/
+obj/
+lib/
