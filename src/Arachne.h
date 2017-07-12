@@ -157,7 +157,7 @@ void testDestroy();
   * This resources should not be acquired from non-Arachne threads.
   */
 class SleepLock {
- public:
+  public:
     /** Constructor and destructor for sleepLock. */
     SleepLock() : blockedThreads(), blockedThreadsLock(false), owner(NULL) {}
     ~SleepLock(){}
@@ -165,7 +165,7 @@ class SleepLock {
     bool try_lock();
     void unlock();
 
- private:
+  private:
     // Ordered collection of threads that are waiting on this condition
     // variable. Threads are processed from this list in FIFO order when a
     // notifyOne() is called.
@@ -184,14 +184,14 @@ class SleepLock {
   * and then be awoken when the condition might be true.
   */
 class ConditionVariable {
- public:
+  public:
     ConditionVariable();
     ~ConditionVariable();
     void notifyOne();
     void notifyAll();
     template <typename LockType> void wait(LockType& lock);
     template <typename LockType> void waitFor(LockType& lock, uint64_t ns);
- private:
+  private:
     // Ordered collection of threads that are waiting on this condition
     // variable. Threads are processed from this list in FIFO order when a
     // notifyOne() is called.
@@ -204,12 +204,12 @@ class ConditionVariable {
   */
 class Semaphore
 {
- private:
+  private:
     SpinLock countProtector;
     ConditionVariable countWaiter;
     uint64_t count; // Initialized as locked.
 
- public:
+  public:
     // Constructor initializing a non-yielding SpinLock.
     Semaphore() : countProtector(false), countWaiter(), count(0) { }
 
