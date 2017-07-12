@@ -235,7 +235,7 @@ class Semaphore
       */
     void wait() {
         std::unique_lock<decltype(countProtector)> lock(countProtector);
-        while(!count) // Handle spurious wake-ups.
+        while (!count) // Handle spurious wake-ups.
             countWaiter.wait(lock);
         --count;
     }
@@ -245,7 +245,7 @@ class Semaphore
       */
     bool try_wait() {
         std::unique_lock<decltype(countProtector)> lock(countProtector);
-        if(count) {
+        if (count) {
             --count;
             return true;
         }

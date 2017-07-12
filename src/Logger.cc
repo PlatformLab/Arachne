@@ -36,4 +36,4 @@ void Logger::log(LogLevel level, const char* fmt, ...)
     va_end(args);
 }
 
-}
+} // namespace Arachne

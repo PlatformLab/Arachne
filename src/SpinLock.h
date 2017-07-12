@@ -38,15 +38,16 @@ extern thread_local Core core;
 class SpinLock {
  public:
     /** Constructor and destructor for spinlock. */
-    SpinLock(std::string name, bool shouldYield = true)
+    explicit SpinLock(std::string name, bool shouldYield = true)
         : state(false)
         , name(name)
         , shouldYield(shouldYield) {}
+
     // Delegating constructor forces const char* to resolve to string instead
     // of bool.
-    SpinLock(const char* name, bool shouldYield = true)
+    explicit SpinLock(const char* name, bool shouldYield = true)
         : SpinLock(std::string(name), shouldYield) {}
-    SpinLock(bool shouldYield = true)
+    explicit SpinLock(bool shouldYield = true)
         : state(false)
         , owner(NULL)
         , name("unnamed")
@@ -124,5 +125,5 @@ class SpinLock {
     // to set this to true to avoid deadlock.
     bool shouldYield;
 };
-}
+} // namespace Arachne
 #endif

@@ -51,7 +51,7 @@ $(OBJECT_DIR):
 
 check:
 	scripts/cpplint.py --filter=-runtime/threadsafe_fn,-readability/streams,-whitespace/blank_line,-whitespace/braces,-whitespace/comments,-runtime/arrays,-build/include_what_you_use,-whitespace/semicolon $(CHECK_TARGET)
-	! grep '.\{81\}' *.h *.cc
+	! grep '.\{81\}' $(SRC_DIR)/*.h $(SRC_DIR)/*.cc
 
 ################################################################################
 # Test Targets

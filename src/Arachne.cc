@@ -242,7 +242,7 @@ void
 threadMain() {
     if (initCore) initCore();
 
-    for(;;) {
+    for (;;) {
         coreArbiter.blockUntilCoreAvailable();
         // Prevent the use of abandoned ThreadContext which occurred as a
         // result of a shutdown request.
@@ -302,7 +302,8 @@ threadMain() {
                     numActiveCores + 1, numActiveCores.load());
             coreChangeActive = false;
 
-            // Cleanup is completed, so we can carry on with the next core release if needed.
+            // Cleanup is completed, so we can carry on with the next core
+            // release if needed.
             coreReleaseRequestCount--;
             if (coreReleaseRequestCount)
                 descheduleCore();
@@ -536,13 +537,15 @@ dispatch() {
                     core.loadedContext->wakeupTimeInCycles = BLOCKED;
                     DispatchTimeKeeper::numThreadsRan++;
 
-                    // It is necessary to update core.highestOccupiedContext here
-                    // because two simultaneous returns from these priority
-                    // checks (the higher index blocking and the lower index
-                    // exiting) can result in a gap that cannot be bridged by
-                    // the core.highestOccupiedContext increment mechanism below.
-                    core.highestOccupiedContext = std::max(core.highestOccupiedContext,
-                            core.loadedContext->idInCore);
+                    // It is necessary to update core.highestOccupiedContext
+                    // here because two simultaneous returns from these
+                    // priority checks (the higher index blocking and the lower
+                    // index exiting) can result in a gap that cannot be
+                    // bridged by the core.highestOccupiedContext increment
+                    // mechanism below.
+                    core.highestOccupiedContext =
+                        std::max(core.highestOccupiedContext,
+                                core.loadedContext->idInCore);
                     return;
                 }
                 void** saved = &core.loadedContext->sp;
@@ -550,8 +553,9 @@ dispatch() {
                 swapcontext(&core.loadedContext->sp, saved);
                 originalContext->wakeupTimeInCycles = BLOCKED;
                 DispatchTimeKeeper::numThreadsRan++;
-                core.highestOccupiedContext = std::max(core.highestOccupiedContext,
-                        core.loadedContext->idInCore);
+                core.highestOccupiedContext =
+                    std::max(core.highestOccupiedContext,
+                            core.loadedContext->idInCore);
                 return;
             }
         }
@@ -572,17 +576,18 @@ dispatch() {
                 uint64_t currentWakeupCycles =
                     core.localThreadContexts[currentIndex]->wakeupTimeInCycles;
                 uint64_t previousWakeupCycles =
-                    core.localThreadContexts[currentIndex-1]->wakeupTimeInCycles;
+                    core.localThreadContexts[currentIndex-1]->
+                        wakeupTimeInCycles;
                 if (currentWakeupCycles != UNOCCUPIED) {
                     core.highestOccupiedContext++;
                     // If we find something to run at the highest indexed
                     // context, then we should continue the current loop,
                     // skipping the code below which resets the loop state.
                     break;
-                }
-                else if (core.highestOccupiedContext > 0 &&
-                        previousWakeupCycles == UNOCCUPIED)
+                } else if (core.highestOccupiedContext > 0 &&
+                        previousWakeupCycles == UNOCCUPIED) {
                     core.highestOccupiedContext--;
+                }
             }
 
             // We have reached the end of the threads, so we should go back to
@@ -1040,7 +1045,7 @@ SleepLock::lock() {
         // Spurious wake-ups can happen due to signalers of past inhabitants of
         // this core.loadedContext.
         dispatch();
-    } while(owner != core.loadedContext);
+    } while (owner != core.loadedContext);
 }
 
 /** 
@@ -1247,8 +1252,8 @@ bool makeExclusiveOnCore(bool forScaleDown) {
 
     std::lock_guard<SleepLock> _(coreExclusionMutex);
     // Already exclusive
-    // TODO: Read the new value of core.localOccupiedAndCount, instead of the
-    // value from the previous kernelThread.
+    // TODO(hq6): Read the new value of core.localOccupiedAndCount, instead of
+    // the value from the previous kernelThread.
     MaskAndCount originalMask = *core.localOccupiedAndCount;
     if (originalMask.numOccupied > maxThreadsPerCore) {
         // If we are not the exclusive thread, then an error has occurred.
