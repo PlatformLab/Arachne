@@ -85,14 +85,14 @@ struct ArachneTest : public ::testing::Test {
         Arachne::init();
         // Articially wake up all threads for testing purposes
         std::vector<uint32_t> coreRequest({3,0,0,0,0,0,0,0});
-        coreArbiter.setNumCores(coreRequest);
+        coreArbiter.setRequestedCores(coreRequest);
         limitedTimeWait([]() -> bool { return numActiveCores == 3;});
     }
 
     virtual void TearDown()
     {
         // Unblock all cores so they can shut down and be joined.
-        coreArbiter.setNumCores({Arachne::maxNumCores,0,0,0,0,0,0,0});
+        coreArbiter.setRequestedCores({Arachne::maxNumCores,0,0,0,0,0,0,0});
 
         shutDown();
         waitForTermination();
@@ -768,7 +768,7 @@ TEST_F(ArachneTest, incrementCoreCount) {
     Arachne::init();
     // Articially wake up all threads for testing purposes
     std::vector<uint32_t> coreRequest({3,0,0,0,0,0,0,0});
-    coreArbiter.setNumCores(coreRequest);
+    coreArbiter.setRequestedCores(coreRequest);
     limitedTimeWait([]() -> bool { return numActiveCores == 3;});
     char *str;
     size_t size;
