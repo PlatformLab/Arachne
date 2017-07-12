@@ -892,7 +892,7 @@ init(int* argcp, const char** argv) {
     utilizationThresholds = new double[maxNumCores];
 
     std::vector<uint32_t> coreRequest({minNumCores,0,0,0,0,0,0,0});
-    coreArbiter.setNumCores(coreRequest);
+    coreArbiter.setRequestedCores(coreRequest);
     coreReleaseRequestCount = 0;
 
     // We assume that maxNumCores will not be exceeded in the lifetime of this
@@ -1019,7 +1019,7 @@ shutDown() {
 
     // Unblock all cores so they can shut down and be joined.
     std::vector<uint32_t> coreRequest({maxNumCores,0,0,0,0,0,0,0});
-    coreArbiter.setNumCores(coreRequest);
+    coreArbiter.setRequestedCores(coreRequest);
 
 }
 
@@ -1135,7 +1135,7 @@ void incrementCoreCount() {
     TimeTrace::record("Start Core Count %d --> %d",
             numActiveCores.load(), numActiveCores + 1);
     std::vector<uint32_t> coreRequest({numActiveCores + 1,0,0,0,0,0,0,0});
-    coreArbiter.setNumCores(coreRequest);
+    coreArbiter.setRequestedCores(coreRequest);
 }
 
 /**
@@ -1155,7 +1155,7 @@ void decrementCoreCount() {
             numActiveCores.load(), numActiveCores - 1);
 
     std::vector<uint32_t> coreRequest({numActiveCores - 1,0,0,0,0,0,0,0});
-    coreArbiter.setNumCores(coreRequest);
+    coreArbiter.setRequestedCores(coreRequest);
 }
 
 /*
