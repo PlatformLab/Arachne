@@ -36,7 +36,7 @@ extern thread_local Core core;
  * A resource that can be acquired by only one thread at a time.
  */
 class SpinLock {
- public:
+  public:
     /** Constructor and destructor for spinlock. */
     explicit SpinLock(std::string name, bool shouldYield = true)
         : state(false)
@@ -103,7 +103,7 @@ class SpinLock {
         this->name = name;
     }
 
- private:
+  private:
     // Implements the lock: false means free, true means locked
     std::atomic<bool> state;
 

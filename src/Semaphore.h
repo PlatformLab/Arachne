@@ -21,12 +21,12 @@
 
 class Semaphore
 {
- private:
+  private:
     std::mutex mutex_;
     std::condition_variable condition_;
     uint64_t count_ = 0; // Initialized as locked.
 
- public:
+  public:
     void reset() {
         std::unique_lock<decltype(mutex_)> lock(mutex_);
         count_ = 0;
