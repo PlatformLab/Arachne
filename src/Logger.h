@@ -30,7 +30,7 @@ namespace Arachne {
 enum LogLevel {VERBOSE, DEBUG, NOTICE, WARNING, ERROR, SILENT };
 
 class Logger {
-  public:
+ public:
 
     /**
      * Used to set the minimum severity to print out.
@@ -49,9 +49,9 @@ class Logger {
      *     A format string, followed by its arguments.
      */
     static void log(LogLevel level, const char* fmt, ...)
-        __attribute__((format (printf, 2, 3)));
+        __attribute__((format(printf, 2, 3)));
 
-  private:
+ private:
     // The minimum severity level to print.
     static LogLevel displayMinLevel;
 
@@ -60,6 +60,6 @@ class Logger {
     static std::mutex mutex;
 };
 
-}
+} // namespace Arachne
 
 #endif

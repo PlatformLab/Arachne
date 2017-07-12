@@ -48,7 +48,7 @@ struct Environment : public ::testing::Environment {
     // Override this to define how to set up the environment.
     virtual void SetUp() {
         // Initalize core arbiter server
-		CoreArbiter::Logger::setLogLevel(CoreArbiter::WARNING);
+        CoreArbiter::Logger::setLogLevel(CoreArbiter::WARNING);
         sys = new MockSyscall();
         sys->callGeteuid = false;
         sys->geteuidResult = 0;
@@ -192,7 +192,8 @@ TEST_F(ArachneTest, SpinLock_tryLock) {
 void sleepLockTest() {
     flag = 0;
     sleepLock.lock();
-    Arachne::ThreadId tid = createThreadOnCore(0, lockTaker<SleepLock>, &sleepLock);
+    Arachne::ThreadId tid =
+        createThreadOnCore(0, lockTaker<SleepLock>, &sleepLock);
     Arachne::sleep(1000);
     limitedTimeWait([]() -> bool {return flag;});
     EXPECT_EQ(1, flag);
@@ -216,7 +217,7 @@ void sleepOnLock(int id) {
     std::lock_guard<SleepLock> guard(sleepLock);
     char tempBuffer[100];
     memset(tempBuffer, 0, 100);
-    sprintf(tempBuffer, "T %d takes lock.\n", id);
+    snprintf(tempBuffer, sizeof(tempBuffer), "T %d takes lock.\n", id);
     strcat(outputBuffer, tempBuffer);
     completionCounter++;
 }
@@ -255,7 +256,7 @@ TEST_F(ArachneTest, SleepLock_fairness) {
     memset(inputBuffer, 0, 1024);
     for (int i = 0; i < 20; i ++) {
         memset(tempBuffer, 0, 100);
-        sprintf(tempBuffer, "T %d takes lock.\n", i);
+        snprintf(tempBuffer, sizeof(tempBuffer), "T %d takes lock.\n", i);
         strcat(inputBuffer, tempBuffer);
     }
     EXPECT_STREQ(inputBuffer, outputBuffer);
@@ -516,7 +517,7 @@ TEST_F(ArachneTest, block_basics) {
 TEST_F(ArachneTest, signal) {
     // We use a malloc here because we have deleted the constructor for
     // ThreadContext.
-    ThreadContext tempContext(0,0);
+    ThreadContext tempContext(0, 0);
     tempContext.generation = 0;
     tempContext.wakeupTimeInCycles = BLOCKED;
     tempContext.coreId = 0;
@@ -563,7 +564,8 @@ static Arachne::ThreadId joineeId;
 
 void
 joinee() {
-    EXPECT_LE(1U, Arachne::occupiedAndCount[virtualCoreTable[0]]->load().numOccupied);
+    EXPECT_LE(1U,
+            Arachne::occupiedAndCount[virtualCoreTable[0]]->load().numOccupied);
 }
 
 void
@@ -779,7 +781,8 @@ TEST_F(ArachneTest, incrementCoreCount) {
     limitedTimeWait([]() -> bool { return numActiveCores > 3;});
     EXPECT_NE(NullThread, createThreadOnCore(3, doNothing));
     fflush(newStream);
-    EXPECT_EQ("Attempting to increase number of cores 3 --> 4\n", std::string(str));
+    EXPECT_EQ("Attempting to increase number of cores 3 --> 4\n",
+            std::string(str));
     free(str);
 }
 
@@ -792,10 +795,12 @@ TEST_F(ArachneTest, decrementCoreCount) {
     setErrorStream(newStream);
     EXPECT_NE(NullThread, createThreadOnCore(2, doNothing));
     decrementCoreCount();
-    limitedTimeWait([]() -> bool { return numActiveCores < 3 && !coreChangeActive;});
+    limitedTimeWait(
+            []() -> bool { return numActiveCores < 3 && !coreChangeActive;});
     EXPECT_EQ(NullThread, createThreadOnCore(2, doNothing));
     decrementCoreCount();
-    limitedTimeWait([]() -> bool { return numActiveCores < 2 && !coreChangeActive;});
+    limitedTimeWait(
+            []() -> bool { return numActiveCores < 2 && !coreChangeActive;});
     EXPECT_EQ(NullThread, createThreadOnCore(1, doNothing));
     fflush(newStream);
     EXPECT_EQ("Attempting to decrease number of cores 3 --> 2\n"
@@ -817,7 +822,7 @@ void exclusiveThread() {
     while (stage != 3);
 }
 void yieldForever() {
-    while(true) yield();
+    while (true) yield();
 }
 // Since the functions are paired, this also serves as the test for
 // makeSharedOnCore.
@@ -826,7 +831,8 @@ TEST_F(ArachneTest, makeExclusiveOnCore) {
     limitedTimeWait([]()-> bool {
             return Arachne::occupiedAndCount[0]->load().numOccupied == 1;});
     // Check that thread creations are possible.
-    EXPECT_NE(Arachne::NullThread, Arachne::createThreadOnCore(0, yieldForever));
+    EXPECT_NE(
+            Arachne::NullThread, Arachne::createThreadOnCore(0, yieldForever));
     stage = 1;
     // Check that other threads have been moved off or finished, and that
     // thread creations fail.

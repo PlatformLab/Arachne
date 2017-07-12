@@ -3360,7 +3360,7 @@ def CheckCommaSpacing(filename, clean_lines, linenum, error):
   # lines to confirm that those missing whitespaces are not due to
   # elided comments.
   if (Search(r',[^,\s]', ReplaceAll(r'\boperator\s*,\s*\(', 'F(', line)) and
-      Search(r',[^,\s]', raw[linenum])):
+      Search(r',[^,\s]', raw[linenum]) and not '{' in raw[linenum]):
     error(filename, linenum, 'whitespace/comma', 3,
           'Missing space after ,')
 
@@ -4698,10 +4698,6 @@ def CheckPrintf(filename, clean_lines, linenum, error):
   if Search(r'\bsprintf\s*\(', line):
     error(filename, linenum, 'runtime/printf', 5,
           'Never use sprintf. Use snprintf instead.')
-  match = Search(r'\b(strcpy|strcat)\s*\(', line)
-  if match:
-    error(filename, linenum, 'runtime/printf', 4,
-          'Almost always, snprintf is better than %s' % match.group(1))
 
 
 def IsDerivedFunction(clean_lines, linenum):
