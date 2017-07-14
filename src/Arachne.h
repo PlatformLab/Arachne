@@ -464,7 +464,7 @@ random(void) {
     //
     // It was chosen because it was advertised to be fast, but this fact has
     // not yet been verified or disproved through experiments.
-    static uint64_t x = 123456789, y = 362436069, z = 521288629;
+    static thread_local uint64_t x = 123456789, y = 362436069, z = 521288629;
     uint64_t t;
     x ^= x << 16;
     x ^= x >> 5;
