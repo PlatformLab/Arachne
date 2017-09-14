@@ -662,12 +662,12 @@ TEST_F(ArachneTest, parseOptions_mixedOptions) {
     int originalStackSize = stackSize;
     int argc = 7;
     const char* originalArgv[] =
-        {"ArachneTest", "--appOptionB", "2", "--stackSize", "2048",
+        {"ArachneTest", "--appOptionB", "2", "--stackSize", "8192",
             "--appOptionA", "Argument"};
     const char** argv = originalArgv;
     Arachne::init(&argc, argv);
     EXPECT_EQ(5, argc);
-    EXPECT_EQ(stackSize, 2048);
+    EXPECT_EQ(stackSize, 8192);
     EXPECT_EQ("--appOptionB", argv[1]);
     EXPECT_EQ("--appOptionA", argv[3]);
     // Restore the stackSize. This races with cores trying to initialize

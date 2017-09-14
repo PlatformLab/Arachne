@@ -831,6 +831,8 @@ ThreadContext::ThreadContext(uint8_t coreId, uint8_t idInCore)
     if (stack == NULL) {
         abort();
     }
+    // Page in the last page worth of stack memory
+    memset(reinterpret_cast<char*>(stack) + stackSize - 4096, 0, 4096);
 }
 
 /**
