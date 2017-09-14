@@ -49,8 +49,15 @@ class ArbiterClientShim {
         return instance;
     }
   private:
-    // Enforce single instance
-    ArbiterClientShim() 
+    /**
+     * Enforce single instance, and initiate shimLock to be non-yielding.
+     * NB: Since the lock is taken inside the Arachne dispatch() method
+     * which may be polling on an unocupied context, it is not safe to for the
+     * lock to enter dispatch() again. This is because a wakeup flag set up by
+     * a createThread() may get wiped out when the nested dispatch call
+     * returns.
+     */
+    ArbiterClientShim()
         : inactiveCores(), currentRequestedCores(), currentCores()
         , shimLock(false) { }
 
