@@ -23,12 +23,12 @@ class ThreadArachneCommand (gdb.Command):
     # Remove it so that we will save it again when we leave this context
     del self.kernelThreadMap[kThreadNum]
 
-  # Switch to a user thread, but do not change Arachne::loadedContext, since we
+  # Switch to a user thread, but do not change Arachne::core.loadedContext, since we
   # use that to determine whether we need to load a saved context from the
   # kernelThreadMap.
   def thread(self, threadContext, from_tty):
     # Check if we are switching to the currently active context
-    loadedContext = gdb.parse_and_eval("Arachne::loadedContext")
+    loadedContext = gdb.parse_and_eval("Arachne::core.loadedContext")
     if isinstance(threadContext, basestring):
         threadContext = gdb.parse_and_eval(threadContext)
 
