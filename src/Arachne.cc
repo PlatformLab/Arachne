@@ -271,8 +271,10 @@ threadMain() {
             numActiveCores++;
             ARACHNE_LOG(DEBUG, "Number of cores increased from %d to %d\n",
                     numActiveCores - 1, numActiveCores.load());
+            #if TIME_TRACE
             TimeTrace::record("Core Count %d --> %d",
                     numActiveCores - 1, numActiveCores.load());
+            #endif
             if (coreChangeActive) coreChangeActive = false;
             PerfStats::threadStats.numCoreIncrements++;
         }
@@ -305,8 +307,10 @@ threadMain() {
             std::lock_guard<SpinLock> _(coreChangeMutex);
             ARACHNE_LOG(DEBUG, "Number of cores decreased from %d to %d\n",
                     numActiveCores + 1, numActiveCores.load());
+            #if TIME_TRACE
             TimeTrace::record("Core Count %d --> %d",
                     numActiveCores + 1, numActiveCores.load());
+            #endif
             coreChangeActive = false;
 
             // Cleanup is completed, so we can carry on with the next core
@@ -1148,8 +1152,10 @@ void incrementCoreCount() {
     coreChangeActive = true;
     ARACHNE_LOG(NOTICE, "Attempting to increase number of cores %u --> %u\n",
             numActiveCores.load(), numActiveCores + 1);
+    #if TIME_TRACE
     TimeTrace::record("Start Core Count %d --> %d",
             numActiveCores.load(), numActiveCores + 1);
+    #endif
     std::vector<uint32_t> coreRequest({numActiveCores + 1,0,0,0,0,0,0,0});
     coreArbiter.setRequestedCores(coreRequest);
 }
@@ -1167,8 +1173,10 @@ void decrementCoreCount() {
     coreChangeActive = true;
     ARACHNE_LOG(NOTICE, "Attempting to decrease number of cores %u --> %u\n",
             numActiveCores.load(), numActiveCores - 1);
+    #if TIME_TRACE
     TimeTrace::record("Start Core Count %d --> %d",
             numActiveCores.load(), numActiveCores - 1);
+    #endif
 
     std::vector<uint32_t> coreRequest({numActiveCores - 1,0,0,0,0,0,0,0});
     coreArbiter.setRequestedCores(coreRequest);

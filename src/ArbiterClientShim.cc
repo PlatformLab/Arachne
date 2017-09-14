@@ -48,7 +48,7 @@ bool ArbiterClientShim::mustReleaseCore() {
   */
 void ArbiterClientShim::setRequestedCores(std::vector<uint32_t> numCores) {
     uint32_t sum = 0;
-    for (uint32_t i: numCores)
+    for (uint32_t i : numCores)
         sum+=i;
     currentRequestedCores = sum;
 
@@ -64,4 +64,4 @@ void ArbiterClientShim::setRequestedCores(std::vector<uint32_t> numCores) {
 // Since there is no server, this function is a no-op.
 void ArbiterClientShim::unregisterThread() { }
 
-}
+} // namespace Arachne
