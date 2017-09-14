@@ -23,6 +23,7 @@
 #include "CoreArbiter/CoreArbiterClient.h"
 #include "CoreArbiter/MockSyscall.h"
 #include "CoreArbiter/Logger.h"
+#include "ArbiterClientShim.h"
 
 namespace Arachne {
 
@@ -36,7 +37,12 @@ extern std::atomic<uint32_t> numActiveCores;
 extern volatile uint32_t minNumCores;
 extern int* virtualCoreTable;
 
+#ifndef NO_ARBITER
 extern CoreArbiterClient& coreArbiter;
+#else
+extern ArbiterClientShim& coreArbiter;
+#endif
+
 static void limitedTimeWait(std::function<bool()> condition,
         int numIterations = 1000);
 
@@ -73,8 +79,10 @@ struct Environment : public ::testing::Environment {
         delete sys;
     }
 };
+#ifndef NO_ARBITER
 ::testing::Environment* const testEnvironment =
     ::testing::AddGlobalTestEnvironment(new Environment);
+#endif
 
 struct ArachneTest : public ::testing::Test {
     virtual void SetUp()

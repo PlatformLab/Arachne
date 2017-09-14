@@ -28,11 +28,15 @@
 #include <string>
 
 #include "PerfUtils/Cycles.h"
+#include "PerfUtils/Util.h"
 #include "Logger.h"
 #include "PerfStats.h"
 #include "Common.h"
 
 namespace Arachne {
+
+// Uncomment the following line to compile Arachne without the arbiter.
+// #define NO_ARBITER
 
 // A macro to disallow the copy constructor and operator= functions
 #ifndef DISALLOW_COPY_AND_ASSIGN

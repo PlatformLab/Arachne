@@ -20,7 +20,7 @@
 #include "CoreArbiter/CoreArbiterClient.h"
 
 #include "Arachne.h"
-#include "Semaphore.h"
+#include "ArbiterClientShim.h"
 
 namespace Arachne {
 
@@ -205,12 +205,19 @@ thread_local uint64_t DispatchTimeKeeper::dispatchStartCycles;
 thread_local uint64_t DispatchTimeKeeper::lastDispatchIterationStart;
 thread_local uint8_t  DispatchTimeKeeper::numThreadsRan;
 
+#ifndef NO_ARBITER
 /**
   * A handle to the CoreArbiterClient, which we use for requesting and
   * returning cores.
   */
 CoreArbiterClient& coreArbiter =
     CoreArbiterClient::getInstance("/tmp/CoreArbiter/testsocket");
+#else
+/**
+  * A handle to a fake CoreArbiterClient is a thin wrapper around a semaphor.
+  */
+ArbiterClientShim& coreArbiter = ArbiterClientShim::getInstance();
+#endif
 
 
 /**
@@ -719,6 +726,10 @@ void waitForTermination() {
     publicPriorityMasks.clear();
     delete[] virtualCoreTable;
     PerfUtils::Util::serialize();
+
+    #ifdef NO_ARBITER
+    coreArbiter.reset();
+    #endif
     initialized = false;
 }
 
