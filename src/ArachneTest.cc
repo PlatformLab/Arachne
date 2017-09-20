@@ -651,7 +651,10 @@ TEST_F(ArachneTest, parseOptions_longOptions) {
     EXPECT_EQ(stackSize, 4096);
     EXPECT_EQ(minNumCores, 5U);
     EXPECT_EQ(Arachne::maxNumCores, 6U);
+    shutDown();
+    waitForTermination();
     stackSize = originalStackSize;
+    Arachne::init();
 }
 
 TEST_F(ArachneTest, parseOptions_mixedOptions) {
