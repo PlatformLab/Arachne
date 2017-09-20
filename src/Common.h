@@ -17,6 +17,9 @@
 #define ARACHNE_COMMON_H
 
 namespace Arachne {
+
+#define CACHE_LINE_SIZE 64
+
 struct ThreadContext;
 struct MaskAndCount;
 /**
@@ -81,6 +84,9 @@ struct Core {
      */
     uint8_t highestOccupiedContext;
 };
+
+void*
+alignedAlloc(size_t size, size_t alignment = CACHE_LINE_SIZE);
 } // namespace Arachne
 
 #endif
