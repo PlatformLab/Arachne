@@ -827,12 +827,10 @@ ThreadContext::ThreadContext(uint8_t coreId, uint8_t idInCore)
 {
     wakeupTimeInCycles = UNOCCUPIED;
     // Allocate memory here so we can error-check.the return value of malloc
-    stack = malloc(stackSize);
+    stack = alignedAlloc(stackSize, PAGE_SIZE);
     if (stack == NULL) {
         abort();
     }
-    // Page in the last page worth of stack memory
-    memset(reinterpret_cast<char*>(stack) + stackSize - 4096, 0, 4096);
 }
 
 /**
