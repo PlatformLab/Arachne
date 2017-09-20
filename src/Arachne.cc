@@ -227,14 +227,14 @@ ArbiterClientShim& coreArbiter = ArbiterClientShim::getInstance();
   *     The amount of memory to allocate.
   */
 void*
-cacheAlignAlloc(size_t size) {
+alignedAlloc(size_t size, size_t alignment) {
     void *temp;
-    int result = posix_memalign(&temp, CACHE_LINE_SIZE, size);
+    int result = posix_memalign(&temp, alignment, size);
     if (result != 0) {
         ARACHNE_LOG(ERROR, "posix_memalign returned %s", strerror(result));
         exit(1);
     }
-    assert((reinterpret_cast<uint64_t>(temp) & (CACHE_LINE_SIZE - 1)) == 0);
+    assert((reinterpret_cast<uint64_t>(temp) & (alignment - 1)) == 0);
     return temp;
 }
 
@@ -924,17 +924,17 @@ init(int* argcp, const char** argv) {
     for (unsigned int i = 0; i < maxNumCores; i++) {
         occupiedAndCount.push_back(
                 reinterpret_cast<std::atomic<Arachne::MaskAndCount>* >(
-                    cacheAlignAlloc(sizeof(MaskAndCount))));
+                    alignedAlloc(sizeof(MaskAndCount))));
         memset(occupiedAndCount.back(), 0, sizeof(std::atomic<MaskAndCount>));
         publicPriorityMasks.push_back(
                 reinterpret_cast< std::atomic<uint64_t>* >(
-                    cacheAlignAlloc(sizeof(std::atomic<uint64_t>))));
+                    alignedAlloc(sizeof(std::atomic<uint64_t>))));
         memset(publicPriorityMasks.back(), 0, sizeof(std::atomic<uint64_t>));
         // Here we will allocate all the thread contexts and stacks
         ThreadContext **contexts = new ThreadContext*[maxThreadsPerCore];
         for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
             contexts[k] = reinterpret_cast<ThreadContext*>(
-                    cacheAlignAlloc(sizeof(ThreadContext)));
+                    alignedAlloc(sizeof(ThreadContext)));
             new (contexts[k]) ThreadContext(static_cast<uint8_t>(i), k);
         }
         allThreadContexts.push_back(contexts);
@@ -983,7 +983,7 @@ testInit() {
     core.kernelThreadId = maxNumCores - 1;
     core.localOccupiedAndCount =
         reinterpret_cast<std::atomic<Arachne::MaskAndCount>* >(
-            cacheAlignAlloc(sizeof(MaskAndCount)));
+            alignedAlloc(sizeof(MaskAndCount)));
     memset(core.localOccupiedAndCount, 0, sizeof(MaskAndCount));
 
     core.localThreadContexts = new ThreadContext*[maxThreadsPerCore];
@@ -992,7 +992,7 @@ testInit() {
         // be used, and it can be optimized out if it turns out to be too
         // expensive.
         core.localThreadContexts[k] = reinterpret_cast<ThreadContext*>(
-                cacheAlignAlloc(sizeof(ThreadContext)));
+                alignedAlloc(sizeof(ThreadContext)));
         new (core.localThreadContexts[k]) ThreadContext(~0, k);
         core.localThreadContexts[k]->wakeupTimeInCycles = BLOCKED;
         // It is important to re-initialize stacks here because some of the

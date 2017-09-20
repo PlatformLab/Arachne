@@ -390,13 +390,11 @@ TEST_F(ArachneTest, createThread_pickLeastLoaded) {
     *occupiedAndCount[1] = {0, 0};
 }
 
-void* cacheAlignAlloc(size_t size);
-
-TEST_F(ArachneTest, cacheAlignAlloc) {
-    void* ptr = cacheAlignAlloc(7);
+TEST_F(ArachneTest, alignedAlloc) {
+    void* ptr = alignedAlloc(7);
     EXPECT_EQ(0U, reinterpret_cast<uint64_t>(ptr) & (CACHE_LINE_SIZE - 1));
     free(ptr);
-    ptr = cacheAlignAlloc(63);
+    ptr = alignedAlloc(63);
     EXPECT_EQ(0U, reinterpret_cast<uint64_t>(ptr) & (CACHE_LINE_SIZE - 1));
     free(ptr);
 }

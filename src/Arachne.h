@@ -45,8 +45,6 @@ namespace Arachne {
     TypeName& operator=(const TypeName&) = delete;
 #endif
 
-#define CACHE_LINE_SIZE 64
-
 using PerfUtils::Cycles;
 
 // Forward declare to break circular dependency between ThreadContext and
