@@ -758,7 +758,8 @@ parseOptions(int* argcp, const char** argv) {
     } optionSpecifiers[] = {
         {"minNumCores", 'c', true},
         {"maxNumCores", 'm', true},
-        {"stackSize", 's', true}
+        {"stackSize", 's', true},
+        {"disableLoadEstimation", 'd', false}
     };
     const int UNRECOGNIZED = ~0;
 
@@ -806,6 +807,9 @@ parseOptions(int* argcp, const char** argv) {
                 break;
             case 's':
                 stackSize = atoi(optionArgument);
+                break;
+            case 'd':
+                disableLoadEstimation = true;
                 break;
             case UNRECOGNIZED:
                 i++;

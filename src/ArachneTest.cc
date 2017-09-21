@@ -683,6 +683,22 @@ TEST_F(ArachneTest, parseOptions_mixedOptions) {
     Arachne::init();
 }
 
+TEST_F(ArachneTest, parseOptions_noArgumentOptions) {
+    // See comment in parseOptions_noOptions
+    shutDown();
+    waitForTermination();
+    Arachne::disableLoadEstimation = false;
+    int argc = 4;
+    const char* originalArgv[] =
+        {"ArachneTest", "--disableLoadEstimation", "--minNumCores", "5"};
+    const char** argv = originalArgv;
+    Arachne::init(&argc, argv);
+    EXPECT_EQ(1, argc);
+    EXPECT_EQ(5U, Arachne::minNumCores);
+    EXPECT_EQ(5U, Arachne::maxNumCores);
+    EXPECT_EQ(true, disableLoadEstimation);
+}
+
 TEST_F(ArachneTest, parseOptions_appOptionsOnly) {
     // See comment in parseOptions_noOptions
     shutDown();
