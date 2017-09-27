@@ -27,29 +27,22 @@ dominance of kernel threads in the C++ world.
 Arachne is the first step towards core-aware scheduling, allowing an
 application to run only as many threads in parallel as cores available to it.
 
-Arachne is a user-level, cooperative threading library written in C++, designed
-to improve core utlization and maximize throughput in server applications
-without impacting latency. Today, it performs M:N scheduling over kernel
-threads and features ~200 ns cross-core thread creations and ~100 ns cross-core
-signals on Nehalem X3470.
-
-Today, it is highly performant only as long as threads do not need to block in
-the kernel, but this limitation is expected to go away in the next few months.
+Arachne is a user-level, cooperative thread management system written in C++,
+designed to improve core utlization and maximize throughput in server
+applications without impacting latency. It performs M:N scheduling over kernel
+threads running exclusively on CPU cores and features ~200 ns cross-core thread
+creations and ~100 ns cross-core signals on Nehalem X3470. Arachne also
+estimates CPU load and adjusts the number of cores accordingly.
 
 ## How do I use it?
-1. Recursively clone Arachne inside your application's directory.
+1. Recursively clone [Arachne super repository](https://github.com/PlatformLab/arachne-all).
 
-        git clone --recursive git@github.com:PlatformLab/Arachne.git
+        git clone --recursive https://github.com/PlatformLab/arachne-all.git
 
-At this point, your application directory should look like the following.
+2. Build the library with `./buildAll.sh` in the top level directory.
 
-        application_directory/
-            Arachne/
-
-2. Build the library with `make` in the Arachne directory.
-
-        cd Arachne
-        make
+        cd arachne-all
+        ./buildAll.sh
 
 3. Write your application using the public Arachne API, documented [here](https://platformlab.github.io/Arachne/group__api.html).
 
@@ -81,12 +74,7 @@ At this point, your application directory should look like the following.
 
 4. Link your application against Arachne.
 
-        g++ -std=c++11 -o MyApp -IArachne MyApp.cc  -LArachne -lArachne -LArachne/PerfUtils -lPerfUtils -pthread
-
-## What is on the roadmap?
-
- - A core arbiter to enable core exclusivity.
- - One or more heuristics for determining when to scale up and scale down the number of cores.
+        g++ -std=c++11 -o MyApp -IArachne MyApp.cc  -Larachne-all/Arachne -lArachne -Larachne-all/PerfUtils -lPerfUtils -pthread
 
 ## User Threading vs Kernel Threadpool
 
