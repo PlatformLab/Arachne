@@ -209,22 +209,9 @@ thread_local uint8_t  DispatchTimeKeeper::numThreadsRan;
   * This variable defines whether Arachne should use the core arbiter.
   * It is (will be) parsed in from the command line.
   */
-bool useCoreArbiter = ARBITER_OFF;
+bool useCoreArbiter = ARBITER_ON;
 
-#ifndef NO_ARBITER
-/**
-  * A handle to the CoreArbiterClient, which we use for requesting and
-  * returning cores.
-  */
-CoreArbiterClient& coreArbiter =
-    CoreArbiterClient::getInstance("/tmp/CoreArbiter/testsocket");
-#else
-/**
-  * A handle to a fake CoreArbiterClient is a thin wrapper around a semaphor.
-  */
-ArbiterClientShim& coreArbiter = ArbiterClientShim::getInstance();
-#endif
-
+CoreArbiterClient& coreArbiter = (useCoreArbiter) ? CoreArbiterClient::getInstance("/tmp/CoreArbiter/testsocket") : ArbiterClientShim::getInstance();
 
 /**
   * Allocate a block of memory aligned at the beginning of a cache line.
@@ -737,9 +724,9 @@ void waitForTermination() {
     delete[] virtualCoreTable;
     PerfUtils::Util::serialize();
 
-    #ifdef NO_ARBITER
-    coreArbiter.reset();
-    #endif
+    if (useCoreArbiter == ARBITER_OFF) {
+      coreArbiter.reset();
+    }
     initialized = false;
 }
 
