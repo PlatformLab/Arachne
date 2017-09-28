@@ -211,7 +211,7 @@ thread_local uint8_t  DispatchTimeKeeper::numThreadsRan;
   */
 bool useCoreArbiter = ARBITER_ON;
 
-CoreArbiterClient& coreArbiter = (useCoreArbiter) ? CoreArbiterClient::getInstance("/tmp/CoreArbiter/testsocket") : ArbiterClientShim::getInstance();
+CoreArbiterClient* coreArbiter = NULL;
 
 /**
   * Allocate a block of memory aligned at the beginning of a cache line.
@@ -243,7 +243,7 @@ threadMain() {
     if (initCore) initCore();
 
     for (;;) {
-        coreArbiter.blockUntilCoreAvailable();
+        coreArbiter->blockUntilCoreAvailable();
         // Prevent the use of abandoned ThreadContext which occurred as a
         // result of a shutdown request.
         if (shutdown) break;
@@ -315,7 +315,7 @@ threadMain() {
         PerfStats::threadStats.numCoreDecrements++;
     }
     PerfStats::deregisterStats(&PerfStats::threadStats);
-    coreArbiter.unregisterThread();
+    coreArbiter->unregisterThread();
 }
 
 /**
@@ -723,7 +723,7 @@ void waitForTermination() {
     publicPriorityMasks.clear();
     delete[] virtualCoreTable;
     PerfUtils::Util::serialize();
-    coreArbiter.reset();
+    coreArbiter->reset();
     initialized = false;
 }
 
@@ -749,6 +749,7 @@ parseOptions(int* argcp, const char** argv) {
         {"minNumCores", 'c', true},
         {"maxNumCores", 'm', true},
         {"stackSize", 's', true},
+        {"enableArbiter", 'a', true},
         {"disableLoadEstimation", 'd', false}
     };
     const int UNRECOGNIZED = ~0;
@@ -800,6 +801,12 @@ parseOptions(int* argcp, const char** argv) {
                 break;
             case 'd':
                 disableLoadEstimation = true;
+                break;
+            case 'a':
+                useCoreArbiter = atoi(optionArgument);
+                if (useCoreArbiter != ARBITER_OFF) {
+                  useCoreArbiter = ARBITER_ON;
+                }
                 break;
             case UNRECOGNIZED:
                 i++;
@@ -898,6 +905,8 @@ init(int* argcp, const char** argv) {
     initialized = true;
     parseOptions(argcp, argv);
 
+    coreArbiter = (useCoreArbiter) ? CoreArbiterClient::getInstance("/tmp/CoreArbiter/testsocket") : ArbiterClientShim::getInstance();
+
     if (minNumCores == 0)
         minNumCores = 1;
     if (maxNumCores == 0)
@@ -906,7 +915,7 @@ init(int* argcp, const char** argv) {
     utilizationThresholds = new double[maxNumCores];
 
     std::vector<uint32_t> coreRequest({minNumCores,0,0,0,0,0,0,0});
-    coreArbiter.setRequestedCores(coreRequest);
+    coreArbiter->setRequestedCores(coreRequest);
     coreReleaseRequestCount = 0;
 
     // We assume that maxNumCores will not be exceeded in the lifetime of this
@@ -1033,7 +1042,7 @@ shutDown() {
 
     // Unblock all cores so they can shut down and be joined.
     std::vector<uint32_t> coreRequest({maxNumCores,0,0,0,0,0,0,0});
-    coreArbiter.setRequestedCores(coreRequest);
+    coreArbiter->setRequestedCores(coreRequest);
 
 }
 
@@ -1151,7 +1160,7 @@ void incrementCoreCount() {
             numActiveCores.load(), numActiveCores + 1);
     #endif
     std::vector<uint32_t> coreRequest({numActiveCores + 1,0,0,0,0,0,0,0});
-    coreArbiter.setRequestedCores(coreRequest);
+    coreArbiter->setRequestedCores(coreRequest);
 }
 
 /**
@@ -1173,7 +1182,7 @@ void decrementCoreCount() {
     #endif
 
     std::vector<uint32_t> coreRequest({numActiveCores - 1,0,0,0,0,0,0,0});
-    coreArbiter.setRequestedCores(coreRequest);
+    coreArbiter->setRequestedCores(coreRequest);
 }
 
 /*
@@ -1228,7 +1237,7 @@ void descheduleCore() {
   * Detect requests for cores from the core arbiter.
   */
 void checkForArbiterRequest() {
-    if (!coreArbiter.mustReleaseCore())
+    if (!coreArbiter->mustReleaseCore())
         return;
     std::lock_guard<SpinLock> _(coreChangeMutex);
     coreReleaseRequestCount++;
