@@ -723,10 +723,7 @@ void waitForTermination() {
     publicPriorityMasks.clear();
     delete[] virtualCoreTable;
     PerfUtils::Util::serialize();
-
-    if (useCoreArbiter == ARBITER_OFF) {
-      coreArbiter.reset();
-    }
+    coreArbiter.reset();
     initialized = false;
 }
 

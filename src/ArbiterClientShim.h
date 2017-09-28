@@ -30,8 +30,7 @@ typedef int core_t;
 
 /**
   * This class functions as a shim for the CoreArbiter client so that Arachne
-  * can run without the Core Arbiter when it is compiled with the macro
-  * NO_ARBITER.
+  * can run without the Core Arbiter when the arbiter is deactivated.
   */
 class ArbiterClientShim : public CoreArbiter::CoreArbiterClient {
   public:
@@ -61,9 +60,9 @@ class ArbiterClientShim : public CoreArbiter::CoreArbiterClient {
      * returns.
      */
     ArbiterClientShim()
-        : CoreArbiter::CoreArbiterClient("")
-        ,inactiveCores(), currentRequestedCores(), currentCores()
-        , shimLock(false) { }
+        : CoreArbiter::CoreArbiterClient(""),
+        inactiveCores(), currentRequestedCores(), currentCores(),
+        shimLock(false) { }
 
     /**
       * Threads block on this semaphor instead of a socket recv() when the
