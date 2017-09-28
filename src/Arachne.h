@@ -35,8 +35,9 @@
 
 namespace Arachne {
 
-// Uncomment the following line to compile Arachne without the arbiter.
-// #define NO_ARBITER
+// Used to check whether arbiter is enabled
+#define ARBITER_OFF 0
+#define ARBITER_ON 1
 
 // A macro to disallow the copy constructor and operator= functions
 #ifndef DISALLOW_COPY_AND_ASSIGN

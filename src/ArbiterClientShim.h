@@ -21,6 +21,7 @@
 
 #include "Semaphore.h"
 #include "SpinLock.h"
+#include "CoreArbiter/CoreArbiterClient.h"
 
 
 namespace Arachne {
@@ -32,8 +33,9 @@ typedef int core_t;
   * can run without the Core Arbiter when it is compiled with the macro
   * NO_ARBITER.
   */
-class ArbiterClientShim {
+class ArbiterClientShim : public CoreArbiter::CoreArbiterClient {
   public:
+
     core_t blockUntilCoreAvailable();
     bool mustReleaseCore();
     void setRequestedCores(std::vector<uint32_t> numCores);
@@ -48,6 +50,7 @@ class ArbiterClientShim {
         static ArbiterClientShim instance;
         return instance;
     }
+
   private:
     /**
      * Enforce single instance, and initiate shimLock to be non-yielding.
@@ -58,7 +61,8 @@ class ArbiterClientShim {
      * returns.
      */
     ArbiterClientShim()
-        : inactiveCores(), currentRequestedCores(), currentCores()
+        : CoreArbiter::CoreArbiterClient("")
+        ,inactiveCores(), currentRequestedCores(), currentCores()
         , shimLock(false) { }
 
     /**

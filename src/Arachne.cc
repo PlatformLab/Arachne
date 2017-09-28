@@ -205,6 +205,12 @@ thread_local uint64_t DispatchTimeKeeper::dispatchStartCycles;
 thread_local uint64_t DispatchTimeKeeper::lastDispatchIterationStart;
 thread_local uint8_t  DispatchTimeKeeper::numThreadsRan;
 
+/**
+  * This variable defines whether Arachne should use the core arbiter.
+  * It is (will be) parsed in from the command line.
+  */
+bool useCoreArbiter = ARBITER_OFF;
+
 #ifndef NO_ARBITER
 /**
   * A handle to the CoreArbiterClient, which we use for requesting and
