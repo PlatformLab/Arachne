@@ -639,9 +639,10 @@ TEST_F(ArachneTest, parseOptions_longOptions) {
     int argc = 7;
     const char* argv[] =
         {"ArachneTest", "--minNumCores", "5", "--stackSize", "4096",
-            "--maxNumCores", "6"};
+            "--maxNumCores", "6", "--enableArbiter", "1"};
     Arachne::init(&argc, argv);
     EXPECT_EQ(1, argc);
+    EXPECT_EQ(useCoreArbiter, ARBITER_ON);
     EXPECT_EQ(5U, minNumCores);
     EXPECT_EQ(stackSize, 4096);
     EXPECT_EQ(minNumCores, 5U);
@@ -665,6 +666,35 @@ TEST_F(ArachneTest, parseOptions_mixedOptions) {
     const char** argv = originalArgv;
     Arachne::init(&argc, argv);
     EXPECT_EQ(5, argc);
+    EXPECT_EQ(stackSize, 8192);
+    EXPECT_EQ("--appOptionB", argv[1]);
+    EXPECT_EQ("--appOptionA", argv[3]);
+    // Restore the stackSize. This races with cores trying to initialize
+    // stacks, since the stack memory that was allocated is smaller than the
+    // original stack size. We would like to allow thread creations before we
+    // finish initializing stacks, since those operations are orthogonal.
+    // Therefore, we have to first deinitialize the library, update the stack
+    // size, and then reinitialize the library.
+    shutDown();
+    waitForTermination();
+    stackSize = originalStackSize;
+    Arachne::init();
+}
+
+TEST_F(ArachneTest, parseOptions_mixedOptions_noArbiter) {
+    // See comment in parseOptions_noOptions
+    shutDown();
+    waitForTermination();
+
+    int originalStackSize = stackSize;
+    int argc = 9;
+    const char* originalArgv[] =
+        {"ArachneTest", "--appOptionB", "2", "--stackSize", "8192",
+            "--appOptionA", "Argument", "--enableArbiter", "0"};
+    const char** argv = originalArgv;
+    Arachne::init(&argc, argv);
+    EXPECT_EQ(5, argc);
+    EXPECT_EQ(useCoreArbiter, ARBITER_OFF);
     EXPECT_EQ(stackSize, 8192);
     EXPECT_EQ("--appOptionB", argv[1]);
     EXPECT_EQ("--appOptionA", argv[3]);
