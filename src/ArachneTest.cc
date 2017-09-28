@@ -23,7 +23,7 @@
 #include "CoreArbiter/CoreArbiterClient.h"
 #include "CoreArbiter/MockSyscall.h"
 #include "CoreArbiter/Logger.h"
-#include "ArbiterClientShim.h"
+#include "CoreArbiter/ArbiterClientShim.h"
 
 namespace Arachne {
 

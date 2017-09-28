@@ -20,7 +20,7 @@
 #include "CoreArbiter/CoreArbiterClient.h"
 
 #include "Arachne.h"
-#include "ArbiterClientShim.h"
+#include "CoreArbiter/ArbiterClientShim.h"
 
 namespace Arachne {
 
