@@ -636,13 +636,13 @@ TEST_F(ArachneTest, parseOptions_longOptions) {
     waitForTermination();
 
     int originalStackSize = stackSize;
-    int argc = 7;
+    int argc = 9;
     const char* argv[] =
         {"ArachneTest", "--minNumCores", "5", "--stackSize", "4096",
-            "--maxNumCores", "6", "--enableArbiter", "1"};
+            "--maxNumCores", "6", "--enableArbiter", "0"};
     Arachne::init(&argc, argv);
     EXPECT_EQ(1, argc);
-    EXPECT_EQ(useCoreArbiter, ARBITER_ON);
+    EXPECT_EQ(useCoreArbiter, ARBITER_OFF);
     EXPECT_EQ(5U, minNumCores);
     EXPECT_EQ(stackSize, 4096);
     EXPECT_EQ(minNumCores, 5U);
