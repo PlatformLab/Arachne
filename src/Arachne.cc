@@ -905,7 +905,7 @@ init(int* argcp, const char** argv) {
     initialized = true;
     parseOptions(argcp, argv);
 
-    coreArbiter = (useCoreArbiter) ? CoreArbiterClient::getInstance("/tmp/CoreArbiter/testsocket") : ArbiterClientShim::getInstance();
+    coreArbiter = (useCoreArbiter) ? CoreArbiterClient::getInstance(TEST_SOCKET) : ArbiterClientShim::getInstance();
 
     if (minNumCores == 0)
         minNumCores = 1;

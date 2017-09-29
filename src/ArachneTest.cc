@@ -60,7 +60,7 @@ struct Environment : public ::testing::Environment {
 
         CoreArbiterServer::sys = sys;
         coreArbiterServer = new CoreArbiterServer(
-                std::string("/tmp/CoreArbiter/testsocket"),
+                std::string(TEST_SOCKET),
                 std::string("/tmp/CoreArbiter/testmem"),
                 {1,2,3,4,5,6,7}, false);
         coreArbiterServerThread = new std::thread([=] {
