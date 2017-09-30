@@ -19,35 +19,53 @@
 #include <mutex>
 #include <condition_variable>
 
+/**
+  * This class enables a kernel thread to block in the kernel until a resource
+  * is available. It is a modified version of
+  * https://stackoverflow.com/a/4793662/391161.
+  */
 class Semaphore
 {
   private:
-    std::mutex mutex_;
-    std::condition_variable condition_;
-    uint64_t count_ = 0; // Initialized as locked.
+    // Protect the internal resource count.
+    std::mutex mutex;
+
+    // Blocked threads park on this condition variable until this resource is
+    // available.
+    std::condition_variable condition;
+
+    // Quantity of resources available for consumption.
+    uint64_t count = 0;
 
   public:
+    // Restore the resource count to its original state.
     void reset() {
-        std::unique_lock<decltype(mutex_)> lock(mutex_);
-        count_ = 0;
+        std::unique_lock<decltype(mutex)> lock(mutex);
+        count = 0;
     }
+
+    // Increase the resource count.
     void notify() {
-        std::unique_lock<decltype(mutex_)> lock(mutex_);
-        ++count_;
-        condition_.notify_one();
+        std::unique_lock<decltype(mutex)> lock(mutex);
+        ++count;
+        condition.notify_one();
     }
 
+    // Block until this resource is available.
     void wait() {
-        std::unique_lock<decltype(mutex_)> lock(mutex_);
-        while (!count_) // Handle spurious wake-ups.
-            condition_.wait(lock);
-        --count_;
+        std::unique_lock<decltype(mutex)> lock(mutex);
+        while (!count) // Handle spurious wake-ups.
+            condition.wait(lock);
+        --count;
     }
 
+    // Attempt to acquire this resource once.
+    // \return
+    //    Whether or not the acquisition succeeded.  inline bool
     bool try_wait() {
-        std::unique_lock<decltype(mutex_)> lock(mutex_);
-        if (count_) {
-            --count_;
+        std::unique_lock<decltype(mutex)> lock(mutex);
+        if (count) {
+            --count;
             return true;
         }
         return false;
