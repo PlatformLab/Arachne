@@ -39,8 +39,9 @@ namespace Arachne {
 #define ARBITER_OFF 0
 #define ARBITER_ON 1
 
-// Current location of CoreArbiter testsocket
+// Current location of CoreArbiter testsocket and testmem
 #define TEST_SOCKET "/tmp/CoreArbiter/testsocket"
+#define TEST_MEM    "/tmp/CoreArbiter/testmem"
 
 // A macro to disallow the copy constructor and operator= functions
 #ifndef DISALLOW_COPY_AND_ASSIGN
