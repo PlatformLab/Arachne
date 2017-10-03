@@ -39,7 +39,7 @@ extern std::atomic<uint32_t> numActiveCores;
 extern volatile uint32_t minNumCores;
 extern int* virtualCoreTable;
 
-extern CoreArbiterClient& coreArbiter;
+extern CoreArbiterClient* coreArbiter;
 
 static void limitedTimeWait(std::function<bool()> condition,
         int numIterations = 1000);
@@ -90,14 +90,14 @@ struct ArachneTest : public ::testing::Test {
         Arachne::init();
         // Articially wake up all threads for testing purposes
         std::vector<uint32_t> coreRequest({3,0,0,0,0,0,0,0});
-        coreArbiter.setRequestedCores(coreRequest);
+        coreArbiter->setRequestedCores(coreRequest);
         limitedTimeWait([]() -> bool { return numActiveCores == 3;});
     }
 
     virtual void TearDown()
     {
         // Unblock all cores so they can shut down and be joined.
-        coreArbiter.setRequestedCores({Arachne::maxNumCores,0,0,0,0,0,0,0});
+        coreArbiter->setRequestedCores({Arachne::maxNumCores,0,0,0,0,0,0,0});
 
         shutDown();
         waitForTermination();
@@ -822,7 +822,7 @@ TEST_F(ArachneTest, incrementCoreCount) {
     Arachne::init();
     // Articially wake up all threads for testing purposes
     std::vector<uint32_t> coreRequest({3,0,0,0,0,0,0,0});
-    coreArbiter.setRequestedCores(coreRequest);
+    coreArbiter->setRequestedCores(coreRequest);
     limitedTimeWait([]() -> bool { return numActiveCores == 3;});
     char *str;
     size_t size;
