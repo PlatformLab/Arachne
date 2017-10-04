@@ -209,7 +209,7 @@ thread_local uint8_t  DispatchTimeKeeper::numThreadsRan;
   * This variable defines whether Arachne should use the core arbiter.
   * It is (will be) parsed in from the command line.
   */
-bool useCoreArbiter = ARBITER_ON;
+bool useCoreArbiter = true;
 
 CoreArbiterClient* coreArbiter = NULL;
 
@@ -803,10 +803,7 @@ parseOptions(int* argcp, const char** argv) {
                 disableLoadEstimation = true;
                 break;
             case 'a':
-                useCoreArbiter = atoi(optionArgument);
-                if (useCoreArbiter != ARBITER_OFF) {
-                  useCoreArbiter = ARBITER_ON;
-                }
+                useCoreArbiter = (0 != atoi(optionArgument));
                 break;
             case UNRECOGNIZED:
                 i++;

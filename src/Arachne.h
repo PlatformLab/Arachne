@@ -35,10 +35,6 @@
 
 namespace Arachne {
 
-// Used to check whether arbiter is enabled
-#define ARBITER_OFF 0
-#define ARBITER_ON 1
-
 // Current location of CoreArbiter testsocket and testmem
 #define TEST_SOCKET "/tmp/CoreArbiter/testsocket"
 #define TEST_MEM    "/tmp/CoreArbiter/testmem"

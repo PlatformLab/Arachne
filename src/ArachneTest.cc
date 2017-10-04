@@ -78,7 +78,7 @@ struct Environment : public ::testing::Environment {
     }
 };
 
-::testing::Environment* const testEnvironment = (useCoreArbiter == ARBITER_ON) ?
+::testing::Environment* const testEnvironment = (useCoreArbiter) ?
     ::testing::AddGlobalTestEnvironment(new Environment) : NULL;
 
 struct ArachneTest : public ::testing::Test {
@@ -642,7 +642,7 @@ TEST_F(ArachneTest, parseOptions_longOptions) {
             "--maxNumCores", "6", "--enableArbiter", "0"};
     Arachne::init(&argc, argv);
     EXPECT_EQ(1, argc);
-    EXPECT_EQ(useCoreArbiter, ARBITER_OFF);
+    EXPECT_EQ(useCoreArbiter, false);
     EXPECT_EQ(5U, minNumCores);
     EXPECT_EQ(stackSize, 4096);
     EXPECT_EQ(minNumCores, 5U);
@@ -694,7 +694,7 @@ TEST_F(ArachneTest, parseOptions_mixedOptions_noArbiter) {
     const char** argv = originalArgv;
     Arachne::init(&argc, argv);
     EXPECT_EQ(5, argc);
-    EXPECT_EQ(useCoreArbiter, ARBITER_OFF);
+    EXPECT_EQ(useCoreArbiter, false);
     EXPECT_EQ(stackSize, 8192);
     EXPECT_EQ("--appOptionB", argv[1]);
     EXPECT_EQ("--appOptionA", argv[3]);
