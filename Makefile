@@ -15,7 +15,7 @@ BIN_DIR = bin
 PERFUTILS=../PerfUtils
 COREARBITER=../CoreArbiter
 INCLUDE=-I$(PERFUTILS)/include -I$(COREARBITER)/include
-LIBS=$(PERFUTILS)/lib/libPerfUtils.a $(COREARBITER)/lib/libCoreArbiter.a -lpcrecpp -pthread
+LIBS=$(COREARBITER)/lib/libCoreArbiter.a $(PERFUTILS)/lib/libPerfUtils.a -lpcrecpp -pthread
 
 # Stuff needed for make check
 TOP := $(shell echo $${PWD-`pwd`})
