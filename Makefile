@@ -7,7 +7,7 @@ CCFLAGS=-g -Wall -Werror -Wformat=2 -Wextra -Wwrite-strings \
 # Output directories
 OBJECT_DIR = obj
 SRC_DIR = src
-INCLUDE_DIR = include
+INCLUDE_DIR = include/Arachne
 LIB_DIR = lib
 BIN_DIR = bin
 
