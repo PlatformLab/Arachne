@@ -583,23 +583,16 @@ dispatch() {
         while (currentIndex == core.highestOccupiedContext + 1) {
             checkForArbiterRequest();
             // Check if we need to decrement core.highestOccupiedContext
-            if (core.highestOccupiedContext < maxThreadsPerCore - 1) {
-                uint64_t currentWakeupCycles =
-                    core.localThreadContexts[currentIndex]->wakeupTimeInCycles;
-                uint64_t previousWakeupCycles =
-                    core.localThreadContexts[currentIndex-1]->
-                        wakeupTimeInCycles;
-                if (currentWakeupCycles != UNOCCUPIED) {
-                    core.highestOccupiedContext++;
-                    // If we find something to run at the highest indexed
-                    // context, then we should continue the current loop,
-                    // skipping the code below which resets the loop state.
-                    break;
-                } else if (core.highestOccupiedContext > 0 &&
-                        previousWakeupCycles == UNOCCUPIED) {
-                    core.highestOccupiedContext--;
-                }
+            uint8_t knownHighestOccupiedContext = 0;
+            uint8_t prevHighestOccupiedContext = core.highestOccupiedContext;
+            for (uint8_t potIndex = 0; potIndex < (uint8_t) maxThreadsPerCore; potIndex++) {
+              knownHighestOccupiedContext =
+                (core.localThreadContexts[potIndex]->wakeupTimeInCycles != UNOCCUPIED) ?
+                potIndex : knownHighestOccupiedContext;
             }
+            core.highestOccupiedContext = knownHighestOccupiedContext;
+            if (knownHighestOccupiedContext > prevHighestOccupiedContext)
+              break;
 
             // We have reached the end of the threads, so we should go back to
             // the beginning.
