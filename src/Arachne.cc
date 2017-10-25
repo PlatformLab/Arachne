@@ -146,6 +146,13 @@ int* virtualCoreTable;
 std::vector< std::atomic<uint64_t> *> publicPriorityMasks;
 
 /**
+  * Elements of this vector are set when a new thread is created to guarantee
+  * that the highestOccupiedIndex on their core is set high enough for them to
+  * run.
+*/
+std::atomic<uint8_t> newestThreadOccupiedContext[512];
+
+/**
   * The period in ns over which we measure before deciding to reduce the number
   * of cores we use.
   */
@@ -258,6 +265,7 @@ threadMain() {
             // structure.
             *core.localOccupiedAndCount = {0,0};
             *publicPriorityMasks[core.kernelThreadId] = 0;
+            newestThreadOccupiedContext[core.kernelThreadId] = 0;
             core.privatePriorityMask = 0;
 
             // This marks the point at which new thread creations may begin.
@@ -577,6 +585,12 @@ dispatch() {
             checkForArbiterRequest();
             // Check if we need to decrement core.highestOccupiedContext
             if (core.highestOccupiedContext < maxThreadsPerCore - 1) {
+                uint8_t newestThreadContextIndex = newestThreadOccupiedContext[core.kernelThreadId];
+                if (newestThreadContextIndex > core.highestOccupiedContext) {
+                    core.highestOccupiedContext = newestThreadContextIndex;
+                    newestThreadOccupiedContext[core.kernelThreadId].compare_exchange_strong(newestThreadContextIndex, 0);
+                    break;
+                }
                 uint64_t currentWakeupCycles =
                     core.localThreadContexts[currentIndex]->wakeupTimeInCycles;
                 uint64_t previousWakeupCycles =
