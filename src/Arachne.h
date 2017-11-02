@@ -35,8 +35,9 @@
 
 namespace Arachne {
 
-// Uncomment the following line to compile Arachne without the arbiter.
-// #define NO_ARBITER
+// Current location of CoreArbiter testsocket and testmem
+#define TEST_SOCKET "/tmp/CoreArbiter/testsocket"
+#define TEST_MEM    "/tmp/CoreArbiter/testmem"
 
 // A macro to disallow the copy constructor and operator= functions
 #ifndef DISALLOW_COPY_AND_ASSIGN

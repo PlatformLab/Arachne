@@ -15,7 +15,7 @@ BIN_DIR = bin
 PERFUTILS=../PerfUtils
 COREARBITER=../CoreArbiter
 INCLUDE=-I$(PERFUTILS)/include -I$(COREARBITER)/include
-LIBS=$(PERFUTILS)/lib/libPerfUtils.a $(COREARBITER)/lib/libCoreArbiter.a -lpcrecpp -pthread
+LIBS=$(COREARBITER)/lib/libCoreArbiter.a $(PERFUTILS)/lib/libPerfUtils.a -lpcrecpp -pthread
 
 # Stuff needed for make check
 TOP := $(shell echo $${PWD-`pwd`})
@@ -24,7 +24,7 @@ CHECK_TARGET=$$(find $(SRC_DIR) '(' -name '*.h' -or -name '*.cc' ')' -not -path 
 endif
 
 # Conversion to fully qualified names
-OBJECT_NAMES := Arachne.o Logger.o PerfStats.o ArbiterClientShim.o
+OBJECT_NAMES := Arachne.o Logger.o PerfStats.o
 
 OBJECTS = $(patsubst %,$(OBJECT_DIR)/%,$(OBJECT_NAMES))
 HEADERS= $(shell find src -name '*.h')

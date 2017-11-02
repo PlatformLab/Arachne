@@ -23,7 +23,7 @@
 #include "CoreArbiter/CoreArbiterClient.h"
 #include "CoreArbiter/MockSyscall.h"
 #include "CoreArbiter/Logger.h"
-#include "ArbiterClientShim.h"
+#include "CoreArbiter/ArbiterClientShim.h"
 
 namespace Arachne {
 
@@ -33,15 +33,13 @@ using CoreArbiter::MockSyscall;
 
 extern bool disableLoadEstimation;
 
+extern bool useCoreArbiter;
+
 extern std::atomic<uint32_t> numActiveCores;
 extern volatile uint32_t minNumCores;
 extern int* virtualCoreTable;
 
-#ifndef NO_ARBITER
-extern CoreArbiterClient& coreArbiter;
-#else
-extern ArbiterClientShim& coreArbiter;
-#endif
+extern CoreArbiterClient* coreArbiter;
 
 static void limitedTimeWait(std::function<bool()> condition,
         int numIterations = 1000);
@@ -62,8 +60,8 @@ struct Environment : public ::testing::Environment {
 
         CoreArbiterServer::sys = sys;
         coreArbiterServer = new CoreArbiterServer(
-                std::string("/tmp/CoreArbiter/testsocket"),
-                std::string("/tmp/CoreArbiter/testmem"),
+                std::string(TEST_SOCKET),
+                std::string(TEST_MEM),
                 {1,2,3,4,5,6,7}, false);
         coreArbiterServerThread = new std::thread([=] {
                 coreArbiterServer->startArbitration();
@@ -79,10 +77,9 @@ struct Environment : public ::testing::Environment {
         delete sys;
     }
 };
-#ifndef NO_ARBITER
-::testing::Environment* const testEnvironment =
-    ::testing::AddGlobalTestEnvironment(new Environment);
-#endif
+
+::testing::Environment* const testEnvironment = (useCoreArbiter) ?
+    ::testing::AddGlobalTestEnvironment(new Environment) : NULL;
 
 struct ArachneTest : public ::testing::Test {
     virtual void SetUp()
@@ -93,14 +90,14 @@ struct ArachneTest : public ::testing::Test {
         Arachne::init();
         // Articially wake up all threads for testing purposes
         std::vector<uint32_t> coreRequest({3,0,0,0,0,0,0,0});
-        coreArbiter.setRequestedCores(coreRequest);
+        coreArbiter->setRequestedCores(coreRequest);
         limitedTimeWait([]() -> bool { return numActiveCores == 3;});
     }
 
     virtual void TearDown()
     {
         // Unblock all cores so they can shut down and be joined.
-        coreArbiter.setRequestedCores({Arachne::maxNumCores,0,0,0,0,0,0,0});
+        coreArbiter->setRequestedCores({Arachne::maxNumCores,0,0,0,0,0,0,0});
 
         shutDown();
         waitForTermination();
@@ -639,12 +636,13 @@ TEST_F(ArachneTest, parseOptions_longOptions) {
     waitForTermination();
 
     int originalStackSize = stackSize;
-    int argc = 7;
+    int argc = 9;
     const char* argv[] =
         {"ArachneTest", "--minNumCores", "5", "--stackSize", "4096",
-            "--maxNumCores", "6"};
+            "--maxNumCores", "6", "--enableArbiter", "0"};
     Arachne::init(&argc, argv);
     EXPECT_EQ(1, argc);
+    EXPECT_EQ(useCoreArbiter, false);
     EXPECT_EQ(5U, minNumCores);
     EXPECT_EQ(stackSize, 4096);
     EXPECT_EQ(minNumCores, 5U);
@@ -668,6 +666,35 @@ TEST_F(ArachneTest, parseOptions_mixedOptions) {
     const char** argv = originalArgv;
     Arachne::init(&argc, argv);
     EXPECT_EQ(5, argc);
+    EXPECT_EQ(stackSize, 8192);
+    EXPECT_EQ("--appOptionB", argv[1]);
+    EXPECT_EQ("--appOptionA", argv[3]);
+    // Restore the stackSize. This races with cores trying to initialize
+    // stacks, since the stack memory that was allocated is smaller than the
+    // original stack size. We would like to allow thread creations before we
+    // finish initializing stacks, since those operations are orthogonal.
+    // Therefore, we have to first deinitialize the library, update the stack
+    // size, and then reinitialize the library.
+    shutDown();
+    waitForTermination();
+    stackSize = originalStackSize;
+    Arachne::init();
+}
+
+TEST_F(ArachneTest, parseOptions_mixedOptions_noArbiter) {
+    // See comment in parseOptions_noOptions
+    shutDown();
+    waitForTermination();
+
+    int originalStackSize = stackSize;
+    int argc = 9;
+    const char* originalArgv[] =
+        {"ArachneTest", "--appOptionB", "2", "--stackSize", "8192",
+            "--appOptionA", "Argument", "--enableArbiter", "0"};
+    const char** argv = originalArgv;
+    Arachne::init(&argc, argv);
+    EXPECT_EQ(5, argc);
+    EXPECT_EQ(useCoreArbiter, false);
     EXPECT_EQ(stackSize, 8192);
     EXPECT_EQ("--appOptionB", argv[1]);
     EXPECT_EQ("--appOptionA", argv[3]);
@@ -795,7 +822,7 @@ TEST_F(ArachneTest, incrementCoreCount) {
     Arachne::init();
     // Articially wake up all threads for testing purposes
     std::vector<uint32_t> coreRequest({3,0,0,0,0,0,0,0});
-    coreArbiter.setRequestedCores(coreRequest);
+    coreArbiter->setRequestedCores(coreRequest);
     limitedTimeWait([]() -> bool { return numActiveCores == 3;});
     char *str;
     size_t size;
