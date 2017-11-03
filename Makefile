@@ -1,4 +1,4 @@
-CC=g++
+CXX ?= g++
 CCFLAGS=-g -Wall -Werror -Wformat=2 -Wextra -Wwrite-strings \
 -Wno-unused-parameter -Wmissing-format-attribute -Wno-non-template-friend \
 -Woverloaded-virtual -Wcast-qual -Wcast-align -Wconversion -fomit-frame-pointer \
@@ -41,10 +41,10 @@ $(OBJECT_DIR)/libArachne.a: $(OBJECTS)
 -include $(DEP)
 
 $(OBJECT_DIR)/%.d: $(SRC_DIR)/%.cc | $(OBJECT_DIR)
-	$(CC) $(INCLUDE) $(CCFLAGS) $< -MM -MT $(@:.d=.o) > $@
+	$(CXX) $(INCLUDE) $(CCFLAGS) $< -MM -MT $(@:.d=.o) > $@
 
 $(OBJECT_DIR)/%.o: $(SRC_DIR)/%.cc $(HEADERS) | $(OBJECT_DIR)
-	$(CC) $(INCLUDE) $(CCFLAGS) -c $< -o $@
+	$(CXX) $(INCLUDE) $(CCFLAGS) -c $< -o $@
 
 $(OBJECT_DIR):
 	mkdir -p $(OBJECT_DIR)
@@ -63,7 +63,7 @@ test: $(OBJECT_DIR)/ArachneTest
 	$(OBJECT_DIR)/ArachneTest
 
 $(OBJECT_DIR)/ArachneTest: $(OBJECT_DIR)/ArachneTest.o $(OBJECT_DIR)/libgtest.a $(OBJECT_DIR)/libArachne.a
-	$(CC) $(INCLUDE) $(CCFLAGS) $< $(GTEST_DIR)/src/gtest_main.cc $(TEST_LIBS) $(LIBS)  -o $@
+	$(CXX) $(INCLUDE) $(CCFLAGS) $< $(GTEST_DIR)/src/gtest_main.cc $(TEST_LIBS) $(LIBS)  -o $@
 
 $(OBJECT_DIR)/libgtest.a:
 	g++ -I${GTEST_DIR}/include -I${GTEST_DIR} \
