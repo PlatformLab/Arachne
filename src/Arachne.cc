@@ -1074,6 +1074,8 @@ SleepLock::lock() {
         // Spurious wake-ups can happen due to signalers of past inhabitants of
         // this core.loadedContext.
         dispatch();
+        blockedThreadsLock.lock();
+        blockedThreadsLock.unlock();
     } while (owner != core.loadedContext);
 }
 
@@ -1095,14 +1097,16 @@ SleepLock::try_lock() {
 /** Release resource. */
 void
 SleepLock::unlock() {
-    std::lock_guard<SpinLock> guard(blockedThreadsLock);
+    blockedThreadsLock.lock();
     if (blockedThreads.empty()) {
         owner = NULL;
+        blockedThreadsLock.unlock();
         return;
     }
     owner = blockedThreads.front().context;
     signal(blockedThreads.front());
     blockedThreads.pop_front();
+    blockedThreadsLock.unlock();
 }
 
 ConditionVariable::ConditionVariable()
