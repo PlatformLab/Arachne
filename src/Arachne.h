@@ -162,7 +162,7 @@ void testDestroy();
 class SleepLock {
   public:
     /** Constructor and destructor for sleepLock. */
-    SleepLock() : blockedThreads(), blockedThreadsLock(false), owner(NULL) {}
+    SleepLock() : blockedThreads(), blockedThreadsLock("blockedthreadslock", false), owner(NULL) {}
     ~SleepLock(){}
     void lock();
     bool try_lock();
@@ -214,7 +214,7 @@ class Semaphore
 
   public:
     // Constructor initializing a non-yielding SpinLock.
-    Semaphore() : countProtector(false), countWaiter(), count(0) { }
+    Semaphore() : countProtector("countprotector", false), countWaiter(), count(0) { }
 
     /**
       * Change this Semaphore to a fully locked state.
