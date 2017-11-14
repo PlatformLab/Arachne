@@ -1070,13 +1070,17 @@ SleepLock::lock() {
     }
     blockedThreads.push_back(getThreadId());
     guard.unlock();
-    do {
+    while (true) {
         // Spurious wake-ups can happen due to signalers of past inhabitants of
         // this core.loadedContext.
         dispatch();
         blockedThreadsLock.lock();
+        if (owner == core.loadedContext) {
+          blockedThreadsLock.unlock();
+          break;
+        }
         blockedThreadsLock.unlock();
-    } while (owner != core.loadedContext);
+    }
 }
 
 /** 
