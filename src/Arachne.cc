@@ -194,8 +194,6 @@ double idleCoreFractionHysteresis = 0.2;
   */
 double SLOT_OCCUPANCY_THRESHOLD = 0.5;
 
-void incrementCoreCount();
-void decrementCoreCount();
 void descheduleCore();
 /**
   * All core-specific state that is not associated with other classes.
