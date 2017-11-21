@@ -24,7 +24,7 @@ CHECK_TARGET=$$(find $(SRC_DIR) '(' -name '*.h' -or -name '*.cc' ')' -not -path 
 endif
 
 # Conversion to fully qualified names
-OBJECT_NAMES := Arachne.o Logger.o PerfStats.o
+OBJECT_NAMES := Arachne.o Logger.o PerfStats.o CorePolicy.o
 
 OBJECTS = $(patsubst %,$(OBJECT_DIR)/%,$(OBJECT_NAMES))
 HEADERS= $(shell find src -name '*.h')
@@ -59,10 +59,14 @@ GTEST_DIR=../googletest/googletest
 TEST_LIBS=-Lobj/ -lArachne $(OBJECT_DIR)/libgtest.a
 INCLUDE+=-I${GTEST_DIR}/include
 
-test: $(OBJECT_DIR)/ArachneTest
+test: $(OBJECT_DIR)/ArachneTest $(OBJECT_DIR)/CorePolicyTest
 	$(OBJECT_DIR)/ArachneTest
+	$(OBJECT_DIR)/CorePolicyTest
 
 $(OBJECT_DIR)/ArachneTest: $(OBJECT_DIR)/ArachneTest.o $(OBJECT_DIR)/libgtest.a $(OBJECT_DIR)/libArachne.a
+	$(CXX) $(INCLUDE) $(CCFLAGS) $< $(GTEST_DIR)/src/gtest_main.cc $(TEST_LIBS) $(LIBS)  -o $@
+
+$(OBJECT_DIR)/CorePolicyTest: $(OBJECT_DIR)/CorePolicyTest.o $(OBJECT_DIR)/libgtest.a $(OBJECT_DIR)/libArachne.a
 	$(CXX) $(INCLUDE) $(CCFLAGS) $< $(GTEST_DIR)/src/gtest_main.cc $(TEST_LIBS) $(LIBS)  -o $@
 
 $(OBJECT_DIR)/libgtest.a:
