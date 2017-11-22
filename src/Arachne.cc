@@ -17,6 +17,7 @@
 #include <thread>
 #include "PerfUtils/TimeTrace.h"
 #include "PerfUtils/Util.h"
+#include "CorePolicy.h"
 #include "CoreArbiter/CoreArbiterClient.h"
 
 #include "Arachne.h"
@@ -217,6 +218,8 @@ thread_local uint8_t  DispatchTimeKeeper::numThreadsRan;
 bool useCoreArbiter = true;
 
 CoreArbiterClient* coreArbiter = NULL;
+
+CorePolicy* corePolicy = NULL;
 
 /**
   * Allocate a block of memory aligned at the beginning of a cache line.
@@ -916,6 +919,8 @@ init(int* argcp, const char** argv) {
 
     coreArbiter = (useCoreArbiter) ? CoreArbiterClient::getInstance(TEST_SOCKET) : ArbiterClientShim::getInstance();
 
+    corePolicy = new CorePolicy();
+
     if (minNumCores == 0)
         minNumCores = 1;
     if (maxNumCores == 0)
@@ -970,10 +975,7 @@ init(int* argcp, const char** argv) {
 
     // Block until minNumCores is active, per the application's requirements.
     while (numActiveCores != minNumCores) usleep(1);
-    if (!disableLoadEstimation) {
-        void coreLoadEstimator();
-        createThread(coreLoadEstimator);
-    }
+    corePolicy->bootstrapLoadEstimator(disableLoadEstimation);
 }
 
 /**

@@ -24,7 +24,7 @@ CHECK_TARGET=$$(find $(SRC_DIR) '(' -name '*.h' -or -name '*.cc' ')' -not -path 
 endif
 
 # Conversion to fully qualified names
-OBJECT_NAMES := Arachne.o Logger.o PerfStats.o
+OBJECT_NAMES := Arachne.o Logger.o PerfStats.o CorePolicy.o
 
 OBJECTS = $(patsubst %,$(OBJECT_DIR)/%,$(OBJECT_NAMES))
 HEADERS= $(shell find src -name '*.h')

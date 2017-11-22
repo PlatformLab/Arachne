@@ -73,8 +73,7 @@ const uint64_t MEASUREMENT_PERIOD = 50 * 1000 * 1000;
 void CorePolicy::bootstrapLoadEstimator(bool disableLoadEstimation) {
     if (!disableLoadEstimation) {
         utilizationThresholds = new double[Arachne::maxNumCores];
-        void coreLoadEstimator();
-        Arachne::createThread(coreLoadEstimator);
+        Arachne::createThread(Arachne::coreLoadEstimator);
     }
 }
 
