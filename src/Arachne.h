@@ -430,7 +430,8 @@ void schedulerMainLoop();
 void swapcontext(void **saved, void **target);
 void threadMain();
 
-void coreLoadEstimator();
+void incrementCoreCount();
+void decrementCoreCount();
 
 /// This structure tracks the live threads on a single core.
 struct MaskAndCount{

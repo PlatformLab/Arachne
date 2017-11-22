@@ -45,5 +45,3 @@ class CorePolicy {
 };
 
 #endif // COREPOLICY_H_
-
-// void coreLoadEstimator();

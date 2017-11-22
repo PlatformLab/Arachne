@@ -69,11 +69,12 @@ double SLOT_OCCUPANCY_THRESHOLD = 0.5;
   */
 const uint64_t MEASUREMENT_PERIOD = 50 * 1000 * 1000;
 
+void coreLoadEstimator();
 
 void CorePolicy::bootstrapLoadEstimator(bool disableLoadEstimation) {
     if (!disableLoadEstimation) {
         utilizationThresholds = new double[Arachne::maxNumCores];
-        Arachne::createThread(Arachne::coreLoadEstimator);
+        Arachne::createThread(coreLoadEstimator);
     }
 }
 
@@ -82,66 +83,65 @@ void CorePolicy::bootstrapLoadEstimator(bool disableLoadEstimation) {
   * whether it is necessary to increase or reduce the number of cores used by
   * Arachne.
   */
-// void coreLoadEstimator() {
-//     Arachne::PerfStats previousStats;
-//     Arachne::PerfStats::collectStats(&previousStats);
+void coreLoadEstimator() {
+    Arachne::PerfStats previousStats;
+    Arachne::PerfStats::collectStats(&previousStats);
 
+    for (Arachne::PerfStats currentStats; ; previousStats = currentStats) {
+        Arachne::sleep(MEASUREMENT_PERIOD);
+        Arachne::PerfStats::collectStats(&currentStats);
 
-//     for (Arachne::PerfStats currentStats; ; previousStats = currentStats) {
-//         sleep(MEASUREMENT_PERIOD);
-//         Arachne::PerfStats::collectStats(&currentStats);
+        // Take a snapshot of currently active cores before performing
+        // estimation to avoid races between estimation and the fulfillment of
+        // a previous core request.
+        uint32_t curActiveCores = Arachne::numActiveCores;
 
-//         // Take a snapshot of currently active cores before performing
-//         // estimation to avoid races between estimation and the fulfillment of
-//         // a previous core request.
-//         uint32_t curActiveCores = Arachne::numActiveCores;
+        // Exclusive cores should contribute nothing to statistics relevant to
+        // core estimation during the period over which they are exclusive.
+        int numSharedCores = curActiveCores - Arachne::numExclusiveCores;
 
-//         // Exclusive cores should contribute nothing to statistics relevant to
-//         // core estimation during the period over which they are exclusive.
-//         int numSharedCores = curActiveCores - Arachne::numExclusiveCores;
+        // Evalute idle time precentage multiplied by number of cores to
+        // determine whether we need to decrease the number of cores.
+        uint64_t idleCycles =
+            currentStats.idleCycles - previousStats.idleCycles;
+        uint64_t totalCycles =
+            currentStats.totalCycles - previousStats.totalCycles;
+        uint64_t utilizedCycles = totalCycles - idleCycles;
+        uint64_t totalMeasurementCycles =
+            Cycles::fromNanoseconds(MEASUREMENT_PERIOD);
+        double totalUtilizedCores =
+            static_cast<double>(utilizedCycles) /
+            static_cast<double>(totalMeasurementCycles);
 
-//         // Evalute idle time precentage multiplied by number of cores to
-//         // determine whether we need to decrease the number of cores.
-//         uint64_t idleCycles =
-//             currentStats.idleCycles - previousStats.idleCycles;
-//         uint64_t totalCycles =
-//             currentStats.totalCycles - previousStats.totalCycles;
-//         uint64_t utilizedCycles = totalCycles - idleCycles;
-//         uint64_t totalMeasurementCycles =
-//             Cycles::fromNanoseconds(MEASUREMENT_PERIOD);
-//         double totalUtilizedCores =
-//             static_cast<double>(utilizedCycles) /
-//             static_cast<double>(totalMeasurementCycles);
+        // Estimate load to determine whether we need to increment the number
+        // of cores.
+        uint64_t weightedLoadedCycles =
+            currentStats.weightedLoadedCycles -
+            previousStats.weightedLoadedCycles;
+        double averageLoadFactor =
+            static_cast<double>(weightedLoadedCycles) /
+            static_cast<double>(totalCycles);
+        if (curActiveCores < Arachne::maxNumCores &&
+                averageLoadFactor > loadFactorThreshold) {
+            // Record our current totalUtilizedCores, so we will only ramp down
+            // if utilization would drop below this level.
+            utilizationThresholds[numSharedCores] = totalUtilizedCores;
+            Arachne::incrementCoreCount();
+            continue;
+        }
 
-//         // Estimate load to determine whether we need to increment the number
-//         // of cores.
-//         uint64_t weightedLoadedCycles =
-//             currentStats.weightedLoadedCycles -
-//             previousStats.weightedLoadedCycles;
-//         double averageLoadFactor =
-//             static_cast<double>(weightedLoadedCycles) /
-//             static_cast<double>(totalCycles);
-//         if (curActiveCores < Arachne::maxNumCores &&
-//                 averageLoadFactor > loadFactorThreshold) {
-//             // Record our current totalUtilizedCores, so we will only ramp down
-//             // if utilization would drop below this level.
-//             utilizationThresholds[numSharedCores] = totalUtilizedCores;
-//             Arachne::incrementCoreCount();
-//             continue;
-//         }
+        // We should not ramp down if we have high occupancy of slots.
+        double averageNumSlotsUsed = static_cast<double>(
+                currentStats.numThreadsCreated -
+                currentStats.numThreadsFinished) /
+                numSharedCores / Arachne::maxThreadsPerCore;
 
-//         // We should not ramp down if we have high occupancy of slots.
-//         double averageNumSlotsUsed = static_cast<double>(
-//                 currentStats.numThreadsCreated -
-//                 currentStats.numThreadsFinished) /
-//                 numSharedCores / Arachne::maxThreadsPerCore;
-
-//         // Scale down if the idle time after scale down is greater than the
-//         // time at which we scaled up, plus a hysteresis threshold.
-//         if (totalUtilizedCores < utilizationThresholds[numSharedCores - 1]
-//                 - idleCoreFractionHysteresis &&
-//                 averageNumSlotsUsed < SLOT_OCCUPANCY_THRESHOLD) {
-//             Arachne::decrementCoreCount();
-//         }
-//     }
-// }
+        // Scale down if the idle time after scale down is greater than the
+        // time at which we scaled up, plus a hysteresis threshold.
+        if (totalUtilizedCores < utilizationThresholds[numSharedCores - 1]
+                - idleCoreFractionHysteresis &&
+                averageNumSlotsUsed < SLOT_OCCUPANCY_THRESHOLD) {
+            Arachne::decrementCoreCount();
+        }
+    }
+}
