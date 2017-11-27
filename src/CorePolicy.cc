@@ -71,6 +71,12 @@ const uint64_t MEASUREMENT_PERIOD = 50 * 1000 * 1000;
 
 void coreLoadEstimator();
 
+/**
+  * Bootstrap the core load estimator thread.  This must be done separately
+  * from the CorePolicy constructor because the constructor must run before
+  * Arachne adds any cores, but the core load estimator must run after
+  * Arachne has cores.
+  */
 void CorePolicy::bootstrapLoadEstimator(bool disableLoadEstimation) {
     if (!disableLoadEstimation) {
         utilizationThresholds = new double[Arachne::maxNumCores];

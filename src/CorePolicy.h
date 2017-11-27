@@ -57,6 +57,11 @@ class CorePolicy {
     threadClass_t baseClass = 0;
     
   protected:
+    /**
+      * A map from thread classes to cores on which threads of those classes
+      * can run.  If threadCoreMap[i][j] = c for some j < numActiveCores then
+      * Arachne can create a thread of class i on the core with coreId c.
+      */
     int** threadCoreMap;
 
 
