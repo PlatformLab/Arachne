@@ -69,12 +69,6 @@ std::atomic<uint32_t> numActiveCores;
 uint32_t coreReleaseRequestCount = 0;
 
 /**
-  * Track the number of exclusive cores so that we can calculate utilization
-  * accurately among the remaining cores.
-  */
-std::atomic<uint32_t> numExclusiveCores;
-
-/**
   * The largest number of cores that Arachne is permitted to utilize.  It is an
   * invariant that maxNumCores >= numActiveCores, but if the user explicitly
   * sets both then numActiveCores will push maxNumCores up to satisfy the
@@ -177,6 +171,11 @@ bool useCoreArbiter = true;
 
 CoreArbiterClient* coreArbiter = NULL;
 
+/*
+ *  The CorePolicy that Arachne will use.  It is loaded in the init
+ *  function.
+ */
+
 CorePolicy* corePolicy = NULL;
 
 /**
@@ -226,6 +225,7 @@ threadMain() {
             *publicPriorityMasks[core.kernelThreadId] = 0;
             newestThreadOccupiedContext[core.kernelThreadId] = 0;
             core.privatePriorityMask = 0;
+            corePolicy->addCore(core.kernelThreadId);
 
             // This marks the point at which new thread creations may begin.
             numActiveCores++;
@@ -258,7 +258,6 @@ threadMain() {
         // Transfers control to the Arachne dispatcher.
         // This context has been pre-initialized by init so it will "return"
         // to the schedulerMainLoop.
-        // This call will return iff shutDown is called from the main thread.
         swapcontext(&core.loadedContext->sp,
                 &kernelThreadStacks[core.kernelThreadId]);
         numActiveCores--;
@@ -859,6 +858,9 @@ ThreadContext::initializeStack() {
  *     --stackSize
  *        The size of each user stack.
  *
+ * \param initCorePolicy
+ *    A pointer to the CorePolicy that Arachne will use.  The CorePolicy
+ *    controls thread allocation to cores.
  * \param argcp
  *    The pointer to argc, the number of arguments passed to the application.
  *    This pointer will be used to update argc after Arachne has consumed its
@@ -868,7 +870,7 @@ ThreadContext::initializeStack() {
  *    remove the options that Arachne recognizes.
  */
 void
-init(int* argcp, const char** argv) {
+init(CorePolicy* initCorePolicy, int* argcp, const char** argv) {
     if (initialized)
         return;
     initialized = true;
@@ -876,7 +878,7 @@ init(int* argcp, const char** argv) {
 
     coreArbiter = (useCoreArbiter) ? CoreArbiterClient::getInstance(TEST_SOCKET) : ArbiterClientShim::getInstance();
 
-    corePolicy = new CorePolicy();
+    corePolicy = initCorePolicy;
 
     if (minNumCores == 0)
         minNumCores = 1;
@@ -931,7 +933,6 @@ init(int* argcp, const char** argv) {
 
     // Block until minNumCores is active, per the application's requirements.
     while (numActiveCores != minNumCores) usleep(1);
-    corePolicy->bootstrapLoadEstimator(disableLoadEstimation);
 }
 
 /**
@@ -1167,25 +1168,16 @@ void decrementCoreCount() {
  * The caller must hold the coreChangeMutex when making this call.
  */
 void descheduleCore() {
-    // Find a core to deschedule
+    int minCoreId = corePolicy->chooseRemovableCore();
     uint8_t minLoaded =
-        occupiedAndCount[virtualCoreTable[0]]->load().numOccupied;
-    int minIndex = 0;
-    for (uint32_t i = 1; i < numActiveCores; i++) {
-        uint32_t coreId = virtualCoreTable[i];
-        if (occupiedAndCount[coreId]->load().numOccupied < minLoaded) {
-            minLoaded = occupiedAndCount[coreId]->load().numOccupied;
-            minIndex = i;
-        }
-    }
-
+        occupiedAndCount[minCoreId]->load().numOccupied;
     // Give up if the minLoaded core is exclusive or full, since that implies
     // we are likely pre-empting must-have cores.
     if (minLoaded >= static_cast<uint8_t>(56)) {
         coreChangeActive = false;
         ARACHNE_LOG(DEBUG, "Failed to find an unoccupied core, giving up!\n");
-        ARACHNE_LOG(DEBUG, "minLoaded = %u, minIndex = %u!\n",
-                minLoaded, minIndex);
+        ARACHNE_LOG(DEBUG, "minLoaded = %u, minCoreId = %u!\n",
+                minLoaded, minCoreId);
         for (uint32_t i = 0; i < numActiveCores; i++) {
             uint32_t coreId = virtualCoreTable[i];
             ARACHNE_LOG(DEBUG, "virtualCoreId = %d, coreId = %u,"
@@ -1201,10 +1193,10 @@ void descheduleCore() {
     // hold it for too long.
     // If this creation fails, it would implies that we are overloaded and
     // should not ramp down.
-    if (createThreadOnCore(minIndex, releaseCore) == NullThread) {
+    if (createThreadOnCore(corePolicy->defaultClass, minCoreId, releaseCore) == NullThread) {
         coreChangeActive = false;
         ARACHNE_LOG(WARNING, "Release core thread creation failed to %d!\n",
-                minIndex);
+                minCoreId);
     }
 }
 
@@ -1314,18 +1306,27 @@ bool makeExclusiveOnCore(bool forScaleDown) {
             virtualCoreTable[numActiveCores - 1] = core.kernelThreadId;
             break;
         }
+    if (forScaleDown) {
+      coreChangeMutex.lock();
+      corePolicy->removeCore(core.kernelThreadId);
+      coreChangeMutex.unlock();
+    }
 
     // Migrate off all threads other than the current one.  Round robin among
     // cores because these are likely long-running threads.
-    int nextMigrationTarget = 0;
-    int coreId = virtualCoreTable[nextMigrationTarget];
 
+    int nextMigrationTarget = 0;
 
     for (uint8_t i = 0; i < maxThreadsPerCore; i++) {
         if (i == originalContext->idInCore) {
             // Skip over ourselves
             continue;
         }
+        // Choose a victim core that we will pawn our work on.
+        ThreadClass threadClass = core.localThreadContexts[i]->threadClass;
+        CoreList* entry = corePolicy->getCoreList(threadClass);
+        nextMigrationTarget = (nextMigrationTarget + 1) % entry->numFilled;
+        int coreId = entry->map[nextMigrationTarget];
         if ((blockedOccupiedAndCount.occupied >> i) & 1) {
             uint8_t index;
             do {
@@ -1381,11 +1382,6 @@ bool makeExclusiveOnCore(bool forScaleDown) {
                 // Try again if we failed to find a slot to pawn our work onto.
                 i--;
             }
-
-            // The next victim core that we will pawn our work on.
-            nextMigrationTarget =
-                (nextMigrationTarget + 1) % (numActiveCores - 1);
-            coreId = virtualCoreTable[nextMigrationTarget];
         }
     }
 
@@ -1403,10 +1399,6 @@ bool makeExclusiveOnCore(bool forScaleDown) {
     // completions cannot occur because we are running, so we can just directly
     // assign.
     *core.localOccupiedAndCount = blockedOccupiedAndCount;
-
-    if (!forScaleDown) {
-        numExclusiveCores++;
-    }
 
     return true;
 }
@@ -1435,7 +1427,6 @@ void makeSharedOnCore() {
         ARACHNE_LOG(ERROR, "Error making core shared again! Aborting...\n");
         abort();
     }
-    numExclusiveCores--;
 
     // The time that this core spent in exclusive mode should not be counted
     // towards utilization of shared cores.

@@ -32,6 +32,7 @@
 #include "Logger.h"
 #include "PerfStats.h"
 #include "Common.h"
+#include "CorePolicy.h"
 
 namespace Arachne {
 
@@ -58,8 +59,6 @@ extern thread_local Core core;
 // This is used in createThread.
 extern std::atomic<uint32_t> numActiveCores;
 
-extern std::atomic<uint32_t> numExclusiveCores;
-
 extern volatile uint32_t minNumCores;
 extern volatile uint32_t maxNumCores;
 
@@ -75,6 +74,14 @@ extern std::function<void()> initCore;
 extern std::vector<ThreadContext**> allThreadContexts;
 
 extern int* virtualCoreTable;
+
+extern CorePolicy* corePolicy;
+
+/*
+ * Testing-specific flag to make sure the core load estimator does not
+ * interfere with unit tests.
+ */
+extern bool disableLoadEstimation;
 
 /**
  * \addtogroup api Arachne Public API
@@ -131,7 +138,7 @@ struct ThreadId {
     }
 };
 
-void init(int* argcp = NULL, const char** argv = NULL);
+void init(CorePolicy* initCorePolicy, int* argcp = NULL, const char** argv = NULL);
 void shutDown();
 void waitForTermination();
 void yield();
@@ -342,11 +349,13 @@ struct ThreadContext {
     /// context shall wait on this CV.
     ConditionVariable joinCV;
 
-    // Unique identifier for the core that this thread currently lives on.
-    // Used to index into global arrays with information per core.
+    /// Unique identifier for the core that this thread currently lives on.
     /// This will only change if a ThreadContext is migrated when scaling down
     /// the number of cores.
     uint8_t coreId;
+
+    /// Thread class of this thread, used for thread migration.
+    ThreadClass threadClass = 0;
 
     /// Unique identifier for this thread among those on the same core.
     /// Used to index into various core-specific arrays.
@@ -488,15 +497,14 @@ random(void) {
 
 /**
   * Spawn a thread with main function f invoked with the given args on the
-  * kernel thread with id = kId
+  * kernel thread with id = coreId
   * This function should usually only be invoked directly in tests, since it
   * does not perform load balancing.
   *
-  * \param kId
-  *     The id for the kernel thread to put the new Arachne thread on. Pass in
-  *     -1 to use the creator's kernel thread. This can be useful if the
-  *     created thread will share a lot of state with the current thread, since
-  *     it will improve locality.
+  * \param threadClass
+  *     The thread class of the new thread.
+  * \param coreId
+  *     The id for the kernel thread to put the new Arachne thread on.
   * \param __f
   *     The main function for the new thread.
   * \param __args
@@ -508,15 +516,20 @@ random(void) {
   */
 template<typename _Callable, typename... _Args>
 ThreadId
-createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
-    if (virtualCoreId >= numActiveCores) {
-        ARACHNE_LOG(VERBOSE, "createThread failure, virtualCoreId = %u, "
-                   "numActiveCores = %d\n", virtualCoreId,
+createThreadOnCore(ThreadClass threadClass, uint32_t coreId, _Callable&& __f, _Args&&... __args) {
+
+    CoreList* entry = corePolicy->getCoreList(threadClass);
+    bool isLegalCoreId = false;
+    for (uint32_t i = 0; i < entry->numFilled; i++) {
+      if (entry->map[i] == (int) coreId)
+        isLegalCoreId = true;
+    }
+    if (!isLegalCoreId) {
+        ARACHNE_LOG(VERBOSE, "createThread failure, coreId = %u, "
+                   "numActiveCores = %d\n", coreId,
                    numActiveCores.load());
         return Arachne::NullThread;
     }
-
-    int coreId = virtualCoreTable[virtualCoreId];
 
     auto task = std::bind(
             std::forward<_Callable>(__f), std::forward<_Args>(__args)...);
@@ -533,8 +546,8 @@ createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
         MaskAndCount oldSlotMap = slotMap;
 
         if (slotMap.numOccupied >= maxThreadsPerCore) {
-            ARACHNE_LOG(VERBOSE, "createThread failure, virtualCoreId = %u, "
-                    "coreId = %u," "numOccupied = %d\n", virtualCoreId, coreId,
+            ARACHNE_LOG(VERBOSE, "createThread failure, coreId = %u, "
+                    "numOccupied = %d\n", coreId,
                        slotMap.numOccupied);
             return NullThread;
         }
@@ -543,9 +556,9 @@ createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
         index = ffsll(~slotMap.occupied);
         if (!index) {
             ARACHNE_LOG(WARNING, "createThread failed after passing numOccupied"
-                    " check, virtualCoreId = %u, coreId = %u,"
+                    " check, coreId = %u,"
                     " numOccupied = %d\n",
-                    virtualCoreId, coreId, slotMap.numOccupied);
+                    coreId, slotMap.numOccupied);
             return NullThread;
         }
 
@@ -571,6 +584,7 @@ createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
     // race where the thread finishes executing so fast that we read the next
     // generation number instead of the current one.
     uint32_t generation = allThreadContexts[coreId][index]->generation;
+    threadContext->threadClass = threadClass;
     threadContext->wakeupTimeInCycles = 0;
 
     // Ensure the highestOccupiedContext is high enough for the new thread to run.
@@ -610,21 +624,25 @@ createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
   */
 template<typename _Callable, typename... _Args>
 ThreadId
-createThread(_Callable&& __f, _Args&&... __args) {
+createThread(ThreadClass threadClass, _Callable&& __f, _Args&&... __args) {
     // Find a kernel thread to enqueue to by picking two at random and choosing
     // the one with the fewest Arachne threads.
     uint32_t kId;
-    uint32_t choice1 = static_cast<uint32_t>(random()) % numActiveCores;
-    uint32_t choice2 = static_cast<uint32_t>(random()) % numActiveCores;
-    while (choice2 == choice1 && numActiveCores > 1)
-        choice2 = static_cast<uint32_t>(random()) % numActiveCores;
+    CoreList* entry = corePolicy->getCoreList(threadClass);
+    uint32_t index1 = static_cast<uint32_t>(random()) % entry->numFilled;
+    uint32_t index2 = static_cast<uint32_t>(random()) % entry->numFilled;
+    while (index2 == index1 && entry->numFilled > 1)
+        index2 = static_cast<uint32_t>(random()) % entry->numFilled;
 
-    if (occupiedAndCount[virtualCoreTable[choice1]]->load().numOccupied <
-            occupiedAndCount[virtualCoreTable[choice2]]->load().numOccupied)
+    int choice1 = entry->map[index1];
+    int choice2 = entry->map[index2];
+
+    if (occupiedAndCount[choice1]->load().numOccupied <
+            occupiedAndCount[choice2]->load().numOccupied)
         kId = choice1;
     else
         kId = choice2;
-    return createThreadOnCore(kId, __f, __args...);
+    return createThreadOnCore(threadClass, kId, __f, __args...);
 }
 
 /**
