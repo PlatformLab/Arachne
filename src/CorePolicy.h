@@ -35,12 +35,31 @@
 #include "Common.h"
 #include "Arachne.h"
 
+#define NUM_THREAD_CLASSES 1
+
+typedef uint32_t threadClass_t;
+
 class CorePolicy {
   public:
     /** Constructor and destructor for CorePolicy. */
-    CorePolicy() {}
-    ~CorePolicy(){}
+    CorePolicy() {
+        threadCoreMap = (int**) malloc(NUM_THREAD_CLASSES * sizeof(int*));
+        for (int i = 0; i < NUM_THREAD_CLASSES; i++)
+            threadCoreMap[i] = (int*) calloc(std::thread::hardware_concurrency(), sizeof(int));
+    }
+    ~CorePolicy(){
+        for (int i = 0; i < NUM_THREAD_CLASSES; i++)
+            free(threadCoreMap[i]);
+        free(threadCoreMap);
+    }
     void bootstrapLoadEstimator(bool disableLoadEstimation);
+
+    threadClass_t baseClass = 0;
+    
+  protected:
+    int** threadCoreMap;
+
+
 
 };
 
