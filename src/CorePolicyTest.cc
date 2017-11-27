@@ -129,4 +129,42 @@ TEST_F(ArachneTest, CorePolicy_constructor) {
     delete corePolicy;
 }
 
+TEST_F(ArachneTest, CorePolicy_addCore) {
+    CorePolicy* corePolicy = new CorePolicy();
+    int numActiveCores = 0;
+    corePolicy->addCore(5, numActiveCores);
+    numActiveCores++;
+    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass][numActiveCores - 1], 5);
+    corePolicy->addCore(4, numActiveCores);
+    numActiveCores++;
+    corePolicy->addCore(7, numActiveCores);
+    numActiveCores++;
+    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass][0], 5);
+    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass][1], 4);
+    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass][2], 7);
+
+    delete corePolicy;
+}
+
+TEST_F(ArachneTest, CorePolicy_removeCore) {
+    CorePolicy* corePolicy = new CorePolicy();
+    int numActiveCores = 0;
+    corePolicy->addCore(5, numActiveCores);
+    numActiveCores++;
+    corePolicy->addCore(4, numActiveCores);
+    numActiveCores++;
+    corePolicy->addCore(7, numActiveCores);
+    numActiveCores++;
+    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass][0], 5);
+    numActiveCores--;
+    corePolicy->removeCore(5, numActiveCores);
+    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass][0], 7);
+    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass][1], 4);
+    numActiveCores--;
+    corePolicy->removeCore(4, numActiveCores);
+    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass][0], 7);
+
+    delete corePolicy;
+}
+
 } // namespace Arachne

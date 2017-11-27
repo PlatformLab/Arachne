@@ -85,6 +85,32 @@ void CorePolicy::bootstrapLoadEstimator(bool disableLoadEstimation) {
 }
 
 /**
+  * Update threadCoreMap when a new core is added.  Takes in the coreId
+  * of the new core as well as the number of active cores not including
+  * the new one.
+**/
+void CorePolicy::addCore(int coreId, int numActiveCores) {
+  threadCoreMap[baseClass][numActiveCores] = coreId;
+}
+
+/**
+  * Update threadCoreMap when a core is removed.  Takes in the coreId
+  * of the doomed core as well as the number of active cores not including
+  * the doomed one.
+**/
+void CorePolicy::removeCore(int coreId, int numActiveCores) {
+  int saveCoreId = threadCoreMap[baseClass][numActiveCores];
+  if (saveCoreId == coreId)
+    return;
+  for (int i = 0; i < numActiveCores; i++) {
+    if (CorePolicy::threadCoreMap[baseClass][i] == coreId) {
+      threadCoreMap[baseClass][i] = saveCoreId;
+      return;
+    }
+  }
+}
+
+/**
   * Periodically wake up and observe the current load in Arachne to determine
   * whether it is necessary to increase or reduce the number of cores used by
   * Arachne.
