@@ -226,6 +226,7 @@ threadMain() {
             *publicPriorityMasks[core.kernelThreadId] = 0;
             newestThreadOccupiedContext[core.kernelThreadId] = 0;
             core.privatePriorityMask = 0;
+            corePolicy->addCore(core.kernelThreadId, numActiveCores);
 
             // This marks the point at which new thread creations may begin.
             numActiveCores++;
@@ -258,13 +259,13 @@ threadMain() {
         // Transfers control to the Arachne dispatcher.
         // This context has been pre-initialized by init so it will "return"
         // to the schedulerMainLoop.
-        // This call will return iff shutDown is called from the main thread.
         swapcontext(&core.loadedContext->sp,
                 &kernelThreadStacks[core.kernelThreadId]);
-        numActiveCores--;
-        if (shutdown) break;
         {
             std::lock_guard<SpinLock> _(coreChangeMutex);
+            numActiveCores--;
+            if (shutdown) break;
+            corePolicy->removeCore(core.kernelThreadId, numActiveCores);
             ARACHNE_LOG(DEBUG, "Number of cores decreased from %d to %d\n",
                     numActiveCores + 1, numActiveCores.load());
             #if TIME_TRACE
@@ -1201,7 +1202,7 @@ void descheduleCore() {
     // hold it for too long.
     // If this creation fails, it would implies that we are overloaded and
     // should not ramp down.
-    if (createThreadOnCore(minIndex, releaseCore) == NullThread) {
+    if (createThreadOnCore(corePolicy->baseClass, minIndex, releaseCore) == NullThread) {
         coreChangeActive = false;
         ARACHNE_LOG(WARNING, "Release core thread creation failed to %d!\n",
                 minIndex);

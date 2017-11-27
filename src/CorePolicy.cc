@@ -80,7 +80,7 @@ void coreLoadEstimator();
 void CorePolicy::bootstrapLoadEstimator(bool disableLoadEstimation) {
     if (!disableLoadEstimation) {
         utilizationThresholds = new double[Arachne::maxNumCores];
-        Arachne::createThread(coreLoadEstimator);
+        Arachne::createThread(baseClass, coreLoadEstimator);
     }
 }
 

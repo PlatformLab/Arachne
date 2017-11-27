@@ -32,6 +32,7 @@
 #include "Logger.h"
 #include "PerfStats.h"
 #include "Common.h"
+#include "CorePolicy.h"
 
 namespace Arachne {
 
@@ -342,11 +343,14 @@ struct ThreadContext {
     /// context shall wait on this CV.
     ConditionVariable joinCV;
 
-    // Unique identifier for the core that this thread currently lives on.
-    // Used to index into global arrays with information per core.
+    /// Unique identifier for the core that this thread currently lives on.
+    /// Used to index into global arrays with information per core.
     /// This will only change if a ThreadContext is migrated when scaling down
     /// the number of cores.
     uint8_t coreId;
+
+    /// Thread class of this thread, used by the core policy.
+    threadClass_t threadClass;
 
     /// Unique identifier for this thread among those on the same core.
     /// Used to index into various core-specific arrays.
@@ -508,7 +512,7 @@ random(void) {
   */
 template<typename _Callable, typename... _Args>
 ThreadId
-createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
+createThreadOnCore(threadClass_t threadClass, uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
     if (virtualCoreId >= numActiveCores) {
         ARACHNE_LOG(VERBOSE, "createThread failure, virtualCoreId = %u, "
                    "numActiveCores = %d\n", virtualCoreId,
@@ -571,6 +575,7 @@ createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
     // race where the thread finishes executing so fast that we read the next
     // generation number instead of the current one.
     uint32_t generation = allThreadContexts[coreId][index]->generation;
+    threadContext->threadClass = threadClass;
     threadContext->wakeupTimeInCycles = 0;
 
     // Ensure the highestOccupiedContext is high enough for the new thread to run.
@@ -610,7 +615,7 @@ createThreadOnCore(uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
   */
 template<typename _Callable, typename... _Args>
 ThreadId
-createThread(_Callable&& __f, _Args&&... __args) {
+createThread(threadClass_t threadClass, _Callable&& __f, _Args&&... __args) {
     // Find a kernel thread to enqueue to by picking two at random and choosing
     // the one with the fewest Arachne threads.
     uint32_t kId;
@@ -624,7 +629,7 @@ createThread(_Callable&& __f, _Args&&... __args) {
         kId = choice1;
     else
         kId = choice2;
-    return createThreadOnCore(kId, __f, __args...);
+    return createThreadOnCore(threadClass, kId, __f, __args...);
 }
 
 /**
