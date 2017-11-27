@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2017 Stanford University
+/* Copyright (c) 2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -13,7 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-
 #ifndef COREPOLICY_H_
 #define COREPOLICY_H_
 
@@ -27,46 +26,89 @@
 #include <atomic>
 #include <queue>
 #include <string>
+#include <thread>
 
 #include "PerfUtils/Cycles.h"
 #include "PerfUtils/Util.h"
 #include "Logger.h"
 #include "PerfStats.h"
 #include "Common.h"
-#include "Arachne.h"
 
-#define NUM_THREAD_CLASSES 1
+/*
+ * The maximum number of thread classes.  All thread classes must be less than
+ * this number, else behavior is undefined.
+ */
+#define MAX_THREAD_CLASSES 64
 
-typedef uint32_t threadClass_t;
+typedef uint32_t ThreadClass;
 
+/*
+ * An unordered list of cores, defined as {map[i] for i < numFilled}.
+ */
+struct CoreList {
+  /* The number of cores in the list */
+  uint32_t numFilled;
+  /* 
+   * An array containing the list.  Must be dynamically allocated to a size
+   * equal to the number of cores on the machine.
+   */
+  int* map;
+};
+
+/*
+ * The CorePolicy class decides which Arachne threads get to run on which 
+ * cores.  It also decides how many cores Arachne should have.  It does
+ * load estimation to decide when to request cores or release held cores
+ * and, if a core is released, chooses which core to lose.
+ */
 class CorePolicy {
   public:
-    /** Constructor and destructor for CorePolicy. */
+    /*
+     * Constructor and destructor for CorePolicy.  Handles allocating and
+     * freeing of the threadClassCoreMap.
+     */
     CorePolicy() {
-        threadCoreMap = (int**) malloc(NUM_THREAD_CLASSES * sizeof(int*));
-        for (int i = 0; i < NUM_THREAD_CLASSES; i++)
-            threadCoreMap[i] = (int*) calloc(std::thread::hardware_concurrency(), sizeof(int));
+        threadClassCoreMap = (CoreList**) 
+          malloc(MAX_THREAD_CLASSES * sizeof(CoreList*));
+        for (int i = 0; i < MAX_THREAD_CLASSES; i++) {
+            threadClassCoreMap[i] = (CoreList*) 
+              malloc(sizeof(CoreList));
+            threadClassCoreMap[i]->map = (int*) 
+              calloc(std::thread::hardware_concurrency(), sizeof(int));
+            threadClassCoreMap[i]->numFilled = 0;
+          }
     }
-    ~CorePolicy(){
-        for (int i = 0; i < NUM_THREAD_CLASSES; i++)
-            free(threadCoreMap[i]);
-        free(threadCoreMap);
+    virtual ~CorePolicy() {
+        for (int i = 0; i < MAX_THREAD_CLASSES; i++) {
+            free(threadClassCoreMap[i]->map);
+            free(threadClassCoreMap[i]);
+          }
+        free(threadClassCoreMap);
     }
-    void bootstrapLoadEstimator(bool disableLoadEstimation);
-    void addCore(int coreId, int numActiveCores);
-    void removeCore(int coreId, int numActiveCores);
+    virtual int chooseRemovableCore();
+    virtual void addCore(int coreId);
+    virtual void removeCore(int coreId);
+    CoreList* getCoreList(ThreadClass threadClass);
 
-    threadClass_t baseClass = 0;
+    /* 
+     * The default thread class, which all core policies must support.
+     * It is used as a default within Arachne and benchmarks when necessary.
+     * Other core policies can add more thread classes as needed.
+     */
+    static const ThreadClass defaultClass = 0;
     
   protected:
-    /**
+    void runLoadEstimator();
+     /*
       * A map from thread classes to cores on which threads of those classes
-      * can run.  If threadCoreMap[i][j] = c for some j < numActiveCores then
-      * Arachne can create a thread of class i on the core with coreId c.
+      * can run.  threadClassCoreMap[i] is a CoreList of the cores on which
+      * threads of class i can run.  
+      *
+      * Resizing of the threadClassCoreMap is not safe, so the
+      * threadClassCoreMap is dynamically allocated in the CorePolicy
+      * constructor.
       */
-    int** threadCoreMap;
-
-
+    CoreList** threadClassCoreMap;
 
 };
 

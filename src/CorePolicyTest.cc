@@ -33,8 +33,6 @@ using CoreArbiter::CoreArbiterServer;
 using CoreArbiter::CoreArbiterClient;
 using CoreArbiter::MockSyscall;
 
-extern bool disableLoadEstimation;
-
 extern bool useCoreArbiter;
 
 extern std::atomic<uint32_t> numActiveCores;
@@ -42,6 +40,8 @@ extern volatile uint32_t minNumCores;
 extern int* virtualCoreTable;
 
 extern CoreArbiterClient* coreArbiter;
+
+CorePolicy* corePolicyTest;
 
 static void limitedTimeWait(std::function<bool()> condition,
         int numIterations = 1000);
@@ -89,8 +89,9 @@ struct ArachneTest : public ::testing::Test {
         Arachne::minNumCores = 1;
         Arachne::maxNumCores = 3;
         Arachne::disableLoadEstimation = true;
-        Arachne::init();
-        // Articially wake up all threads for testing purposes
+        corePolicyTest = new CorePolicy();
+        Arachne::init(corePolicyTest);
+        // Artificially wake up all threads for testing purposes
         std::vector<uint32_t> coreRequest({3,0,0,0,0,0,0,0});
         coreArbiter->setRequestedCores(coreRequest);
         limitedTimeWait([]() -> bool { return numActiveCores == 3;});
@@ -124,46 +125,52 @@ static void limitedTimeWait(std::function<bool()> condition,
 TEST_F(ArachneTest, CorePolicy_constructor) {
     CorePolicy* corePolicy = new CorePolicy();
     for (unsigned i = 0; i < std::thread::hardware_concurrency(); i++) {
-        EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass][i], 0);
+        EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[i], 0);
     }
     delete corePolicy;
 }
 
 TEST_F(ArachneTest, CorePolicy_addCore) {
     CorePolicy* corePolicy = new CorePolicy();
-    int numActiveCores = 0;
-    corePolicy->addCore(5, numActiveCores);
-    numActiveCores++;
-    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass][numActiveCores - 1], 5);
-    corePolicy->addCore(4, numActiveCores);
-    numActiveCores++;
-    corePolicy->addCore(7, numActiveCores);
-    numActiveCores++;
-    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass][0], 5);
-    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass][1], 4);
-    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass][2], 7);
-
+    corePolicy->addCore(5);
+    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[0], 5);
+    corePolicy->addCore(4);
+    corePolicy->addCore(7);
+    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[0], 5);
+    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[1], 4);
+    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[2], 7);
+    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->numFilled, 3U);
     delete corePolicy;
 }
 
 TEST_F(ArachneTest, CorePolicy_removeCore) {
     CorePolicy* corePolicy = new CorePolicy();
-    int numActiveCores = 0;
-    corePolicy->addCore(5, numActiveCores);
-    numActiveCores++;
-    corePolicy->addCore(4, numActiveCores);
-    numActiveCores++;
-    corePolicy->addCore(7, numActiveCores);
-    numActiveCores++;
-    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass][0], 5);
-    numActiveCores--;
-    corePolicy->removeCore(5, numActiveCores);
-    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass][0], 7);
-    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass][1], 4);
-    numActiveCores--;
-    corePolicy->removeCore(4, numActiveCores);
-    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass][0], 7);
+    corePolicy->addCore(5);
+    corePolicy->addCore(4);
+    corePolicy->addCore(7);
+    corePolicy->removeCore(5);
+    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->numFilled, 2U);
+    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[0], 7);
+    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[1], 4);
+    corePolicy->removeCore(4);
+    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->numFilled, 1U);
+    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[0], 7);
+    corePolicy->removeCore(7);
+    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->numFilled, 0U);
+    delete corePolicy;
+}
 
+TEST_F(ArachneTest, CorePolicy_getCoreList) {
+    CorePolicy* corePolicy = new CorePolicy();
+    CoreList* entry = corePolicy->getCoreList(corePolicy->defaultClass);
+    corePolicy->addCore(5);
+    EXPECT_EQ(entry->map[0], 5);
+    corePolicy->addCore(4);
+    corePolicy->addCore(7);
+    EXPECT_EQ(entry->map[0], 5);
+    EXPECT_EQ(entry->map[1], 4);
+    EXPECT_EQ(entry->map[2], 7);
+    EXPECT_EQ(entry->numFilled, 3U);
     delete corePolicy;
 }
 
