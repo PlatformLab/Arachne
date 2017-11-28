@@ -132,7 +132,7 @@ struct ThreadId {
     }
 };
 
-void init(int* argcp = NULL, const char** argv = NULL);
+void init(CorePolicy* initCorePolicy, int* argcp = NULL, const char** argv = NULL);
 void shutDown();
 void waitForTermination();
 void yield();

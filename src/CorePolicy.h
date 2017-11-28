@@ -29,16 +29,15 @@
 #include <string>
 #include <thread>
 
-typedef uint32_t threadClass_t;
-
 #include "PerfUtils/Cycles.h"
 #include "PerfUtils/Util.h"
 #include "Logger.h"
 #include "PerfStats.h"
 #include "Common.h"
-#include "Arachne.h"
 
 #define NUM_THREAD_CLASSES 1
+
+typedef uint32_t threadClass_t;
 
 class CorePolicy {
   public:

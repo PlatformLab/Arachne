@@ -43,6 +43,8 @@ extern int* virtualCoreTable;
 
 extern CoreArbiterClient* coreArbiter;
 
+CorePolicy* corePolicyTest;
+
 static void limitedTimeWait(std::function<bool()> condition,
         int numIterations = 1000);
 
@@ -89,8 +91,9 @@ struct ArachneTest : public ::testing::Test {
         Arachne::minNumCores = 1;
         Arachne::maxNumCores = 3;
         Arachne::disableLoadEstimation = true;
-        Arachne::init();
-        // Articially wake up all threads for testing purposes
+        corePolicyTest = new CorePolicy();
+        Arachne::init(corePolicyTest);
+        // Artificially wake up all threads for testing purposes
         std::vector<uint32_t> coreRequest({3,0,0,0,0,0,0,0});
         coreArbiter->setRequestedCores(coreRequest);
         limitedTimeWait([]() -> bool { return numActiveCores == 3;});

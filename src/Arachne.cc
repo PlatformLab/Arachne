@@ -869,7 +869,7 @@ ThreadContext::initializeStack() {
  *    remove the options that Arachne recognizes.
  */
 void
-init(int* argcp, const char** argv) {
+init(CorePolicy* initCorePolicy, int* argcp, const char** argv) {
     if (initialized)
         return;
     initialized = true;
@@ -877,7 +877,7 @@ init(int* argcp, const char** argv) {
 
     coreArbiter = (useCoreArbiter) ? CoreArbiterClient::getInstance(TEST_SOCKET) : ArbiterClientShim::getInstance();
 
-    corePolicy = new CorePolicy();
+    corePolicy = initCorePolicy;
 
     if (minNumCores == 0)
         minNumCores = 1;

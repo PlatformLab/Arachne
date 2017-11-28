@@ -91,7 +91,7 @@ struct ArachneTest : public ::testing::Test {
         Arachne::maxNumCores = 3;
         Arachne::disableLoadEstimation = true;
         corePolicyTest = new CorePolicy();
-        Arachne::init();
+        Arachne::init(corePolicyTest);
         // Articially wake up all threads for testing purposes
         std::vector<uint32_t> coreRequest({3,0,0,0,0,0,0,0});
         coreArbiter->setRequestedCores(coreRequest);
@@ -442,7 +442,7 @@ bitSetter(int index) {
 
 TEST_F(ArachneTest, yield_secondThreadGotControl) {
     minNumCores = 2;
-    init();
+    init(new CorePolicy());
     keepYielding = true;
     createThreadOnCore(corePolicyTest->baseClass, 0, yielder);
 
@@ -457,7 +457,7 @@ TEST_F(ArachneTest, yield_secondThreadGotControl) {
 
 TEST_F(ArachneTest, yield_allThreadsRan) {
     Arachne::minNumCores = 2;
-    Arachne::init();
+    Arachne::init(new CorePolicy());
     keepYielding = true;
     flag = 0;
 
@@ -487,13 +487,13 @@ simplesleeper() {
 
 TEST_F(ArachneTest, sleep_minimumDelay) {
     minNumCores = 2;
-    init();
+    init(new CorePolicy());
     createThreadOnCore(corePolicyTest->baseClass, 0, sleeper);
 }
 
 TEST_F(ArachneTest, sleep_wakeupTimeSetAndCleared) {
     Arachne::minNumCores = 2;
-    Arachne::init();
+    Arachne::init(new CorePolicy());
     flag = 0;
     createThreadOnCore(corePolicyTest->baseClass, 0, simplesleeper);
     limitedTimeWait([]()->bool { return flag; });
@@ -591,7 +591,7 @@ TEST_F(ArachneTest, join_afterTermination) {
     waitForTermination();
 
     Arachne::minNumCores = 2;
-    Arachne::init();
+    Arachne::init(new CorePolicy());
 
     // Since the joinee does not yield, we know that it terminated before the
     // joiner got a chance to run.
@@ -609,7 +609,7 @@ TEST_F(ArachneTest, join_DuringRun) {
     waitForTermination();
 
     Arachne::minNumCores = 2;
-    Arachne::init();
+    Arachne::init(new CorePolicy());
     joineeId = createThreadOnCore(corePolicyTest->baseClass, 0, joinee2);
     createThreadOnCore(corePolicyTest->baseClass, 0, joiner);
     limitedTimeWait([]() ->bool {
@@ -627,7 +627,7 @@ TEST_F(ArachneTest, parseOptions_noOptions) {
     int argc = 3;
     const char* originalArgv[] = {"ArachneTest", "foo", "bar"};
     const char** argv = originalArgv;
-    Arachne::init(&argc, argv);
+    Arachne::init(new CorePolicy(), &argc, argv);
     EXPECT_EQ(3, argc);
     EXPECT_EQ(originalArgv, argv);
     EXPECT_EQ(1U, minNumCores);
@@ -644,7 +644,7 @@ TEST_F(ArachneTest, parseOptions_longOptions) {
     const char* argv[] =
         {"ArachneTest", "--minNumCores", "5", "--stackSize", "4096",
             "--maxNumCores", "6", "--enableArbiter", "0"};
-    Arachne::init(&argc, argv);
+    Arachne::init(new CorePolicy(), &argc, argv);
     EXPECT_EQ(1, argc);
     EXPECT_EQ(useCoreArbiter, false);
     EXPECT_EQ(5U, minNumCores);
@@ -654,7 +654,7 @@ TEST_F(ArachneTest, parseOptions_longOptions) {
     shutDown();
     waitForTermination();
     stackSize = originalStackSize;
-    Arachne::init();
+    Arachne::init(new CorePolicy());
 }
 
 TEST_F(ArachneTest, parseOptions_mixedOptions) {
@@ -668,7 +668,7 @@ TEST_F(ArachneTest, parseOptions_mixedOptions) {
         {"ArachneTest", "--appOptionB", "2", "--stackSize", "8192",
             "--appOptionA", "Argument"};
     const char** argv = originalArgv;
-    Arachne::init(&argc, argv);
+    Arachne::init(new CorePolicy(), &argc, argv);
     EXPECT_EQ(5, argc);
     EXPECT_EQ(stackSize, 8192);
     EXPECT_EQ("--appOptionB", argv[1]);
@@ -682,7 +682,7 @@ TEST_F(ArachneTest, parseOptions_mixedOptions) {
     shutDown();
     waitForTermination();
     stackSize = originalStackSize;
-    Arachne::init();
+    Arachne::init(new CorePolicy());
 }
 
 TEST_F(ArachneTest, parseOptions_mixedOptions_noArbiter) {
@@ -696,7 +696,7 @@ TEST_F(ArachneTest, parseOptions_mixedOptions_noArbiter) {
         {"ArachneTest", "--appOptionB", "2", "--stackSize", "8192",
             "--appOptionA", "Argument", "--enableArbiter", "0"};
     const char** argv = originalArgv;
-    Arachne::init(&argc, argv);
+    Arachne::init(new CorePolicy(), &argc, argv);
     EXPECT_EQ(5, argc);
     EXPECT_EQ(useCoreArbiter, false);
     EXPECT_EQ(stackSize, 8192);
@@ -711,7 +711,7 @@ TEST_F(ArachneTest, parseOptions_mixedOptions_noArbiter) {
     shutDown();
     waitForTermination();
     stackSize = originalStackSize;
-    Arachne::init();
+    Arachne::init(new CorePolicy());
 }
 
 TEST_F(ArachneTest, parseOptions_noArgumentOptions) {
@@ -723,7 +723,7 @@ TEST_F(ArachneTest, parseOptions_noArgumentOptions) {
     const char* originalArgv[] =
         {"ArachneTest", "--disableLoadEstimation", "--minNumCores", "5"};
     const char** argv = originalArgv;
-    Arachne::init(&argc, argv);
+    Arachne::init(new CorePolicy(), &argc, argv);
     EXPECT_EQ(1, argc);
     EXPECT_EQ(5U, Arachne::minNumCores);
     EXPECT_EQ(5U, Arachne::maxNumCores);
@@ -737,7 +737,7 @@ TEST_F(ArachneTest, parseOptions_appOptionsOnly) {
 
     int argc = 3;
     const char* argv[] = {"ArachneTest", "--appOptionA", "Argument"};
-    Arachne::init(&argc, argv);
+    Arachne::init(new CorePolicy(), &argc, argv);
     EXPECT_EQ(3, argc);
 }
 
@@ -823,7 +823,7 @@ TEST_F(ArachneTest, incrementCoreCount) {
     shutDown();
     waitForTermination();
     maxNumCores = 4;
-    Arachne::init();
+    Arachne::init(new CorePolicy());
     // Articially wake up all threads for testing purposes
     std::vector<uint32_t> coreRequest({3,0,0,0,0,0,0,0});
     coreArbiter->setRequestedCores(coreRequest);
