@@ -1168,17 +1168,16 @@ void decrementCoreCount() {
  * The caller must hold the coreChangeMutex when making this call.
  */
 void descheduleCore() {
-
-    int minIndex = corePolicy->chooseRemovableCore();
+    int minCoreId = corePolicy->chooseRemovableCore();
     uint8_t minLoaded =
-        occupiedAndCount[virtualCoreTable[minIndex]]->load().numOccupied;
+        occupiedAndCount[minCoreId]->load().numOccupied;
     // Give up if the minLoaded core is exclusive or full, since that implies
     // we are likely pre-empting must-have cores.
     if (minLoaded >= static_cast<uint8_t>(56)) {
         coreChangeActive = false;
         ARACHNE_LOG(DEBUG, "Failed to find an unoccupied core, giving up!\n");
-        ARACHNE_LOG(DEBUG, "minLoaded = %u, minIndex = %u!\n",
-                minLoaded, minIndex);
+        ARACHNE_LOG(DEBUG, "minLoaded = %u, minCoreId = %u!\n",
+                minLoaded, minCoreId);
         for (uint32_t i = 0; i < numActiveCores; i++) {
             uint32_t coreId = virtualCoreTable[i];
             ARACHNE_LOG(DEBUG, "virtualCoreId = %d, coreId = %u,"
@@ -1194,10 +1193,10 @@ void descheduleCore() {
     // hold it for too long.
     // If this creation fails, it would implies that we are overloaded and
     // should not ramp down.
-    if (createThreadOnCore(corePolicy->baseClass, virtualCoreTable[minIndex], releaseCore) == NullThread) {
+    if (createThreadOnCore(corePolicy->baseClass, minCoreId, releaseCore) == NullThread) {
         coreChangeActive = false;
         ARACHNE_LOG(WARNING, "Release core thread creation failed to %d!\n",
-                minIndex);
+                minCoreId);
     }
 }
 

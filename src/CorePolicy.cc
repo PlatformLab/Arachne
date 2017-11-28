@@ -88,18 +88,18 @@ void CorePolicy::bootstrapLoadEstimator(bool disableLoadEstimation) {
   * Choose a core to deschedule.  Return its coreId.
   */
 int CorePolicy::chooseRemovableCore() {
-    // Find a core to deschedule
+    threadCoreMapEntry* entry = threadCoreMap[baseClass];
     uint8_t minLoaded =
-        Arachne::occupiedAndCount[Arachne::virtualCoreTable[0]]->load().numOccupied;
-    int minIndex = 0;
+        Arachne::occupiedAndCount[entry->map[0]]->load().numOccupied;
+    int minCoreId = entry->map[0];
     for (uint32_t i = 1; i < threadCoreMap[baseClass]->numFilled; i++) {
-        uint32_t coreId = Arachne::virtualCoreTable[i];
+        uint32_t coreId = entry->map[i];
         if (Arachne::occupiedAndCount[coreId]->load().numOccupied < minLoaded) {
             minLoaded = Arachne::occupiedAndCount[coreId]->load().numOccupied;
-            minIndex = i;
+            minCoreId = coreId;
         }
     }
-    return minIndex;
+    return minCoreId;
 }
 
 /**
