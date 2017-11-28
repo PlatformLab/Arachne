@@ -77,6 +77,8 @@ extern std::vector<ThreadContext**> allThreadContexts;
 
 extern int* virtualCoreTable;
 
+extern CorePolicy* corePolicy;
+
 /**
  * \addtogroup api Arachne Public API
  * Most of the functions in this API, with the exception of Arachne::init(),
@@ -512,15 +514,20 @@ random(void) {
   */
 template<typename _Callable, typename... _Args>
 ThreadId
-createThreadOnCore(threadClass_t threadClass, uint32_t virtualCoreId, _Callable&& __f, _Args&&... __args) {
-    if (virtualCoreId >= numActiveCores) {
-        ARACHNE_LOG(VERBOSE, "createThread failure, virtualCoreId = %u, "
-                   "numActiveCores = %d\n", virtualCoreId,
+createThreadOnCore(threadClass_t threadClass, uint32_t coreId, _Callable&& __f, _Args&&... __args) {
+
+    threadCoreMapEntry* entry = corePolicy->getThreadCoreMapEntry(threadClass);
+    bool isLegalCoreId = false;
+    for (uint32_t i = 0; i < entry->numFilled; i++) {
+      if (entry->map[i] == (int) coreId)
+        isLegalCoreId = true;
+    }
+    if (!isLegalCoreId) {
+        ARACHNE_LOG(VERBOSE, "createThread failure, coreId = %u, "
+                   "numActiveCores = %d\n", coreId,
                    numActiveCores.load());
         return Arachne::NullThread;
     }
-
-    int coreId = virtualCoreTable[virtualCoreId];
 
     auto task = std::bind(
             std::forward<_Callable>(__f), std::forward<_Args>(__args)...);
@@ -537,8 +544,8 @@ createThreadOnCore(threadClass_t threadClass, uint32_t virtualCoreId, _Callable&
         MaskAndCount oldSlotMap = slotMap;
 
         if (slotMap.numOccupied >= maxThreadsPerCore) {
-            ARACHNE_LOG(VERBOSE, "createThread failure, virtualCoreId = %u, "
-                    "coreId = %u," "numOccupied = %d\n", virtualCoreId, coreId,
+            ARACHNE_LOG(VERBOSE, "createThread failure, coreId = %u, "
+                    "numOccupied = %d\n", coreId,
                        slotMap.numOccupied);
             return NullThread;
         }
@@ -547,9 +554,9 @@ createThreadOnCore(threadClass_t threadClass, uint32_t virtualCoreId, _Callable&
         index = ffsll(~slotMap.occupied);
         if (!index) {
             ARACHNE_LOG(WARNING, "createThread failed after passing numOccupied"
-                    " check, virtualCoreId = %u, coreId = %u,"
+                    " check, coreId = %u,"
                     " numOccupied = %d\n",
-                    virtualCoreId, coreId, slotMap.numOccupied);
+                    coreId, slotMap.numOccupied);
             return NullThread;
         }
 
@@ -619,13 +626,17 @@ createThread(threadClass_t threadClass, _Callable&& __f, _Args&&... __args) {
     // Find a kernel thread to enqueue to by picking two at random and choosing
     // the one with the fewest Arachne threads.
     uint32_t kId;
-    uint32_t choice1 = static_cast<uint32_t>(random()) % numActiveCores;
-    uint32_t choice2 = static_cast<uint32_t>(random()) % numActiveCores;
-    while (choice2 == choice1 && numActiveCores > 1)
-        choice2 = static_cast<uint32_t>(random()) % numActiveCores;
+    threadCoreMapEntry* entry = corePolicy->getThreadCoreMapEntry(threadClass);
+    uint32_t index1 = static_cast<uint32_t>(random()) % entry->numFilled;
+    uint32_t index2 = static_cast<uint32_t>(random()) % entry->numFilled;
+    while (index2 == index1 && entry->numFilled > 1)
+        index2 = static_cast<uint32_t>(random()) % entry->numFilled;
 
-    if (occupiedAndCount[virtualCoreTable[choice1]]->load().numOccupied <
-            occupiedAndCount[virtualCoreTable[choice2]]->load().numOccupied)
+    int choice1 = entry->map[index1];
+    int choice2 = entry->map[index2];
+
+    if (occupiedAndCount[choice1]->load().numOccupied <
+            occupiedAndCount[choice2]->load().numOccupied)
         kId = choice1;
     else
         kId = choice2;

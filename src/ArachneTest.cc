@@ -832,10 +832,10 @@ TEST_F(ArachneTest, incrementCoreCount) {
     size_t size;
     FILE* newStream = open_memstream(&str, &size);
     setErrorStream(newStream);
-    EXPECT_EQ(NullThread, createThreadOnCore(corePolicyTest->baseClass, 3, doNothing));
+    EXPECT_EQ(NullThread, createThreadOnCore(corePolicyTest->baseClass, virtualCoreTable[3], doNothing));
     incrementCoreCount();
     limitedTimeWait([]() -> bool { return numActiveCores > 3;});
-    EXPECT_NE(NullThread, createThreadOnCore(corePolicyTest->baseClass, 3, doNothing));
+    EXPECT_NE(NullThread, createThreadOnCore(corePolicyTest->baseClass, virtualCoreTable[3], doNothing));
     fflush(newStream);
     EXPECT_EQ("Attempting to increase number of cores 3 --> 4\n",
             std::string(str));
@@ -849,15 +849,15 @@ TEST_F(ArachneTest, decrementCoreCount) {
     size_t size;
     FILE* newStream = open_memstream(&str, &size);
     setErrorStream(newStream);
-    EXPECT_NE(NullThread, createThreadOnCore(corePolicyTest->baseClass, 2, doNothing));
+    EXPECT_NE(NullThread, createThreadOnCore(corePolicyTest->baseClass, virtualCoreTable[2], doNothing));
     decrementCoreCount();
     limitedTimeWait(
             []() -> bool { return numActiveCores < 3 && !coreChangeActive;});
-    EXPECT_EQ(NullThread, createThreadOnCore(corePolicyTest->baseClass, 2, doNothing));
+    EXPECT_EQ(NullThread, createThreadOnCore(corePolicyTest->baseClass, virtualCoreTable[2], doNothing));
     decrementCoreCount();
     limitedTimeWait(
             []() -> bool { return numActiveCores < 2 && !coreChangeActive;});
-    EXPECT_EQ(NullThread, createThreadOnCore(corePolicyTest->baseClass, 1, doNothing));
+    EXPECT_EQ(NullThread, createThreadOnCore(corePolicyTest->baseClass, virtualCoreTable[1], doNothing));
     fflush(newStream);
     EXPECT_EQ("Attempting to decrease number of cores 3 --> 2\n"
               "Attempting to decrease number of cores 2 --> 1\n"
@@ -888,14 +888,14 @@ TEST_F(ArachneTest, makeExclusiveOnCore) {
             return Arachne::occupiedAndCount[0]->load().numOccupied == 1;});
     // Check that thread creations are possible.
     EXPECT_NE(
-            Arachne::NullThread, Arachne::createThreadOnCore(corePolicyTest->baseClass, 0, yieldForever));
+            Arachne::NullThread, Arachne::createThreadOnCore(corePolicyTest->baseClass, virtualCoreTable[0], yieldForever));
     stage = 1;
     // Check that other threads have been moved off or finished, and that
     // thread creations fail.
     limitedTimeWait([]()-> bool {
             return Arachne::occupiedAndCount[0]->load().occupied == 1;},
             10000);
-    EXPECT_EQ(Arachne::NullThread, Arachne::createThreadOnCore(corePolicyTest->baseClass, 2, doNothing));
+    EXPECT_EQ(Arachne::NullThread, Arachne::createThreadOnCore(corePolicyTest->baseClass, virtualCoreTable[2], doNothing));
     // That eternally yielding thread must have moved somewhere.
     EXPECT_EQ(1, Arachne::occupiedAndCount[2]->load().numOccupied);
     stage = 2;
@@ -903,7 +903,7 @@ TEST_F(ArachneTest, makeExclusiveOnCore) {
             return Arachne::occupiedAndCount[0]->load().numOccupied == 1;},
             10000);
     // Verify that thread creations are once again allowed.
-    EXPECT_NE(Arachne::NullThread, Arachne::createThreadOnCore(corePolicyTest->baseClass, 0, doNothing));
+    EXPECT_NE(Arachne::NullThread, Arachne::createThreadOnCore(corePolicyTest->baseClass, virtualCoreTable[0], doNothing));
     stage = 3;
 }
 } // namespace Arachne
