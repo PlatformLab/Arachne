@@ -141,7 +141,7 @@ TEST_F(ArachneTest, CorePolicy_addCore) {
     EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass]->map[0], 5);
     EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass]->map[1], 4);
     EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass]->map[2], 7);
-    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass]->numFilled, 3);
+    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass]->numFilled, 3U);
     delete corePolicy;
 }
 
@@ -151,14 +151,14 @@ TEST_F(ArachneTest, CorePolicy_removeCore) {
     corePolicy->addCore(4);
     corePolicy->addCore(7);
     corePolicy->removeCore(5);
-    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass]->numFilled, 2);
+    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass]->numFilled, 2U);
     EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass]->map[0], 7);
     EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass]->map[1], 4);
     corePolicy->removeCore(4);
-    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass]->numFilled, 1);
+    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass]->numFilled, 1U);
     EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass]->map[0], 7);
     corePolicy->removeCore(7);
-    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass]->numFilled, 0);
+    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass]->numFilled, 0U);
     delete corePolicy;
 }
 
@@ -172,7 +172,7 @@ TEST_F(ArachneTest, CorePolicy_getThreadCoreMapEntry) {
     EXPECT_EQ(entry->map[0], 5);
     EXPECT_EQ(entry->map[1], 4);
     EXPECT_EQ(entry->map[2], 7);
-    EXPECT_EQ(entry->numFilled, 3);
+    EXPECT_EQ(entry->numFilled, 3U);
     delete corePolicy;
 }
 

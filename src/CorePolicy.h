@@ -40,7 +40,7 @@ typedef uint32_t threadClass_t;
 
 /** Struct used to define the threadCoreMap in CorePolicy. **/
 struct threadCoreMapEntry {
-  int numFilled;
+  uint32_t numFilled;
   int* map;
 };
 
@@ -63,6 +63,7 @@ class CorePolicy {
         free(threadCoreMap);
     }
     void bootstrapLoadEstimator(bool disableLoadEstimation);
+    int chooseRemovableCore();
     void addCore(int coreId);
     void removeCore(int coreId);
     threadCoreMapEntry* getThreadCoreMapEntry(threadClass_t threadClass);

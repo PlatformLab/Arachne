@@ -1168,18 +1168,10 @@ void decrementCoreCount() {
  * The caller must hold the coreChangeMutex when making this call.
  */
 void descheduleCore() {
-    // Find a core to deschedule
-    uint8_t minLoaded =
-        occupiedAndCount[virtualCoreTable[0]]->load().numOccupied;
-    int minIndex = 0;
-    for (uint32_t i = 1; i < numActiveCores; i++) {
-        uint32_t coreId = virtualCoreTable[i];
-        if (occupiedAndCount[coreId]->load().numOccupied < minLoaded) {
-            minLoaded = occupiedAndCount[coreId]->load().numOccupied;
-            minIndex = i;
-        }
-    }
 
+    int minIndex = corePolicy->chooseRemovableCore();
+    uint8_t minLoaded =
+        occupiedAndCount[virtualCoreTable[minIndex]]->load().numOccupied;
     // Give up if the minLoaded core is exclusive or full, since that implies
     // we are likely pre-empting must-have cores.
     if (minLoaded >= static_cast<uint8_t>(56)) {
