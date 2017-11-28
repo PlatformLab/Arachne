@@ -86,25 +86,25 @@ void CorePolicy::bootstrapLoadEstimator(bool disableLoadEstimation) {
 
 /**
   * Update threadCoreMap when a new core is added.  Takes in the coreId
-  * of the new core as well as the number of active cores not including
-  * the new one.
+  * of the new core.
 **/
-void CorePolicy::addCore(int coreId, int numActiveCores) {
-  threadCoreMap[baseClass][numActiveCores] = coreId;
+void CorePolicy::addCore(int coreId) {
+  threadCoreMapEntry* entry = threadCoreMap[baseClass];
+  entry->map[entry->numFilled] = coreId;
+  entry->numFilled++;
 }
 
 /**
   * Update threadCoreMap when a core is removed.  Takes in the coreId
-  * of the doomed core as well as the number of active cores not including
-  * the doomed one.
+  * of the doomed core.
 **/
-void CorePolicy::removeCore(int coreId, int numActiveCores) {
-  int saveCoreId = threadCoreMap[baseClass][numActiveCores];
-  if (saveCoreId == coreId)
-    return;
-  for (int i = 0; i < numActiveCores; i++) {
-    if (CorePolicy::threadCoreMap[baseClass][i] == coreId) {
-      threadCoreMap[baseClass][i] = saveCoreId;
+void CorePolicy::removeCore(int coreId) {
+  threadCoreMapEntry* entry = threadCoreMap[baseClass];
+  entry->numFilled--;
+  int saveCoreId = entry->map[entry->numFilled];
+  for (int i = 0; i < entry->numFilled; i++) {
+    if (entry->map[i] == coreId) {
+      entry->map[i] = saveCoreId;
       return;
     }
   }

@@ -127,45 +127,39 @@ static void limitedTimeWait(std::function<bool()> condition,
 TEST_F(ArachneTest, CorePolicy_constructor) {
     CorePolicy* corePolicy = new CorePolicy();
     for (unsigned i = 0; i < std::thread::hardware_concurrency(); i++) {
-        EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass][i], 0);
+        EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass]->map[i], 0);
     }
     delete corePolicy;
 }
 
 TEST_F(ArachneTest, CorePolicy_addCore) {
     CorePolicy* corePolicy = new CorePolicy();
-    int numActiveCores = 0;
-    corePolicy->addCore(5, numActiveCores);
-    numActiveCores++;
-    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass][numActiveCores - 1], 5);
-    corePolicy->addCore(4, numActiveCores);
-    numActiveCores++;
-    corePolicy->addCore(7, numActiveCores);
-    numActiveCores++;
-    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass][0], 5);
-    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass][1], 4);
-    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass][2], 7);
+    corePolicy->addCore(5);
+    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass]->map[0], 5);
+    corePolicy->addCore(4);
+    corePolicy->addCore(7);
+    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass]->map[0], 5);
+    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass]->map[1], 4);
+    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass]->map[2], 7);
+    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass]->numFilled, 3);
 
     delete corePolicy;
 }
 
 TEST_F(ArachneTest, CorePolicy_removeCore) {
     CorePolicy* corePolicy = new CorePolicy();
-    int numActiveCores = 0;
-    corePolicy->addCore(5, numActiveCores);
-    numActiveCores++;
-    corePolicy->addCore(4, numActiveCores);
-    numActiveCores++;
-    corePolicy->addCore(7, numActiveCores);
-    numActiveCores++;
-    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass][0], 5);
-    numActiveCores--;
-    corePolicy->removeCore(5, numActiveCores);
-    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass][0], 7);
-    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass][1], 4);
-    numActiveCores--;
-    corePolicy->removeCore(4, numActiveCores);
-    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass][0], 7);
+    corePolicy->addCore(5);
+    corePolicy->addCore(4);
+    corePolicy->addCore(7);
+    corePolicy->removeCore(5);
+    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass]->numFilled, 2);
+    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass]->map[0], 7);
+    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass]->map[1], 4);
+    corePolicy->removeCore(4);
+    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass]->numFilled, 1);
+    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass]->map[0], 7);
+    corePolicy->removeCore(7);
+    EXPECT_EQ(corePolicy->threadCoreMap[corePolicy->baseClass]->numFilled, 0);
 
     delete corePolicy;
 }

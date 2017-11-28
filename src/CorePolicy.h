@@ -13,7 +13,6 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-
 #ifndef COREPOLICY_H_
 #define COREPOLICY_H_
 
@@ -39,34 +38,44 @@
 
 typedef uint32_t threadClass_t;
 
+/** Struct used to define the threadCoreMap in CorePolicy. **/
+struct threadCoreMapEntry {
+  int numFilled;
+  int* map;
+};
+
 class CorePolicy {
   public:
     /** Constructor and destructor for CorePolicy. */
     CorePolicy() {
-        threadCoreMap = (int**) malloc(NUM_THREAD_CLASSES * sizeof(int*));
-        for (int i = 0; i < NUM_THREAD_CLASSES; i++)
-            threadCoreMap[i] = (int*) calloc(std::thread::hardware_concurrency(), sizeof(int));
+        threadCoreMap = (threadCoreMapEntry**) malloc(NUM_THREAD_CLASSES * sizeof(threadCoreMapEntry*));
+        for (int i = 0; i < NUM_THREAD_CLASSES; i++) {
+            threadCoreMap[i] = (threadCoreMapEntry*) malloc(sizeof(threadCoreMapEntry));
+            threadCoreMap[i]->map = (int*) calloc(std::thread::hardware_concurrency(), sizeof(int));
+            threadCoreMap[i]->numFilled = 0;
+          }
     }
-    ~CorePolicy(){
-        for (int i = 0; i < NUM_THREAD_CLASSES; i++)
+    ~CorePolicy() {
+        for (int i = 0; i < NUM_THREAD_CLASSES; i++) {
+            free(threadCoreMap[i]->map);
             free(threadCoreMap[i]);
+          }
         free(threadCoreMap);
     }
     void bootstrapLoadEstimator(bool disableLoadEstimation);
-    void addCore(int coreId, int numActiveCores);
-    void removeCore(int coreId, int numActiveCores);
+    void addCore(int coreId);
+    void removeCore(int coreId);
 
     threadClass_t baseClass = 0;
     
   protected:
     /**
       * A map from thread classes to cores on which threads of those classes
-      * can run.  If threadCoreMap[i][j] = c for some j < numActiveCores then
-      * Arachne can create a thread of class i on the core with coreId c.
+      * can run.  If threadCoreMap[i]->map[j] = c for some
+      * j < threadCoreMap[i]->numFilled then Arachne can create a thread of
+      * class i on the core with coreId c.
       */
-    int** threadCoreMap;
-
-
+    threadCoreMapEntry** threadCoreMap;
 
 };
 

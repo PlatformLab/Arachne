@@ -226,7 +226,7 @@ threadMain() {
             *publicPriorityMasks[core.kernelThreadId] = 0;
             newestThreadOccupiedContext[core.kernelThreadId] = 0;
             core.privatePriorityMask = 0;
-            corePolicy->addCore(core.kernelThreadId, numActiveCores);
+            corePolicy->addCore(core.kernelThreadId);
 
             // This marks the point at which new thread creations may begin.
             numActiveCores++;
@@ -261,11 +261,11 @@ threadMain() {
         // to the schedulerMainLoop.
         swapcontext(&core.loadedContext->sp,
                 &kernelThreadStacks[core.kernelThreadId]);
+        numActiveCores--;
+        if (shutdown) break;
         {
             std::lock_guard<SpinLock> _(coreChangeMutex);
-            numActiveCores--;
-            if (shutdown) break;
-            corePolicy->removeCore(core.kernelThreadId, numActiveCores);
+            corePolicy->removeCore(core.kernelThreadId);
             ARACHNE_LOG(DEBUG, "Number of cores decreased from %d to %d\n",
                     numActiveCores + 1, numActiveCores.load());
             #if TIME_TRACE
