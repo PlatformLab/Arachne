@@ -265,7 +265,6 @@ threadMain() {
         if (shutdown) break;
         {
             std::lock_guard<SpinLock> _(coreChangeMutex);
-            corePolicy->removeCore(core.kernelThreadId);
             ARACHNE_LOG(DEBUG, "Number of cores decreased from %d to %d\n",
                     numActiveCores + 1, numActiveCores.load());
             #if TIME_TRACE
@@ -1306,18 +1305,30 @@ bool makeExclusiveOnCore(bool forScaleDown) {
             virtualCoreTable[numActiveCores - 1] = core.kernelThreadId;
             break;
         }
+    if (forScaleDown) {
+      coreChangeMutex.lock();
+      corePolicy->removeCore(core.kernelThreadId);
+      coreChangeMutex.unlock();
+    }
 
     // Migrate off all threads other than the current one.  Round robin among
     // cores because these are likely long-running threads.
-    int nextMigrationTarget = 0;
-    int coreId = virtualCoreTable[nextMigrationTarget];
 
+    int nextMigrationTarget = 0;
 
     for (uint8_t i = 0; i < maxThreadsPerCore; i++) {
         if (i == originalContext->idInCore) {
             // Skip over ourselves
             continue;
         }
+        // Choose a victim core that we will pawn our work on.
+        threadClass_t threadClass = core.localThreadContexts[i]->threadClass;
+        if (threadClass > corePolicy->maxClass) {
+          threadClass = corePolicy->baseClass;
+        }
+        threadCoreMapEntry* entry = corePolicy->getThreadCoreMapEntry(threadClass);
+        nextMigrationTarget = (nextMigrationTarget + 1) % entry->numFilled;
+        int coreId = entry->map[nextMigrationTarget];
         if ((blockedOccupiedAndCount.occupied >> i) & 1) {
             uint8_t index;
             do {
@@ -1373,11 +1384,6 @@ bool makeExclusiveOnCore(bool forScaleDown) {
                 // Try again if we failed to find a slot to pawn our work onto.
                 i--;
             }
-
-            // The next victim core that we will pawn our work on.
-            nextMigrationTarget =
-                (nextMigrationTarget + 1) % (numActiveCores - 1);
-            coreId = virtualCoreTable[nextMigrationTarget];
         }
     }
 

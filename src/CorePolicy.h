@@ -69,6 +69,7 @@ class CorePolicy {
     threadCoreMapEntry* getThreadCoreMapEntry(threadClass_t threadClass);
 
     threadClass_t baseClass = 0;
+    threadClass_t maxClass = 0;
     
   protected:
     /**

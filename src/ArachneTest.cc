@@ -883,7 +883,7 @@ void yieldForever() {
 // Since the functions are paired, this also serves as the test for
 // makeSharedOnCore.
 TEST_F(ArachneTest, makeExclusiveOnCore) {
-    createThreadOnCore(corePolicyTest->baseClass, 0, exclusiveThread);
+    createThreadOnCore(corePolicyTest->baseClass, virtualCoreTable[0], exclusiveThread);
     limitedTimeWait([]()-> bool {
             return Arachne::occupiedAndCount[0]->load().numOccupied == 1;});
     // Check that thread creations are possible.
@@ -897,7 +897,9 @@ TEST_F(ArachneTest, makeExclusiveOnCore) {
             10000);
     EXPECT_EQ(Arachne::NullThread, Arachne::createThreadOnCore(corePolicyTest->baseClass, virtualCoreTable[2], doNothing));
     // That eternally yielding thread must have moved somewhere.
-    EXPECT_EQ(1, Arachne::occupiedAndCount[2]->load().numOccupied);
+    EXPECT_EQ(EXCLUSIVE, Arachne::occupiedAndCount[0]->load().numOccupied);
+    EXPECT_EQ(1, Arachne::occupiedAndCount[1]->load().numOccupied);
+    EXPECT_EQ(0, Arachne::occupiedAndCount[2]->load().numOccupied);
     stage = 2;
     limitedTimeWait([]()-> bool {
             return Arachne::occupiedAndCount[0]->load().numOccupied == 1;},
