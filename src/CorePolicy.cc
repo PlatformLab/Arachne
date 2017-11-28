@@ -110,6 +110,10 @@ void CorePolicy::removeCore(int coreId) {
   }
 }
 
+threadCoreMapEntry* CorePolicy::getThreadCoreMapEntry(threadClass_t threadClass) {
+  return threadCoreMap[threadClass];
+}
+
 /**
   * Periodically wake up and observe the current load in Arachne to determine
   * whether it is necessary to increase or reduce the number of cores used by

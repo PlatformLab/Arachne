@@ -65,6 +65,7 @@ class CorePolicy {
     void bootstrapLoadEstimator(bool disableLoadEstimation);
     void addCore(int coreId);
     void removeCore(int coreId);
+    threadCoreMapEntry* getThreadCoreMapEntry(threadClass_t threadClass);
 
     threadClass_t baseClass = 0;
     
