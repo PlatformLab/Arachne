@@ -34,7 +34,7 @@
 #include "PerfStats.h"
 #include "Common.h"
 
-#define NUM_THREAD_CLASSES 1
+#define MAX_THREAD_CLASSES 64
 
 typedef uint32_t threadClass_t;
 
@@ -48,15 +48,15 @@ class CorePolicy {
   public:
     /** Constructor and destructor for CorePolicy. */
     CorePolicy() {
-        threadCoreMap = (threadCoreMapEntry**) malloc(NUM_THREAD_CLASSES * sizeof(threadCoreMapEntry*));
-        for (int i = 0; i < NUM_THREAD_CLASSES; i++) {
+        threadCoreMap = (threadCoreMapEntry**) malloc(MAX_THREAD_CLASSES * sizeof(threadCoreMapEntry*));
+        for (int i = 0; i < MAX_THREAD_CLASSES; i++) {
             threadCoreMap[i] = (threadCoreMapEntry*) malloc(sizeof(threadCoreMapEntry));
             threadCoreMap[i]->map = (int*) calloc(std::thread::hardware_concurrency(), sizeof(int));
             threadCoreMap[i]->numFilled = 0;
           }
     }
     virtual ~CorePolicy() {
-        for (int i = 0; i < NUM_THREAD_CLASSES; i++) {
+        for (int i = 0; i < MAX_THREAD_CLASSES; i++) {
             free(threadCoreMap[i]->map);
             free(threadCoreMap[i]);
           }
@@ -66,10 +66,10 @@ class CorePolicy {
     virtual int chooseRemovableCore();
     virtual void addCore(int coreId);
     virtual void removeCore(int coreId);
+    virtual uint32_t maxClass() { return 0U; }
     threadCoreMapEntry* getThreadCoreMapEntry(threadClass_t threadClass);
 
     threadClass_t baseClass = 0;
-    threadClass_t maxClass = 0;
     
   protected:
     /**

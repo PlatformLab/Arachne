@@ -1323,7 +1323,7 @@ bool makeExclusiveOnCore(bool forScaleDown) {
         }
         // Choose a victim core that we will pawn our work on.
         threadClass_t threadClass = core.localThreadContexts[i]->threadClass;
-        if (threadClass > corePolicy->maxClass) {
+        if (threadClass > corePolicy->maxClass()) {
           threadClass = corePolicy->baseClass;
         }
         threadCoreMapEntry* entry = corePolicy->getThreadCoreMapEntry(threadClass);
