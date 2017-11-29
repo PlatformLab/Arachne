@@ -55,17 +55,17 @@ class CorePolicy {
             threadCoreMap[i]->numFilled = 0;
           }
     }
-    ~CorePolicy() {
+    virtual ~CorePolicy() {
         for (int i = 0; i < NUM_THREAD_CLASSES; i++) {
             free(threadCoreMap[i]->map);
             free(threadCoreMap[i]);
           }
         free(threadCoreMap);
     }
-    void bootstrapLoadEstimator(bool disableLoadEstimation);
-    int chooseRemovableCore();
-    void addCore(int coreId);
-    void removeCore(int coreId);
+    virtual void bootstrapLoadEstimator(bool disableLoadEstimation);
+    virtual int chooseRemovableCore();
+    virtual void addCore(int coreId);
+    virtual void removeCore(int coreId);
     threadCoreMapEntry* getThreadCoreMapEntry(threadClass_t threadClass);
 
     threadClass_t baseClass = 0;
