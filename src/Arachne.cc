@@ -1330,7 +1330,7 @@ bool makeExclusiveOnCore(bool forScaleDown) {
         if (threadClass > corePolicy->maxClass()) {
           threadClass = corePolicy->baseClass;
         }
-        threadCoreMapEntry* entry = corePolicy->getThreadCoreMapEntry(threadClass);
+        ThreadCoreMapEntry* entry = corePolicy->getThreadCoreMapEntry(threadClass);
         nextMigrationTarget = (nextMigrationTarget + 1) % entry->numFilled;
         int coreId = entry->map[nextMigrationTarget];
         if ((blockedOccupiedAndCount.occupied >> i) & 1) {

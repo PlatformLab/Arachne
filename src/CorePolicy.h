@@ -44,7 +44,7 @@ typedef uint32_t threadClass_t;
   * particular thread class, the set of all cores map[i] for i < numFilled
   * is the set of cores on which threads of that class can run.
   */
-struct threadCoreMapEntry {
+struct ThreadCoreMapEntry {
   uint32_t numFilled;
   int* map;
 };
@@ -60,11 +60,11 @@ class CorePolicy {
   public:
     /** Constructor and destructor for CorePolicy. */
     CorePolicy() {
-        threadCoreMap = (threadCoreMapEntry**) 
-          malloc(MAX_THREAD_CLASSES * sizeof(threadCoreMapEntry*));
+        threadCoreMap = (ThreadCoreMapEntry**) 
+          malloc(MAX_THREAD_CLASSES * sizeof(ThreadCoreMapEntry*));
         for (int i = 0; i < MAX_THREAD_CLASSES; i++) {
-            threadCoreMap[i] = (threadCoreMapEntry*) 
-              malloc(sizeof(threadCoreMapEntry));
+            threadCoreMap[i] = (ThreadCoreMapEntry*) 
+              malloc(sizeof(ThreadCoreMapEntry));
             threadCoreMap[i]->map = (int*) 
               calloc(std::thread::hardware_concurrency(), sizeof(int));
             threadCoreMap[i]->numFilled = 0;
@@ -82,7 +82,7 @@ class CorePolicy {
     virtual void addCore(int coreId);
     virtual void removeCore(int coreId);
     virtual uint32_t maxClass() { return 0U; }
-    threadCoreMapEntry* getThreadCoreMapEntry(threadClass_t threadClass);
+    ThreadCoreMapEntry* getThreadCoreMapEntry(threadClass_t threadClass);
 
     /* 
      * The base thread class, shared across all core policies and used as a 
@@ -98,7 +98,7 @@ class CorePolicy {
       * j < threadCoreMap[i]->numFilled then Arachne can create a thread of
       * class i on the core with coreId c.
       */
-    threadCoreMapEntry** threadCoreMap;
+    ThreadCoreMapEntry** threadCoreMap;
 
 };
 

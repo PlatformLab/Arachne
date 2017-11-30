@@ -32,18 +32,13 @@ using PerfUtils::Cycles;
   * fraction (computed as idlePercentage * numSharedCores) is less than this
   * number.
   */
-double maxIdleCoreFraction = 0.1;
+const double maxIdleCoreFraction = 0.1;
 
 /**
   * Arachne will attempt to increase the number of cores if the load factor
   * increases beyond this threshold.
   */
-double loadFactorThreshold = 1.0;
-
-/**
-  * Only here to satisfy compiling benchmark.
-  */
-double maxUtilization = 0.9;
+const double loadFactorThreshold = 1.0;
 
 /**
   * Save the core fraction at which we ramped up based on load factor, so we
@@ -57,13 +52,13 @@ double *utilizationThresholds;
   * wait to ramp down until the load gets a bit below the point at 
   * which we ramped up).
   */
-double idleCoreFractionHysteresis = 0.2;
+const double idleCoreFractionHysteresis = 0.2;
 
 /**
   * Do not ramp down if the percentage of occupied threadContext slots is
   * above this threshold.
   */
-double SLOT_OCCUPANCY_THRESHOLD = 0.5;
+const double SLOT_OCCUPANCY_THRESHOLD = 0.5;
 
 /**
   * The period in ns over which we measure before deciding to reduce the number
@@ -88,7 +83,7 @@ void CorePolicy::bootstrapLoadEstimator() {
   * Choose a core to deschedule.  Return its coreId.
   */
 int CorePolicy::chooseRemovableCore() {
-    threadCoreMapEntry* entry = threadCoreMap[baseClass];
+    ThreadCoreMapEntry* entry = threadCoreMap[baseClass];
     uint8_t minLoaded =
         Arachne::occupiedAndCount[entry->map[0]]->load().numOccupied;
     int minCoreId = entry->map[0];
@@ -107,7 +102,7 @@ int CorePolicy::chooseRemovableCore() {
   * of the new core.  Protected by the coreChangeMutex in Arachne.
 **/
 void CorePolicy::addCore(int coreId) {
-  threadCoreMapEntry* entry = threadCoreMap[baseClass];
+  ThreadCoreMapEntry* entry = threadCoreMap[baseClass];
   entry->map[entry->numFilled] = coreId;
   entry->numFilled++;
 }
@@ -117,7 +112,7 @@ void CorePolicy::addCore(int coreId) {
   * of the doomed core.  Protected by the coreChangeMutex in Arachne.
 **/
 void CorePolicy::removeCore(int coreId) {
-  threadCoreMapEntry* entry = threadCoreMap[baseClass];
+  ThreadCoreMapEntry* entry = threadCoreMap[baseClass];
   entry->numFilled--;
   int saveCoreId = entry->map[entry->numFilled];
   for (uint32_t i = 0; i < entry->numFilled; i++) {
@@ -128,7 +123,7 @@ void CorePolicy::removeCore(int coreId) {
   }
 }
 
-threadCoreMapEntry* CorePolicy::getThreadCoreMapEntry(threadClass_t threadClass) {
+ThreadCoreMapEntry* CorePolicy::getThreadCoreMapEntry(threadClass_t threadClass) {
   return threadCoreMap[threadClass];
 }
 
