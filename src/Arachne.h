@@ -59,8 +59,6 @@ extern thread_local Core core;
 // This is used in createThread.
 extern std::atomic<uint32_t> numActiveCores;
 
-extern std::atomic<uint32_t> numExclusiveCores;
-
 extern volatile uint32_t minNumCores;
 extern volatile uint32_t maxNumCores;
 
@@ -346,12 +344,11 @@ struct ThreadContext {
     ConditionVariable joinCV;
 
     /// Unique identifier for the core that this thread currently lives on.
-    /// Used to index into global arrays with information per core.
     /// This will only change if a ThreadContext is migrated when scaling down
     /// the number of cores.
     uint8_t coreId;
 
-    /// Thread class of this thread, used by the core policy.
+    /// Thread class of this thread, used for thread migration.
     threadClass_t threadClass;
 
     /// Unique identifier for this thread among those on the same core.
@@ -494,15 +491,14 @@ random(void) {
 
 /**
   * Spawn a thread with main function f invoked with the given args on the
-  * kernel thread with id = kId
+  * kernel thread with id = coreId
   * This function should usually only be invoked directly in tests, since it
   * does not perform load balancing.
   *
-  * \param kId
-  *     The id for the kernel thread to put the new Arachne thread on. Pass in
-  *     -1 to use the creator's kernel thread. This can be useful if the
-  *     created thread will share a lot of state with the current thread, since
-  *     it will improve locality.
+  * \param threadClass
+  *     The thread class of the new thread.
+  * \param coreId
+  *     The id for the kernel thread to put the new Arachne thread on.
   * \param __f
   *     The main function for the new thread.
   * \param __args

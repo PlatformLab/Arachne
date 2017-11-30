@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2017 Stanford University
+/* Copyright (c) 2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -36,7 +36,7 @@ double maxIdleCoreFraction = 0.1;
 
 /**
   * Arachne will attempt to increase the number of cores if the load factor
-  * increase beyond this threshold.
+  * increases beyond this threshold.
   */
 double loadFactorThreshold = 1.0;
 
@@ -47,19 +47,21 @@ double maxUtilization = 0.9;
 
 /**
   * Save the core fraction at which we ramped up based on load factor, so we
-  * can decide whether to ramp down.
+  * can decide whether to ramp down.  Allocated in bootstrapLoadEstimator.
   */
 double *utilizationThresholds;
 
 /**
   * The difference in load, expressed as a fraction of a core, between a
-  * ramp-down threshold and the corresponding ramp-up threshold.
+  * ramp-down threshold and the corresponding ramp-up threshold (i.e., we
+  * wait to ramp down until the load gets a bit below the point at 
+  * which we ramped up).
   */
 double idleCoreFractionHysteresis = 0.2;
 
 /**
-  * The percentage of slots which are occupied that will prevent reducing the
-  * number of cores.
+  * Do not ramp down if the percentage of occupied threadContext slots is
+  * above this threshold.
   */
 double SLOT_OCCUPANCY_THRESHOLD = 0.5;
 
@@ -69,7 +71,7 @@ double SLOT_OCCUPANCY_THRESHOLD = 0.5;
   */
 const uint64_t MEASUREMENT_PERIOD = 50 * 1000 * 1000;
 
-void coreLoadEstimator();
+void coreLoadEstimator(CorePolicy* corePolicy);
 
 /**
   * Bootstrap the core load estimator thread.  This must be done separately
@@ -77,11 +79,9 @@ void coreLoadEstimator();
   * Arachne adds any cores, but the core load estimator must run after
   * Arachne has cores.
   */
-void CorePolicy::bootstrapLoadEstimator(bool disableLoadEstimation) {
-    if (!disableLoadEstimation) {
-        utilizationThresholds = new double[Arachne::maxNumCores];
-        Arachne::createThread(baseClass, coreLoadEstimator);
-    }
+void CorePolicy::bootstrapLoadEstimator() {
+    utilizationThresholds = new double[Arachne::maxNumCores];
+    Arachne::createThread(baseClass, coreLoadEstimator, this);
 }
 
 /**
@@ -104,7 +104,7 @@ int CorePolicy::chooseRemovableCore() {
 
 /**
   * Update threadCoreMap when a new core is added.  Takes in the coreId
-  * of the new core.
+  * of the new core.  Protected by the coreChangeMutex in Arachne.
 **/
 void CorePolicy::addCore(int coreId) {
   threadCoreMapEntry* entry = threadCoreMap[baseClass];
@@ -114,7 +114,7 @@ void CorePolicy::addCore(int coreId) {
 
 /**
   * Update threadCoreMap when a core is removed.  Takes in the coreId
-  * of the doomed core.
+  * of the doomed core.  Protected by the coreChangeMutex in Arachne.
 **/
 void CorePolicy::removeCore(int coreId) {
   threadCoreMapEntry* entry = threadCoreMap[baseClass];
@@ -135,9 +135,9 @@ threadCoreMapEntry* CorePolicy::getThreadCoreMapEntry(threadClass_t threadClass)
 /**
   * Periodically wake up and observe the current load in Arachne to determine
   * whether it is necessary to increase or reduce the number of cores used by
-  * Arachne.
+  * Arachne.  Runs as the top-level method in an Arachne thread.
   */
-void coreLoadEstimator() {
+void coreLoadEstimator(CorePolicy* corePolicy) {
     Arachne::PerfStats previousStats;
     Arachne::PerfStats::collectStats(&previousStats);
 
@@ -150,11 +150,11 @@ void coreLoadEstimator() {
         // a previous core request.
         uint32_t curActiveCores = Arachne::numActiveCores;
 
-        // Exclusive cores should contribute nothing to statistics relevant to
+        // Necessary cores should contribute nothing to statistics relevant to
         // core estimation during the period over which they are exclusive.
-        int numSharedCores = curActiveCores - Arachne::numExclusiveCores;
+        int numSharedCores = curActiveCores - corePolicy->numNecessaryCores;
 
-        // Evalute idle time precentage multiplied by number of cores to
+        // Evaluate idle time precentage multiplied by number of cores to
         // determine whether we need to decrease the number of cores.
         uint64_t idleCycles =
             currentStats.idleCycles - previousStats.idleCycles;

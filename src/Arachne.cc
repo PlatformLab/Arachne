@@ -69,12 +69,6 @@ std::atomic<uint32_t> numActiveCores;
 uint32_t coreReleaseRequestCount = 0;
 
 /**
-  * Track the number of exclusive cores so that we can calculate utilization
-  * accurately among the remaining cores.
-  */
-std::atomic<uint32_t> numExclusiveCores;
-
-/**
   * The largest number of cores that Arachne is permitted to utilize.  It is an
   * invariant that maxNumCores >= numActiveCores, but if the user explicitly
   * sets both then numActiveCores will push maxNumCores up to satisfy the
@@ -176,6 +170,11 @@ thread_local uint8_t  DispatchTimeKeeper::numThreadsRan;
 bool useCoreArbiter = true;
 
 CoreArbiterClient* coreArbiter = NULL;
+
+/*
+ *  The CorePolicy that Arachne will use.  It is loaded in the init
+ *  function.
+ */
 
 CorePolicy* corePolicy = NULL;
 
@@ -859,6 +858,9 @@ ThreadContext::initializeStack() {
  *     --stackSize
  *        The size of each user stack.
  *
+ * \param initCorePolicy
+ *    A pointer to the CorePolicy that Arachne will use.  The CorePolicy
+ *    controls thread allocation to cores.
  * \param argcp
  *    The pointer to argc, the number of arguments passed to the application.
  *    This pointer will be used to update argc after Arachne has consumed its
@@ -931,7 +933,9 @@ init(CorePolicy* initCorePolicy, int* argcp, const char** argv) {
 
     // Block until minNumCores is active, per the application's requirements.
     while (numActiveCores != minNumCores) usleep(1);
-    corePolicy->bootstrapLoadEstimator(disableLoadEstimation);
+    if (!disableLoadEstimation) {
+      corePolicy->bootstrapLoadEstimator();
+    }
 }
 
 /**
@@ -1402,10 +1406,6 @@ bool makeExclusiveOnCore(bool forScaleDown) {
     // assign.
     *core.localOccupiedAndCount = blockedOccupiedAndCount;
 
-    if (!forScaleDown) {
-        numExclusiveCores++;
-    }
-
     return true;
 }
 
@@ -1433,7 +1433,6 @@ void makeSharedOnCore() {
         ARACHNE_LOG(ERROR, "Error making core shared again! Aborting...\n");
         abort();
     }
-    numExclusiveCores--;
 
     // The time that this core spent in exclusive mode should not be counted
     // towards utilization of shared cores.

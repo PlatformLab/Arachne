@@ -1,4 +1,4 @@
-/* Copyright (c) 2015-2017 Stanford University
+/* Copyright (c) 2017 Stanford University
  *
  * Permission to use, copy, modify, and distribute this software for any
  * purpose with or without fee is hereby granted, provided that the above
@@ -38,20 +38,35 @@
 
 typedef uint32_t threadClass_t;
 
-/** Struct used to define the threadCoreMap in CorePolicy. **/
+/** 
+  * An individual entry in the ThreadCoreMap. Each entry corresponds to a
+  * particular thread class.  For a particular entry corresponding to a 
+  * particular thread class, the set of all cores map[i] for i < numFilled
+  * is the set of cores on which threads of that class can run.
+  */
 struct threadCoreMapEntry {
   uint32_t numFilled;
   int* map;
 };
 
+/*
+ * Arachne uses the CorePolicy class to make decisions about what threads
+ * to schedule on what cores.  All threads have a particular thread class,
+ * which is mapped to a set of cores on which threads of that class can run
+ * by the ThreadCoreMap, accessed through getThreadCoreMapEntry.  All other
+ * class methods maintain the ThreadCoreMap as cores are added or removed.
+ */
 class CorePolicy {
   public:
     /** Constructor and destructor for CorePolicy. */
     CorePolicy() {
-        threadCoreMap = (threadCoreMapEntry**) malloc(MAX_THREAD_CLASSES * sizeof(threadCoreMapEntry*));
+        threadCoreMap = (threadCoreMapEntry**) 
+          malloc(MAX_THREAD_CLASSES * sizeof(threadCoreMapEntry*));
         for (int i = 0; i < MAX_THREAD_CLASSES; i++) {
-            threadCoreMap[i] = (threadCoreMapEntry*) malloc(sizeof(threadCoreMapEntry));
-            threadCoreMap[i]->map = (int*) calloc(std::thread::hardware_concurrency(), sizeof(int));
+            threadCoreMap[i] = (threadCoreMapEntry*) 
+              malloc(sizeof(threadCoreMapEntry));
+            threadCoreMap[i]->map = (int*) 
+              calloc(std::thread::hardware_concurrency(), sizeof(int));
             threadCoreMap[i]->numFilled = 0;
           }
     }
@@ -62,14 +77,26 @@ class CorePolicy {
           }
         free(threadCoreMap);
     }
-    virtual void bootstrapLoadEstimator(bool disableLoadEstimation);
+    virtual void bootstrapLoadEstimator();
     virtual int chooseRemovableCore();
     virtual void addCore(int coreId);
     virtual void removeCore(int coreId);
     virtual uint32_t maxClass() { return 0U; }
     threadCoreMapEntry* getThreadCoreMapEntry(threadClass_t threadClass);
 
+    /* 
+     * The base thread class, shared across all core policies and used as a 
+     * default within Arachne when necessary.  Other core policies can add
+     * more thread classes as needed
+     */
     threadClass_t baseClass = 0;
+    /* 
+     * The number of cores which an application cannot let go of, likely
+     * because they are hosting long-running threads.  These cores
+     * are not counted towards utilization statistics when determining
+     * whether to let go of cores.
+     */
+    int numNecessaryCores = 0;
     
   protected:
     /**
