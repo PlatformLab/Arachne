@@ -90,13 +90,6 @@ class CorePolicy {
      * more thread classes as needed
      */
     threadClass_t baseClass = 0;
-    /* 
-     * The number of cores which an application cannot let go of, likely
-     * because they are hosting long-running threads.  These cores
-     * are not counted towards utilization statistics when determining
-     * whether to let go of cores.
-     */
-    int numNecessaryCores = 0;
     
   protected:
     /**
