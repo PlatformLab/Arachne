@@ -83,11 +83,11 @@ void CorePolicy::bootstrapLoadEstimator() {
   * Choose a core to deschedule.  Return its coreId.
   */
 int CorePolicy::chooseRemovableCore() {
-    CoreList* entry = threadCoreMap[baseClass];
+    CoreList* entry = threadClassCoreMap[baseClass];
     uint8_t minLoaded =
         Arachne::occupiedAndCount[entry->map[0]]->load().numOccupied;
     int minCoreId = entry->map[0];
-    for (uint32_t i = 1; i < threadCoreMap[baseClass]->numFilled; i++) {
+    for (uint32_t i = 1; i < threadClassCoreMap[baseClass]->numFilled; i++) {
         uint32_t coreId = entry->map[i];
         if (Arachne::occupiedAndCount[coreId]->load().numOccupied < minLoaded) {
             minLoaded = Arachne::occupiedAndCount[coreId]->load().numOccupied;
@@ -98,21 +98,21 @@ int CorePolicy::chooseRemovableCore() {
 }
 
 /**
-  * Update threadCoreMap when a new core is added.  Takes in the coreId
+  * Update threadClassCoreMap when a new core is added.  Takes in the coreId
   * of the new core.  Protected by the coreChangeMutex in Arachne.
 **/
 void CorePolicy::addCore(int coreId) {
-  CoreList* entry = threadCoreMap[baseClass];
+  CoreList* entry = threadClassCoreMap[baseClass];
   entry->map[entry->numFilled] = coreId;
   entry->numFilled++;
 }
 
 /**
-  * Update threadCoreMap when a core is removed.  Takes in the coreId
+  * Update threadClassCoreMap when a core is removed.  Takes in the coreId
   * of the doomed core.  Protected by the coreChangeMutex in Arachne.
 **/
 void CorePolicy::removeCore(int coreId) {
-  CoreList* entry = threadCoreMap[baseClass];
+  CoreList* entry = threadClassCoreMap[baseClass];
   entry->numFilled--;
   int saveCoreId = entry->map[entry->numFilled];
   for (uint32_t i = 0; i < entry->numFilled; i++) {
@@ -124,7 +124,7 @@ void CorePolicy::removeCore(int coreId) {
 }
 
 CoreList* CorePolicy::getCoreList(threadClass_t threadClass) {
-  return threadCoreMap[threadClass];
+  return threadClassCoreMap[threadClass];
 }
 
 /**

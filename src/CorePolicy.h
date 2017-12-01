@@ -39,7 +39,7 @@
 typedef uint32_t threadClass_t;
 
 /** 
-  * An individual entry in the ThreadCoreMap. Each entry corresponds to a
+  * An individual entry in the threadClassCoreMap. Each entry corresponds to a
   * particular thread class.  For a particular entry corresponding to a 
   * particular thread class, the set of all cores map[i] for i < numFilled
   * is the set of cores on which threads of that class can run.
@@ -53,29 +53,29 @@ struct CoreList {
  * Arachne uses the CorePolicy class to make decisions about what threads
  * to schedule on what cores.  All threads have a particular thread class,
  * which is mapped to a set of cores on which threads of that class can run
- * by the ThreadCoreMap, accessed through getCoreList.  All other
- * class methods maintain the ThreadCoreMap as cores are added or removed.
+ * by the threadClassCoreMap, accessed through getCoreList.  All other
+ * class methods maintain the threadClassCoreMap as cores are added or removed.
  */
 class CorePolicy {
   public:
     /** Constructor and destructor for CorePolicy. */
     CorePolicy() {
-        threadCoreMap = (CoreList**) 
+        threadClassCoreMap = (CoreList**) 
           malloc(MAX_THREAD_CLASSES * sizeof(CoreList*));
         for (int i = 0; i < MAX_THREAD_CLASSES; i++) {
-            threadCoreMap[i] = (CoreList*) 
+            threadClassCoreMap[i] = (CoreList*) 
               malloc(sizeof(CoreList));
-            threadCoreMap[i]->map = (int*) 
+            threadClassCoreMap[i]->map = (int*) 
               calloc(std::thread::hardware_concurrency(), sizeof(int));
-            threadCoreMap[i]->numFilled = 0;
+            threadClassCoreMap[i]->numFilled = 0;
           }
     }
     virtual ~CorePolicy() {
         for (int i = 0; i < MAX_THREAD_CLASSES; i++) {
-            free(threadCoreMap[i]->map);
-            free(threadCoreMap[i]);
+            free(threadClassCoreMap[i]->map);
+            free(threadClassCoreMap[i]);
           }
-        free(threadCoreMap);
+        free(threadClassCoreMap);
     }
     virtual void bootstrapLoadEstimator();
     virtual int chooseRemovableCore();
@@ -93,11 +93,11 @@ class CorePolicy {
   protected:
     /**
       * A map from thread classes to cores on which threads of those classes
-      * can run.  If threadCoreMap[i]->map[j] = c for some
-      * j < threadCoreMap[i]->numFilled then Arachne can create a thread of
+      * can run.  If threadClassCoreMap[i]->map[j] = c for some
+      * j < threadClassCoreMap[i]->numFilled then Arachne can create a thread of
       * class i on the core with coreId c.
       */
-    CoreList** threadCoreMap;
+    CoreList** threadClassCoreMap;
 
 };
 
