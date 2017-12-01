@@ -88,7 +88,7 @@ class CorePolicy {
      * default within Arachne when necessary.  Other core policies can add
      * more thread classes as needed
      */
-    threadClass_t baseClass = 0;
+    threadClass_t defaultClass = 0;
     
   protected:
     /**

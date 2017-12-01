@@ -1196,7 +1196,7 @@ void descheduleCore() {
     // hold it for too long.
     // If this creation fails, it would implies that we are overloaded and
     // should not ramp down.
-    if (createThreadOnCore(corePolicy->baseClass, minCoreId, releaseCore) == NullThread) {
+    if (createThreadOnCore(corePolicy->defaultClass, minCoreId, releaseCore) == NullThread) {
         coreChangeActive = false;
         ARACHNE_LOG(WARNING, "Release core thread creation failed to %d!\n",
                 minCoreId);
