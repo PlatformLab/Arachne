@@ -81,7 +81,6 @@ class CorePolicy {
     virtual int chooseRemovableCore();
     virtual void addCore(int coreId);
     virtual void removeCore(int coreId);
-    virtual uint32_t maxClass() { return 0U; }
     ThreadCoreMapEntry* getThreadCoreMapEntry(threadClass_t threadClass);
 
     /* 

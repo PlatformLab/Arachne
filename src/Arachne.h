@@ -349,7 +349,7 @@ struct ThreadContext {
     uint8_t coreId;
 
     /// Thread class of this thread, used for thread migration.
-    threadClass_t threadClass;
+    threadClass_t threadClass = 0;
 
     /// Unique identifier for this thread among those on the same core.
     /// Used to index into various core-specific arrays.
