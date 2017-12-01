@@ -83,7 +83,7 @@ void CorePolicy::bootstrapLoadEstimator() {
   * Choose a core to deschedule.  Return its coreId.
   */
 int CorePolicy::chooseRemovableCore() {
-    ThreadCoreMapEntry* entry = threadCoreMap[baseClass];
+    CoreList* entry = threadCoreMap[baseClass];
     uint8_t minLoaded =
         Arachne::occupiedAndCount[entry->map[0]]->load().numOccupied;
     int minCoreId = entry->map[0];
@@ -102,7 +102,7 @@ int CorePolicy::chooseRemovableCore() {
   * of the new core.  Protected by the coreChangeMutex in Arachne.
 **/
 void CorePolicy::addCore(int coreId) {
-  ThreadCoreMapEntry* entry = threadCoreMap[baseClass];
+  CoreList* entry = threadCoreMap[baseClass];
   entry->map[entry->numFilled] = coreId;
   entry->numFilled++;
 }
@@ -112,7 +112,7 @@ void CorePolicy::addCore(int coreId) {
   * of the doomed core.  Protected by the coreChangeMutex in Arachne.
 **/
 void CorePolicy::removeCore(int coreId) {
-  ThreadCoreMapEntry* entry = threadCoreMap[baseClass];
+  CoreList* entry = threadCoreMap[baseClass];
   entry->numFilled--;
   int saveCoreId = entry->map[entry->numFilled];
   for (uint32_t i = 0; i < entry->numFilled; i++) {
@@ -123,7 +123,7 @@ void CorePolicy::removeCore(int coreId) {
   }
 }
 
-ThreadCoreMapEntry* CorePolicy::getThreadCoreMapEntry(threadClass_t threadClass) {
+CoreList* CorePolicy::getCoreList(threadClass_t threadClass) {
   return threadCoreMap[threadClass];
 }
 

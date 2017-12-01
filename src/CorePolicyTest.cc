@@ -162,9 +162,9 @@ TEST_F(ArachneTest, CorePolicy_removeCore) {
     delete corePolicy;
 }
 
-TEST_F(ArachneTest, CorePolicy_getThreadCoreMapEntry) {
+TEST_F(ArachneTest, CorePolicy_getCoreList) {
     CorePolicy* corePolicy = new CorePolicy();
-    ThreadCoreMapEntry* entry = corePolicy->getThreadCoreMapEntry(corePolicy->baseClass);
+    CoreList* entry = corePolicy->getCoreList(corePolicy->baseClass);
     corePolicy->addCore(5);
     EXPECT_EQ(entry->map[0], 5);
     corePolicy->addCore(4);

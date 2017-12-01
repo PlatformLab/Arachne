@@ -1327,7 +1327,7 @@ bool makeExclusiveOnCore(bool forScaleDown) {
         }
         // Choose a victim core that we will pawn our work on.
         threadClass_t threadClass = core.localThreadContexts[i]->threadClass;
-        ThreadCoreMapEntry* entry = corePolicy->getThreadCoreMapEntry(threadClass);
+        CoreList* entry = corePolicy->getCoreList(threadClass);
         nextMigrationTarget = (nextMigrationTarget + 1) % entry->numFilled;
         int coreId = entry->map[nextMigrationTarget];
         if ((blockedOccupiedAndCount.occupied >> i) & 1) {

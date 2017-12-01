@@ -44,7 +44,7 @@ typedef uint32_t threadClass_t;
   * particular thread class, the set of all cores map[i] for i < numFilled
   * is the set of cores on which threads of that class can run.
   */
-struct ThreadCoreMapEntry {
+struct CoreList {
   uint32_t numFilled;
   int* map;
 };
@@ -53,18 +53,18 @@ struct ThreadCoreMapEntry {
  * Arachne uses the CorePolicy class to make decisions about what threads
  * to schedule on what cores.  All threads have a particular thread class,
  * which is mapped to a set of cores on which threads of that class can run
- * by the ThreadCoreMap, accessed through getThreadCoreMapEntry.  All other
+ * by the ThreadCoreMap, accessed through getCoreList.  All other
  * class methods maintain the ThreadCoreMap as cores are added or removed.
  */
 class CorePolicy {
   public:
     /** Constructor and destructor for CorePolicy. */
     CorePolicy() {
-        threadCoreMap = (ThreadCoreMapEntry**) 
-          malloc(MAX_THREAD_CLASSES * sizeof(ThreadCoreMapEntry*));
+        threadCoreMap = (CoreList**) 
+          malloc(MAX_THREAD_CLASSES * sizeof(CoreList*));
         for (int i = 0; i < MAX_THREAD_CLASSES; i++) {
-            threadCoreMap[i] = (ThreadCoreMapEntry*) 
-              malloc(sizeof(ThreadCoreMapEntry));
+            threadCoreMap[i] = (CoreList*) 
+              malloc(sizeof(CoreList));
             threadCoreMap[i]->map = (int*) 
               calloc(std::thread::hardware_concurrency(), sizeof(int));
             threadCoreMap[i]->numFilled = 0;
@@ -81,7 +81,7 @@ class CorePolicy {
     virtual int chooseRemovableCore();
     virtual void addCore(int coreId);
     virtual void removeCore(int coreId);
-    ThreadCoreMapEntry* getThreadCoreMapEntry(threadClass_t threadClass);
+    CoreList* getCoreList(threadClass_t threadClass);
 
     /* 
      * The base thread class, shared across all core policies and used as a 
@@ -97,7 +97,7 @@ class CorePolicy {
       * j < threadCoreMap[i]->numFilled then Arachne can create a thread of
       * class i on the core with coreId c.
       */
-    ThreadCoreMapEntry** threadCoreMap;
+    CoreList** threadCoreMap;
 
 };
 

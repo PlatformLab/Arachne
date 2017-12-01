@@ -512,7 +512,7 @@ template<typename _Callable, typename... _Args>
 ThreadId
 createThreadOnCore(threadClass_t threadClass, uint32_t coreId, _Callable&& __f, _Args&&... __args) {
 
-    ThreadCoreMapEntry* entry = corePolicy->getThreadCoreMapEntry(threadClass);
+    CoreList* entry = corePolicy->getCoreList(threadClass);
     bool isLegalCoreId = false;
     for (uint32_t i = 0; i < entry->numFilled; i++) {
       if (entry->map[i] == (int) coreId)
@@ -622,7 +622,7 @@ createThread(threadClass_t threadClass, _Callable&& __f, _Args&&... __args) {
     // Find a kernel thread to enqueue to by picking two at random and choosing
     // the one with the fewest Arachne threads.
     uint32_t kId;
-    ThreadCoreMapEntry* entry = corePolicy->getThreadCoreMapEntry(threadClass);
+    CoreList* entry = corePolicy->getCoreList(threadClass);
     uint32_t index1 = static_cast<uint32_t>(random()) % entry->numFilled;
     uint32_t index2 = static_cast<uint32_t>(random()) % entry->numFilled;
     while (index2 == index1 && entry->numFilled > 1)
