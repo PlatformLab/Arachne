@@ -83,7 +83,6 @@ class CorePolicy {
           }
         free(threadClassCoreMap);
     }
-    virtual void bootstrapLoadEstimator();
     virtual int chooseRemovableCore();
     virtual void addCore(int coreId);
     virtual void removeCore(int coreId);
@@ -97,6 +96,7 @@ class CorePolicy {
     threadClass_t defaultClass = 0;
     
   protected:
+    void runLoadEstimator();
      /*
       * A map from thread classes to cores on which threads of those classes
       * can run.  If threadClassCoreMap[i]->map[j] = c for some

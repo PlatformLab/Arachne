@@ -933,9 +933,6 @@ init(CorePolicy* initCorePolicy, int* argcp, const char** argv) {
 
     // Block until minNumCores is active, per the application's requirements.
     while (numActiveCores != minNumCores) usleep(1);
-    if (!disableLoadEstimation) {
-      corePolicy->bootstrapLoadEstimator();
-    }
 }
 
 /**

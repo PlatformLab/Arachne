@@ -33,8 +33,6 @@ using CoreArbiter::CoreArbiterServer;
 using CoreArbiter::CoreArbiterClient;
 using CoreArbiter::MockSyscall;
 
-extern bool disableLoadEstimation;
-
 extern bool useCoreArbiter;
 
 extern std::atomic<uint32_t> numActiveCores;

@@ -44,7 +44,7 @@ const double loadFactorThreshold = 1.0;
  * Save the core fraction at which we ramped up based on load factor, so we
  * can decide whether to ramp down.  Allocated in bootstrapLoadEstimator.
  */
-double *utilizationThresholds;
+double *utilizationThresholds = NULL;
 
 /*
  * The difference in load, expressed as a fraction of a core, between a
@@ -66,18 +66,7 @@ const double SLOT_OCCUPANCY_THRESHOLD = 0.5;
  */
 const uint64_t MEASUREMENT_PERIOD = 50 * 1000 * 1000;
 
-void coreLoadEstimator();
-
-/*
- * Bootstrap the core load estimator thread.  This must be done separately
- * from the CorePolicy constructor because the constructor must run before
- * Arachne adds any cores, but the core load estimator must run after
- * Arachne has cores.
- */
-void CorePolicy::bootstrapLoadEstimator() {
-    utilizationThresholds = new double[Arachne::maxNumCores];
-    Arachne::createThread(defaultClass, coreLoadEstimator);
-}
+void coreLoadEstimator(CorePolicy* corePolicy);
 
 /*
  * Choose a core to deschedule.  Return its coreId.
@@ -102,11 +91,17 @@ int CorePolicy::chooseRemovableCore() {
  * of the new core.  Arachne must guarantee that this function is not called
  * multiple times simultaneously, or at the same time as removeCore.  This is
  * currently enforced by the coreChangeMutex.
+ *
+ * This function will also bootstrap the coreLoadEstimator as soon as it has
+ * a core.
  */
 void CorePolicy::addCore(int coreId) {
   CoreList* entry = threadClassCoreMap[defaultClass];
   entry->map[entry->numFilled] = coreId;
   entry->numFilled++;
+  if (utilizationThresholds == NULL && !Arachne::disableLoadEstimation) {
+    runLoadEstimator();
+  }
 }
 
 /*
@@ -137,11 +132,19 @@ CoreList* CorePolicy::getCoreList(threadClass_t threadClass) {
 }
 
 /*
+ * Bootstrap the core load estimator thread.  Called from addCore.
+ */
+void CorePolicy::runLoadEstimator() {
+    utilizationThresholds = new double[Arachne::maxNumCores];
+    Arachne::createThread(defaultClass, coreLoadEstimator, this);
+}
+
+/*
  * Periodically wake up and observe the current load in Arachne to determine
  * whether it is necessary to increase or reduce the number of cores used by
  * Arachne.  Runs as the top-level method in an Arachne thread.
  */
-void coreLoadEstimator() {
+void coreLoadEstimator(CorePolicy* corePolicy) {
     Arachne::PerfStats previousStats;
     Arachne::PerfStats::collectStats(&previousStats);
 
@@ -154,7 +157,8 @@ void coreLoadEstimator() {
         // Take a snapshot of currently active cores before performing
         // estimation to avoid races between estimation and the fulfillment of
         // a previous core request.
-        uint32_t curActiveCores = Arachne::numActiveCores;
+        uint32_t curActiveCores =
+          corePolicy->getCoreList(corePolicy->defaultClass)->numFilled;
 
         // Evaluate idle time precentage multiplied by number of cores to
         // determine whether we need to decrease the number of cores.

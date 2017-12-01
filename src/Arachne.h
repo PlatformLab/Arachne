@@ -77,6 +77,12 @@ extern int* virtualCoreTable;
 
 extern CorePolicy* corePolicy;
 
+/*
+ * Testing-specific flag to make sure the core load estimator does not
+ * interfere with unit tests.
+ */
+extern bool disableLoadEstimation;
+
 /**
  * \addtogroup api Arachne Public API
  * Most of the functions in this API, with the exception of Arachne::init(),
