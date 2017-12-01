@@ -34,14 +34,20 @@
 #include "PerfStats.h"
 #include "Common.h"
 
+/*
+ * Resizing of the threadClassCoreMap is not thread-safe and cannot be made
+ * thread-safe in a performant way, so for simplicity the threadClassCoreMap
+ * is allocated to a fixed size with MAX_THREAD_CLASSES threadClass slots, 
+ * which should be more than are ever needed.
+ */
 #define MAX_THREAD_CLASSES 64
 
 typedef uint32_t threadClass_t;
 
 /** 
-  * An individual entry in the threadClassCoreMap. Each entry corresponds to a
-  * particular thread class.  For a particular entry corresponding to a 
-  * particular thread class, the set of all cores map[i] for i < numFilled
+  * An individual entry in the threadClassCoreMap. Each CoreList corresponds to
+  * a particular thread class.  For a particular CoreList corresponding to a 
+  * particular thread class, the set of all cores {map[i] for i < numFilled}
   * is the set of cores on which threads of that class can run.
   */
 struct CoreList {
@@ -84,14 +90,14 @@ class CorePolicy {
     CoreList* getCoreList(threadClass_t threadClass);
 
     /* 
-     * The base thread class, shared across all core policies and used as a 
-     * default within Arachne when necessary.  Other core policies can add
-     * more thread classes as needed
+     * The default thread class, which all core policies must support.
+     * It is used as a default within Arachne and benchmarks when necessary.
+     * Other core policies can add more thread classes as needed.
      */
     threadClass_t defaultClass = 0;
     
   protected:
-    /**
+     /*
       * A map from thread classes to cores on which threads of those classes
       * can run.  If threadClassCoreMap[i]->map[j] = c for some
       * j < threadClassCoreMap[i]->numFilled then Arachne can create a thread of

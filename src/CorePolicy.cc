@@ -27,61 +27,61 @@
 
 using PerfUtils::Cycles;
 
-/**
-  * Arachne will attempt to increase the number of cores if the idle core
-  * fraction (computed as idlePercentage * numSharedCores) is less than this
-  * number.
-  */
+/*
+ * Arachne will attempt to increase the number of cores if the idle core
+ * fraction (computed as idlePercentage * numSharedCores) is less than this
+ * number.
+ */
 const double maxIdleCoreFraction = 0.1;
 
-/**
-  * Arachne will attempt to increase the number of cores if the load factor
-  * increases beyond this threshold.
-  */
+/*
+ * Arachne will attempt to increase the number of cores if the load factor
+ * increases beyond this threshold.
+ */
 const double loadFactorThreshold = 1.0;
 
-/**
-  * Save the core fraction at which we ramped up based on load factor, so we
-  * can decide whether to ramp down.  Allocated in bootstrapLoadEstimator.
-  */
+/*
+ * Save the core fraction at which we ramped up based on load factor, so we
+ * can decide whether to ramp down.  Allocated in bootstrapLoadEstimator.
+ */
 double *utilizationThresholds;
 
-/**
-  * The difference in load, expressed as a fraction of a core, between a
-  * ramp-down threshold and the corresponding ramp-up threshold (i.e., we
-  * wait to ramp down until the load gets a bit below the point at 
-  * which we ramped up).
-  */
+/*
+ * The difference in load, expressed as a fraction of a core, between a
+ * ramp-down threshold and the corresponding ramp-up threshold (i.e., we
+ * wait to ramp down until the load gets a bit below the point at 
+ * which we ramped up).
+ */
 const double idleCoreFractionHysteresis = 0.2;
 
-/**
-  * Do not ramp down if the percentage of occupied threadContext slots is
-  * above this threshold.
-  */
+/*
+ * Do not ramp down if the percentage of occupied threadContext slots is
+ * above this threshold.
+ */
 const double SLOT_OCCUPANCY_THRESHOLD = 0.5;
 
-/**
-  * The period in ns over which we measure before deciding to reduce the number
-  * of cores we use.
-  */
+/*
+ * The period in ns over which we measure before deciding to reduce the number
+ * of cores we use.
+ */
 const uint64_t MEASUREMENT_PERIOD = 50 * 1000 * 1000;
 
 void coreLoadEstimator();
 
-/**
-  * Bootstrap the core load estimator thread.  This must be done separately
-  * from the CorePolicy constructor because the constructor must run before
-  * Arachne adds any cores, but the core load estimator must run after
-  * Arachne has cores.
-  */
+/*
+ * Bootstrap the core load estimator thread.  This must be done separately
+ * from the CorePolicy constructor because the constructor must run before
+ * Arachne adds any cores, but the core load estimator must run after
+ * Arachne has cores.
+ */
 void CorePolicy::bootstrapLoadEstimator() {
     utilizationThresholds = new double[Arachne::maxNumCores];
     Arachne::createThread(defaultClass, coreLoadEstimator);
 }
 
-/**
-  * Choose a core to deschedule.  Return its coreId.
-  */
+/*
+ * Choose a core to deschedule.  Return its coreId.
+ */
 int CorePolicy::chooseRemovableCore() {
     CoreList* entry = threadClassCoreMap[defaultClass];
     uint8_t minLoaded =
@@ -97,20 +97,24 @@ int CorePolicy::chooseRemovableCore() {
     return minCoreId;
 }
 
-/**
-  * Update threadClassCoreMap when a new core is added.  Takes in the coreId
-  * of the new core.  Protected by the coreChangeMutex in Arachne.
-**/
+/*
+ * Update threadClassCoreMap when a new core is added.  Takes in the coreId
+ * of the new core.  Arachne must guarantee that this function is not called
+ * multiple times simultaneously, or at the same time as removeCore.  This is
+ * currently enforced by the coreChangeMutex.
+ */
 void CorePolicy::addCore(int coreId) {
   CoreList* entry = threadClassCoreMap[defaultClass];
   entry->map[entry->numFilled] = coreId;
   entry->numFilled++;
 }
 
-/**
-  * Update threadClassCoreMap when a core is removed.  Takes in the coreId
-  * of the doomed core.  Protected by the coreChangeMutex in Arachne.
-**/
+/*
+ * Update threadClassCoreMap when a core is removed.  Takes in the coreId
+ * of the doomed core.  Arachne must guarantee that this function is not called
+ * multiple times simultaneously, or at the same time as addCore.  This is
+ * currently enforced by the coreChangeMutex.
+ */
 void CorePolicy::removeCore(int coreId) {
   CoreList* entry = threadClassCoreMap[defaultClass];
   entry->numFilled--;
@@ -123,19 +127,26 @@ void CorePolicy::removeCore(int coreId) {
   }
 }
 
+/*
+ * Return the CoreList for a particular threadClass.  This function is not
+ * synchronized with addCore and removeCore and can return stale data.
+ * Callers of this function must ensure that use of stale data is safe.
+ */
 CoreList* CorePolicy::getCoreList(threadClass_t threadClass) {
   return threadClassCoreMap[threadClass];
 }
 
-/**
-  * Periodically wake up and observe the current load in Arachne to determine
-  * whether it is necessary to increase or reduce the number of cores used by
-  * Arachne.  Runs as the top-level method in an Arachne thread.
-  */
+/*
+ * Periodically wake up and observe the current load in Arachne to determine
+ * whether it is necessary to increase or reduce the number of cores used by
+ * Arachne.  Runs as the top-level method in an Arachne thread.
+ */
 void coreLoadEstimator() {
     Arachne::PerfStats previousStats;
     Arachne::PerfStats::collectStats(&previousStats);
 
+    // Each loop cycle makes measurements and uses them to evaluate whether
+    // to increment the core count, decrement it, or do nothing.
     for (Arachne::PerfStats currentStats; ; previousStats = currentStats) {
         Arachne::sleep(MEASUREMENT_PERIOD);
         Arachne::PerfStats::collectStats(&currentStats);
