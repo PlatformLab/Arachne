@@ -1323,7 +1323,7 @@ bool makeExclusiveOnCore(bool forScaleDown) {
             continue;
         }
         // Choose a victim core that we will pawn our work on.
-        threadClass_t threadClass = core.localThreadContexts[i]->threadClass;
+        ThreadClass threadClass = core.localThreadContexts[i]->threadClass;
         CoreList* entry = corePolicy->getCoreList(threadClass);
         nextMigrationTarget = (nextMigrationTarget + 1) % entry->numFilled;
         int coreId = entry->map[nextMigrationTarget];

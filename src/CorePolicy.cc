@@ -127,7 +127,7 @@ void CorePolicy::removeCore(int coreId) {
  * synchronized with addCore and removeCore and can return stale data.
  * Callers of this function must ensure that use of stale data is safe.
  */
-CoreList* CorePolicy::getCoreList(threadClass_t threadClass) {
+CoreList* CorePolicy::getCoreList(ThreadClass threadClass) {
   return threadClassCoreMap[threadClass];
 }
 

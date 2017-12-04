@@ -42,7 +42,7 @@
  */
 #define MAX_THREAD_CLASSES 64
 
-typedef uint32_t threadClass_t;
+typedef uint32_t ThreadClass;
 
 /** 
   * An individual entry in the threadClassCoreMap. Each CoreList corresponds to
@@ -86,14 +86,14 @@ class CorePolicy {
     virtual int chooseRemovableCore();
     virtual void addCore(int coreId);
     virtual void removeCore(int coreId);
-    CoreList* getCoreList(threadClass_t threadClass);
+    CoreList* getCoreList(ThreadClass threadClass);
 
     /* 
      * The default thread class, which all core policies must support.
      * It is used as a default within Arachne and benchmarks when necessary.
      * Other core policies can add more thread classes as needed.
      */
-    threadClass_t defaultClass = 0;
+    static const ThreadClass defaultClass = 0;
     
   protected:
     void runLoadEstimator();

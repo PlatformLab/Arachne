@@ -355,7 +355,7 @@ struct ThreadContext {
     uint8_t coreId;
 
     /// Thread class of this thread, used for thread migration.
-    threadClass_t threadClass = 0;
+    ThreadClass threadClass = 0;
 
     /// Unique identifier for this thread among those on the same core.
     /// Used to index into various core-specific arrays.
@@ -516,7 +516,7 @@ random(void) {
   */
 template<typename _Callable, typename... _Args>
 ThreadId
-createThreadOnCore(threadClass_t threadClass, uint32_t coreId, _Callable&& __f, _Args&&... __args) {
+createThreadOnCore(ThreadClass threadClass, uint32_t coreId, _Callable&& __f, _Args&&... __args) {
 
     CoreList* entry = corePolicy->getCoreList(threadClass);
     bool isLegalCoreId = false;
@@ -624,7 +624,7 @@ createThreadOnCore(threadClass_t threadClass, uint32_t coreId, _Callable&& __f, 
   */
 template<typename _Callable, typename... _Args>
 ThreadId
-createThread(threadClass_t threadClass, _Callable&& __f, _Args&&... __args) {
+createThread(ThreadClass threadClass, _Callable&& __f, _Args&&... __args) {
     // Find a kernel thread to enqueue to by picking two at random and choosing
     // the one with the fewest Arachne threads.
     uint32_t kId;
