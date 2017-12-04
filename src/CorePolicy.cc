@@ -66,6 +66,9 @@ const double SLOT_OCCUPANCY_THRESHOLD = 0.5;
  */
 const uint64_t MEASUREMENT_PERIOD = 50 * 1000 * 1000;
 
+/* Is the core load estimator running? */
+bool loadEstimatorRunning = false;
+
 void coreLoadEstimator(CorePolicy* corePolicy);
 
 /*
@@ -101,7 +104,8 @@ void CorePolicy::addCore(int coreId) {
   CoreList* entry = threadClassCoreMap[defaultClass];
   entry->map[entry->numFilled] = coreId;
   entry->numFilled++;
-  if (utilizationThresholds == NULL && !Arachne::disableLoadEstimation) {
+  if (!loadEstimatorRunning && !Arachne::disableLoadEstimation) {
+    loadEstimatorRunning = true;
     runLoadEstimator();
   }
 }
@@ -142,7 +146,6 @@ CoreList* CorePolicy::getCoreList(ThreadClass threadClass) {
  * Bootstrap the core load estimator thread.  Called from addCore.
  */
 void CorePolicy::runLoadEstimator() {
-    utilizationThresholds = new double[Arachne::maxNumCores];
     Arachne::createThread(defaultClass, coreLoadEstimator, this);
 }
 
@@ -155,6 +158,7 @@ void CorePolicy::runLoadEstimator() {
  *     Pointer to the CorePolicy which created this thread.
  */
 void coreLoadEstimator(CorePolicy* corePolicy) {
+    utilizationThresholds = new double[Arachne::maxNumCores];
     Arachne::PerfStats previousStats;
     Arachne::PerfStats::collectStats(&previousStats);
 
