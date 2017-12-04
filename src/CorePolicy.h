@@ -35,36 +35,38 @@
 #include "Common.h"
 
 /*
- * Resizing of the threadClassCoreMap is not thread-safe and cannot be made
- * thread-safe in a performant way, so for simplicity the threadClassCoreMap
- * is allocated to a fixed size with MAX_THREAD_CLASSES threadClass slots, 
- * which should be more than are ever needed.
+ * The maximum number of thread classes.  All thread classes must be less than
+ * this number, else behavior is undefined.
  */
 #define MAX_THREAD_CLASSES 64
 
 typedef uint32_t ThreadClass;
 
-/** 
-  * An individual entry in the threadClassCoreMap. Each CoreList corresponds to
-  * a particular thread class.  For a particular CoreList corresponding to a 
-  * particular thread class, the set of all cores {map[i] for i < numFilled}
-  * is the set of cores on which threads of that class can run.
-  */
+/*
+ * An unordered list of cores, defined as {map[i] for i < numFilled}.
+ */
 struct CoreList {
+  /* The number of cores in the list */
   uint32_t numFilled;
+  /* 
+   * An array containing the list.  Must be dynamically allocated to a size
+   * equal to the number of cores on the machine.
+   */
   int* map;
 };
 
 /*
- * Arachne uses the CorePolicy class to make decisions about what threads
- * to schedule on what cores.  All threads have a particular thread class,
- * which is mapped to a set of cores on which threads of that class can run
- * by the threadClassCoreMap, accessed through getCoreList.  All other
- * class methods maintain the threadClassCoreMap as cores are added or removed.
+ * The CorePolicy class decides which Arachne threads get to run on which 
+ * cores.  It also decides how many cores Arachne should have.  It does
+ * load estimation to decide when to request cores or release held cores
+ * and, if a core is released, chooses which core to lose.
  */
 class CorePolicy {
   public:
-    /** Constructor and destructor for CorePolicy. */
+    /*
+     * Constructor and destructor for CorePolicy.  Handles allocating and
+     * freeing of the threadClassCoreMap.
+     */
     CorePolicy() {
         threadClassCoreMap = (CoreList**) 
           malloc(MAX_THREAD_CLASSES * sizeof(CoreList*));
@@ -99,9 +101,12 @@ class CorePolicy {
     void runLoadEstimator();
      /*
       * A map from thread classes to cores on which threads of those classes
-      * can run.  If threadClassCoreMap[i]->map[j] = c for some
-      * j < threadClassCoreMap[i]->numFilled then Arachne can create a thread of
-      * class i on the core with coreId c.
+      * can run.  threadClassCoreMap[i] is a CoreList of the cores on which
+      * threads of class i can run.  
+      *
+      * Resizing of the threadClassCoreMap is not safe, so the
+      * threadClassCoreMap is dynamically allocated in the CorePolicy
+      * constructor.
       */
     CoreList** threadClassCoreMap;
 

@@ -28,14 +28,14 @@
 using PerfUtils::Cycles;
 
 /*
- * Arachne will attempt to increase the number of cores if the idle core
+ * We will attempt to increase the number of cores if the idle core
  * fraction (computed as idlePercentage * numSharedCores) is less than this
  * number.
  */
 const double maxIdleCoreFraction = 0.1;
 
 /*
- * Arachne will attempt to increase the number of cores if the load factor
+ * We will attempt to increase the number of cores if the load factor
  * increases beyond this threshold.
  */
 const double loadFactorThreshold = 1.0;
@@ -87,13 +87,15 @@ int CorePolicy::chooseRemovableCore() {
 }
 
 /*
- * Update threadClassCoreMap when a new core is added.  Takes in the coreId
- * of the new core.  Arachne must guarantee that this function is not called
- * multiple times simultaneously, or at the same time as removeCore.  This is
- * currently enforced by the coreChangeMutex.
+ * Update threadClassCoreMap when a new core is added.  Callers must guarantee
+ * that this function is not called multiple times simultaneously, or at the
+ * same time as removeCore.
  *
  * This function will also bootstrap the coreLoadEstimator as soon as it has
  * a core.
+ *
+ * \param coreId
+ *     The coreId of the new core.
  */
 void CorePolicy::addCore(int coreId) {
   CoreList* entry = threadClassCoreMap[defaultClass];
@@ -105,10 +107,12 @@ void CorePolicy::addCore(int coreId) {
 }
 
 /*
- * Update threadClassCoreMap when a core is removed.  Takes in the coreId
- * of the doomed core.  Arachne must guarantee that this function is not called
- * multiple times simultaneously, or at the same time as addCore.  This is
- * currently enforced by the coreChangeMutex.
+ * Update threadClassCoreMap when a new core is removed.  Callers must
+ * guarantee that this function is not called multiple times simultaneously,
+ * or at the same time as addCore.
+ *
+ * \param coreId
+ *     The coreId of the doomed core.
  */
 void CorePolicy::removeCore(int coreId) {
   CoreList* entry = threadClassCoreMap[defaultClass];
@@ -126,6 +130,9 @@ void CorePolicy::removeCore(int coreId) {
  * Return the CoreList for a particular threadClass.  This function is not
  * synchronized with addCore and removeCore and can return stale data.
  * Callers of this function must ensure that use of stale data is safe.
+ *
+ * \param threadClass
+ *     The threadClass whose CoreList will be returned.
  */
 CoreList* CorePolicy::getCoreList(ThreadClass threadClass) {
   return threadClassCoreMap[threadClass];
@@ -143,6 +150,9 @@ void CorePolicy::runLoadEstimator() {
  * Periodically wake up and observe the current load in Arachne to determine
  * whether it is necessary to increase or reduce the number of cores used by
  * Arachne.  Runs as the top-level method in an Arachne thread.
+ *
+ * \param corePolicy
+ *     Pointer to the CorePolicy which created this thread.
  */
 void coreLoadEstimator(CorePolicy* corePolicy) {
     Arachne::PerfStats previousStats;
