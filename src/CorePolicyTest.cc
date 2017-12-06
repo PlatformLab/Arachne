@@ -177,7 +177,7 @@ TEST_F(ArachneTest, CorePolicy_getCoreList) {
 TEST_F(ArachneTest, CorePolicy_CoreBlocker) {
     CoreBlocker* coreBlocker = new CoreBlocker();
     EXPECT_NE(Arachne::NullThread,
-            createThreadOnCore(corePolicyTest->defaultClass, 0, blockCore, coreBlocker, 0));
+            createThreadOnCore(corePolicyTest->defaultClass, 0, &CoreBlocker::blockCore, coreBlocker, 0));
     limitedTimeWait([&coreBlocker]() -> bool {return coreBlocker->isSleepingArray[0];});
     EXPECT_TRUE(coreBlocker->isSleepingArray[0]);
     coreBlocker->unblockCore(0);

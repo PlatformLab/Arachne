@@ -220,7 +220,13 @@ void coreLoadEstimator(CorePolicy* corePolicy) {
     }
 }
 
-void CoreBlocker::blockCorePrivate(int coreId) {
+/*
+ * Block a core in the kernel.
+ *
+ * \param coreId
+ *     The coreId of the core that will block
+ */
+void CoreBlocker::blockCore(int coreId) {
     std::mutex cvMutex;
     std::unique_lock<std::mutex> lk(cvMutex);
     std::condition_variable* cv = cvArray[coreId];
@@ -229,12 +235,14 @@ void CoreBlocker::blockCorePrivate(int coreId) {
     isSleepingArray[coreId] = false;
 }
 
+/*
+ * Unblock a core that is currently blocking.
+ *
+ * \param coreId
+ *     The coreId of the core that will be unblocked.
+ */
 void CoreBlocker::unblockCore(int coreId) {
     std::condition_variable* cv = cvArray[coreId];
     while (isSleepingArray[coreId])
         cv->notify_one();
-}
-
-void blockCore(CoreBlocker* coreBlocker, int coreId) {
-      coreBlocker->blockCorePrivate(coreId);
 }
