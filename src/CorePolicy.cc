@@ -243,6 +243,5 @@ void CoreBlocker::blockCore(int coreId) {
  */
 void CoreBlocker::unblockCore(int coreId) {
     std::condition_variable* cv = cvArray[coreId];
-    while (isSleepingArray[coreId])
-        cv->notify_one();
+    cv->notify_one();
 }
