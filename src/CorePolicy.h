@@ -26,6 +26,7 @@
 #include <atomic>
 #include <queue>
 #include <string>
+#include <condition_variable>
 #include <thread>
 
 #include "PerfUtils/Cycles.h"
@@ -111,5 +112,29 @@ class CorePolicy {
     CoreList** threadClassCoreMap;
 
 };
+
+class CoreBlocker {
+  friend void blockCore(CoreBlocker* coreBlocker, int coreId);
+  public:
+    CoreBlocker() {
+      for (unsigned i = 0; i < std::thread::hardware_concurrency(); i++) {
+        cvArray.push_back(new std::condition_variable);
+        isSleepingArray.push_back(false);
+      }
+    }
+    ~CoreBlocker() {
+      for (unsigned i = 0; i < std::thread::hardware_concurrency(); i++)
+        delete cvArray[i];
+    }
+    void unblockCore(int coreId);
+
+  private:
+    void blockCorePrivate(int coreId);
+    std::vector<std::condition_variable*> cvArray;
+    std::vector<bool> isSleepingArray;
+
+};
+
+void blockCore(CoreBlocker* coreBlocker, int coreId);
 
 #endif // COREPOLICY_H_

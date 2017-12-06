@@ -219,3 +219,22 @@ void coreLoadEstimator(CorePolicy* corePolicy) {
         }
     }
 }
+
+void CoreBlocker::blockCorePrivate(int coreId) {
+    std::mutex cvMutex;
+    std::unique_lock<std::mutex> lk(cvMutex);
+    std::condition_variable* cv = cvArray[coreId];
+    isSleepingArray[coreId] = true;
+    cv->wait(lk);
+    isSleepingArray[coreId] = false;
+}
+
+void CoreBlocker::unblockCore(int coreId) {
+    std::condition_variable* cv = cvArray[coreId];
+    while (isSleepingArray[coreId])
+        cv->notify_one();
+}
+
+void blockCore(CoreBlocker* coreBlocker, int coreId) {
+      coreBlocker->blockCorePrivate(coreId);
+}

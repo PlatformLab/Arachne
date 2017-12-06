@@ -174,4 +174,15 @@ TEST_F(ArachneTest, CorePolicy_getCoreList) {
     delete corePolicy;
 }
 
+TEST_F(ArachneTest, CorePolicy_CoreBlocker) {
+    CoreBlocker* coreBlocker = new CoreBlocker();
+    EXPECT_NE(Arachne::NullThread,
+            createThreadOnCore(corePolicyTest->defaultClass, 0, blockCore, coreBlocker, 0));
+    limitedTimeWait([&coreBlocker]() -> bool {return coreBlocker->isSleepingArray[0];});
+    EXPECT_TRUE(coreBlocker->isSleepingArray[0]);
+    coreBlocker->unblockCore(0);
+    limitedTimeWait([&coreBlocker]() -> bool {return !coreBlocker->isSleepingArray[0];});
+    EXPECT_FALSE(coreBlocker->isSleepingArray[0]);
+}
+
 } // namespace Arachne
