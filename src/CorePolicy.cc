@@ -41,8 +41,8 @@ const double maxIdleCoreFraction = 0.1;
 const double loadFactorThreshold = 1.0;
 
 /*
- * Save the core fraction at which we ramped up based on load factor, so we
- * can decide whether to ramp down.  Allocated in bootstrapLoadEstimator.
+ * utilizationThresholds[i] is the active core fraction at the time the number
+ * of cores was ramped up from i to i + 1.  Allocated in bootstrapLoadEstimator.
  */
 double *utilizationThresholds = NULL;
 
@@ -90,35 +90,31 @@ int CorePolicy::chooseRemovableCore() {
 }
 
 /*
- * Update threadClassCoreMap when a new core is added.  Callers must guarantee
- * that this function is not called multiple times simultaneously, or at the
- * same time as removeCore.
- *
- * This function will also bootstrap the coreLoadEstimator as soon as it has
- * a core.
+ * Update threadClassCoreMap when a core is added.
  *
  * \param coreId
  *     The coreId of the new core.
  */
 void CorePolicy::addCore(int coreId) {
+  std::lock_guard<Arachne::SpinLock> _(corePolicyMutex);
   CoreList* entry = threadClassCoreMap[defaultClass];
   entry->map[entry->numFilled] = coreId;
   entry->numFilled++;
+  // This function bootstraps the coreLoadEstimator as soon as it has a core.
   if (!loadEstimatorRunning && !Arachne::disableLoadEstimation) {
     loadEstimatorRunning = true;
-    runLoadEstimator();
+    Arachne::createThread(defaultClass, &CorePolicy::coreLoadEstimator, this);
   }
 }
 
 /*
- * Update threadClassCoreMap when a new core is removed.  Callers must
- * guarantee that this function is not called multiple times simultaneously,
- * or at the same time as addCore.
+ * Update threadClassCoreMap when a core is removed.
  *
  * \param coreId
  *     The coreId of the doomed core.
  */
 void CorePolicy::removeCore(int coreId) {
+  std::lock_guard<Arachne::SpinLock> _(corePolicyMutex);
   CoreList* entry = threadClassCoreMap[defaultClass];
   entry->numFilled--;
   int saveCoreId = entry->map[entry->numFilled];
@@ -131,33 +127,24 @@ void CorePolicy::removeCore(int coreId) {
 }
 
 /*
- * Return the CoreList for a particular threadClass.  This function is not
- * synchronized with addCore and removeCore and can return stale data.
- * Callers of this function must ensure that use of stale data is safe.
+ * Return a list of cores on which threads in threadClass can run.
+ * This function is not synchronized with addCore and removeCore and
+ * may return cores which are no longer in use.  Callers of this function
+ * must ensure that use of these cores is safe.
  *
  * \param threadClass
  *     The threadClass whose CoreList will be returned.
  */
-CoreList* CorePolicy::getCoreList(ThreadClass threadClass) {
+CoreList* CorePolicy::getRunnableCores(ThreadClass threadClass) {
   return threadClassCoreMap[threadClass];
-}
-
-/*
- * Bootstrap the core load estimator thread.  Called from addCore.
- */
-void CorePolicy::runLoadEstimator() {
-    Arachne::createThread(defaultClass, coreLoadEstimator, this);
 }
 
 /*
  * Periodically wake up and observe the current load in Arachne to determine
  * whether it is necessary to increase or reduce the number of cores used by
  * Arachne.  Runs as the top-level method in an Arachne thread.
- *
- * \param corePolicy
- *     Pointer to the CorePolicy which created this thread.
  */
-void coreLoadEstimator(CorePolicy* corePolicy) {
+void CorePolicy::coreLoadEstimator() {
     utilizationThresholds = new double[Arachne::maxNumCores];
     Arachne::PerfStats previousStats;
     Arachne::PerfStats::collectStats(&previousStats);
@@ -172,7 +159,7 @@ void coreLoadEstimator(CorePolicy* corePolicy) {
         // estimation to avoid races between estimation and the fulfillment of
         // a previous core request.
         uint32_t curActiveCores =
-          corePolicy->getCoreList(corePolicy->defaultClass)->numFilled;
+          getRunnableCores(defaultClass)->numFilled;
 
         // Evaluate idle time precentage multiplied by number of cores to
         // determine whether we need to decrease the number of cores.

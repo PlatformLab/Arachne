@@ -816,12 +816,23 @@ TEST_F(ArachneTest, setErrorStream) {
 void doNothing() { }
 extern volatile bool coreChangeActive;
 
+bool canThreadBeCreatedOnCore(ThreadClass threadClass, int coreId) {
+    CoreList* entry = corePolicyTest->getRunnableCores(threadClass);
+    for (uint32_t i = 0; i < entry->numFilled; i++) {
+      if (entry->map[i] == coreId)
+        return true;
+    }
+    return false;
+}
+
 TEST_F(ArachneTest, incrementCoreCount) {
     void incrementCoreCount();
     shutDown();
     waitForTermination();
     maxNumCores = 4;
-    Arachne::init(new CorePolicy());
+    delete corePolicyTest;
+    corePolicyTest = new CorePolicy();
+    Arachne::init(corePolicyTest);
     // Articially wake up all threads for testing purposes
     std::vector<uint32_t> coreRequest({3,0,0,0,0,0,0,0});
     coreArbiter->setRequestedCores(coreRequest);
@@ -830,10 +841,10 @@ TEST_F(ArachneTest, incrementCoreCount) {
     size_t size;
     FILE* newStream = open_memstream(&str, &size);
     setErrorStream(newStream);
-    EXPECT_EQ(NullThread, createThreadOnCore(corePolicyTest->defaultClass, virtualCoreTable[3], doNothing));
+    EXPECT_FALSE(canThreadBeCreatedOnCore(corePolicyTest->defaultClass, virtualCoreTable[3]));
     incrementCoreCount();
     limitedTimeWait([]() -> bool { return numActiveCores > 3;});
-    EXPECT_NE(NullThread, createThreadOnCore(corePolicyTest->defaultClass, virtualCoreTable[3], doNothing));
+    EXPECT_TRUE(canThreadBeCreatedOnCore(corePolicyTest->defaultClass, virtualCoreTable[3]));
     fflush(newStream);
     EXPECT_EQ("Attempting to increase number of cores 3 --> 4\n",
             std::string(str));
@@ -847,15 +858,15 @@ TEST_F(ArachneTest, decrementCoreCount) {
     size_t size;
     FILE* newStream = open_memstream(&str, &size);
     setErrorStream(newStream);
-    EXPECT_NE(NullThread, createThreadOnCore(corePolicyTest->defaultClass, virtualCoreTable[2], doNothing));
+    EXPECT_TRUE(canThreadBeCreatedOnCore(corePolicyTest->defaultClass, virtualCoreTable[2]));
     decrementCoreCount();
     limitedTimeWait(
             []() -> bool { return numActiveCores < 3 && !coreChangeActive;});
-    EXPECT_EQ(NullThread, createThreadOnCore(corePolicyTest->defaultClass, virtualCoreTable[2], doNothing));
+    EXPECT_FALSE(canThreadBeCreatedOnCore(corePolicyTest->defaultClass, virtualCoreTable[2]));
     decrementCoreCount();
     limitedTimeWait(
             []() -> bool { return numActiveCores < 2 && !coreChangeActive;});
-    EXPECT_EQ(NullThread, createThreadOnCore(corePolicyTest->defaultClass, virtualCoreTable[1], doNothing));
+    EXPECT_FALSE(canThreadBeCreatedOnCore(corePolicyTest->defaultClass, virtualCoreTable[1]));
     fflush(newStream);
     EXPECT_EQ("Attempting to decrease number of cores 3 --> 2\n"
               "Attempting to decrease number of cores 2 --> 1\n"
@@ -906,4 +917,21 @@ TEST_F(ArachneTest, makeExclusiveOnCore) {
     EXPECT_NE(Arachne::NullThread, Arachne::createThreadOnCore(corePolicyTest->defaultClass, virtualCoreTable[0], doNothing));
     stage = 3;
 }
+
+// Since idleCore and unidleCore are paired, they are tested together.
+TEST_F(ArachneTest, idleAndUnidle) {
+    idleCore(virtualCoreTable[0]);
+    idleCore(virtualCoreTable[2]);
+    limitedTimeWait([]() -> bool {return Arachne::isIdledArray[virtualCoreTable[2]];});
+    EXPECT_TRUE(Arachne::isIdledArray[virtualCoreTable[0]]);
+    EXPECT_FALSE(Arachne::isIdledArray[virtualCoreTable[1]]);
+    EXPECT_TRUE(Arachne::isIdledArray[virtualCoreTable[2]]);
+    unidleCore(virtualCoreTable[0]);
+    unidleCore(virtualCoreTable[2]);
+    limitedTimeWait([]() -> bool {return !Arachne::isIdledArray[virtualCoreTable[2]];});
+    EXPECT_FALSE(Arachne::isIdledArray[virtualCoreTable[0]]);
+    EXPECT_FALSE(Arachne::isIdledArray[virtualCoreTable[1]]);
+    EXPECT_FALSE(Arachne::isIdledArray[virtualCoreTable[2]]);
+}
+
 } // namespace Arachne
