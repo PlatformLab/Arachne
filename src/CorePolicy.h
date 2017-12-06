@@ -26,6 +26,7 @@
 #include <atomic>
 #include <queue>
 #include <string>
+#include <condition_variable>
 #include <thread>
 
 #include "PerfUtils/Cycles.h"
@@ -33,6 +34,7 @@
 #include "Logger.h"
 #include "PerfStats.h"
 #include "Common.h"
+#include "SpinLock.h"
 
 /*
  * The maximum number of thread classes.  All thread classes must be less than
@@ -40,6 +42,10 @@
  */
 #define MAX_THREAD_CLASSES 64
 
+/*
+ * All Arachne threads have a ThreadClass, which the CorePolicy uses to
+ * determine on which cores they can run.
+ */
 typedef uint32_t ThreadClass;
 
 /*
@@ -56,7 +62,8 @@ struct CoreList {
 };
 
 /*
- * The CorePolicy class decides which Arachne threads get to run on which 
+ * This class allows applications to control the allocation and use of cores
+ * in Arachne. It decides which Arachne threads get to run on which 
  * cores.  It also decides how many cores Arachne should have.  It does
  * load estimation to decide when to request cores or release held cores
  * and, if a core is released, chooses which core to lose.
@@ -64,10 +71,9 @@ struct CoreList {
 class CorePolicy {
   public:
     /*
-     * Constructor and destructor for CorePolicy.  Handles allocating and
-     * freeing of the threadClassCoreMap.
+     * Constructor and destructor for CorePolicy.
      */
-    CorePolicy() {
+    CorePolicy() : corePolicyMutex("corePolicyMutex", false) {
         threadClassCoreMap = (CoreList**) 
           malloc(MAX_THREAD_CLASSES * sizeof(CoreList*));
         for (int i = 0; i < MAX_THREAD_CLASSES; i++) {
@@ -88,7 +94,7 @@ class CorePolicy {
     virtual int chooseRemovableCore();
     virtual void addCore(int coreId);
     virtual void removeCore(int coreId);
-    CoreList* getCoreList(ThreadClass threadClass);
+    CoreList* getRunnableCores(ThreadClass threadClass);
 
     /* 
      * The default thread class, which all core policies must support.
@@ -98,17 +104,22 @@ class CorePolicy {
     static const ThreadClass defaultClass = 0;
     
   protected:
-    void runLoadEstimator();
+    virtual void coreLoadEstimator();
      /*
       * A map from thread classes to cores on which threads of those classes
       * can run.  threadClassCoreMap[i] is a CoreList of the cores on which
       * threads of class i can run.  
       *
       * Resizing of the threadClassCoreMap is not safe, so the
-      * threadClassCoreMap is dynamically allocated in the CorePolicy
-      * constructor.
+      * threadClassCoreMap is entirely allocated once at startup and
+      * must be large enough to meet future needs.
       */
     CoreList** threadClassCoreMap;
+    /*
+     * A lock that protects the threadClassCoreMap.  Held whenever
+     * threadClassCoreMap is updated.
+     */
+    Arachne::SpinLock corePolicyMutex;
 
 };
 

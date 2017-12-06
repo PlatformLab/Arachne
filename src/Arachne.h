@@ -77,6 +77,8 @@ extern int* virtualCoreTable;
 
 extern CorePolicy* corePolicy;
 
+extern std::vector<bool> isIdledArray;
+
 /*
  * Testing-specific flag to make sure the core load estimator does not
  * interfere with unit tests.
@@ -144,6 +146,9 @@ void waitForTermination();
 void yield();
 void sleep(uint64_t ns);
 
+void idleCore(int coreId);
+void unidleCore(int coreId);
+
 bool makeExclusiveOnCore(bool forScaleDown = false);
 void makeSharedOnCore();
 
@@ -161,6 +166,7 @@ ThreadId getThreadId();
 void setErrorStream(FILE* ptr);
 void testInit();
 void testDestroy();
+
 
 /**
   * A resource which blocks the current thread until it is available.
@@ -518,19 +524,6 @@ template<typename _Callable, typename... _Args>
 ThreadId
 createThreadOnCore(ThreadClass threadClass, uint32_t coreId, _Callable&& __f, _Args&&... __args) {
 
-    CoreList* entry = corePolicy->getCoreList(threadClass);
-    bool isLegalCoreId = false;
-    for (uint32_t i = 0; i < entry->numFilled; i++) {
-      if (entry->map[i] == (int) coreId)
-        isLegalCoreId = true;
-    }
-    if (!isLegalCoreId) {
-        ARACHNE_LOG(VERBOSE, "createThread failure, coreId = %u, "
-                   "numActiveCores = %d\n", coreId,
-                   numActiveCores.load());
-        return Arachne::NullThread;
-    }
-
     auto task = std::bind(
             std::forward<_Callable>(__f), std::forward<_Args>(__args)...);
 
@@ -628,7 +621,7 @@ createThread(ThreadClass threadClass, _Callable&& __f, _Args&&... __args) {
     // Find a kernel thread to enqueue to by picking two at random and choosing
     // the one with the fewest Arachne threads.
     uint32_t kId;
-    CoreList* entry = corePolicy->getCoreList(threadClass);
+    CoreList* entry = corePolicy->getRunnableCores(threadClass);
     uint32_t index1 = static_cast<uint32_t>(random()) % entry->numFilled;
     uint32_t index2 = static_cast<uint32_t>(random()) % entry->numFilled;
     while (index2 == index1 && entry->numFilled > 1)
@@ -759,6 +752,6 @@ struct DispatchTimeKeeper {
 template class std::vector<Arachne::ThreadContext**>;
 template class std::vector<std::atomic<Arachne::MaskAndCount> * >;
 template class std::vector< std::atomic<uint64_t> *>;
-template class  std::vector<Arachne::PerfStats*>;
+template class std::vector<Arachne::PerfStats*>;
 
 #endif // ARACHNE_H_

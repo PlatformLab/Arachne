@@ -147,6 +147,17 @@ std::vector< std::atomic<uint64_t> *> publicPriorityMasks;
 */
 std::atomic<uint8_t> newestThreadOccupiedContext[512];
 
+/* Which cores are idled? */
+std::vector<bool> isIdledArray;
+
+/* An array of condition variables cores can use to idle. */
+std::vector<std::condition_variable*> cvArray;
+
+/* Protects isIdledArray so cores do not get idled multiple times */
+SpinLock coreIdlerLock("coreIdlerLock", false);
+
+void idleCorePrivate(int coreId);
+
 void descheduleCore();
 /**
   * All core-specific state that is not associated with other classes.
@@ -172,8 +183,7 @@ bool useCoreArbiter = true;
 CoreArbiterClient* coreArbiter = NULL;
 
 /*
- *  The CorePolicy that Arachne will use.  It is loaded in the init
- *  function.
+ *  The CorePolicy that Arachne will use.
  */
 
 CorePolicy* corePolicy = NULL;
@@ -858,7 +868,7 @@ ThreadContext::initializeStack() {
  *     --stackSize
  *        The size of each user stack.
  *
- * \param initCorePolicy
+ * \param arachneCorePolicy
  *    A pointer to the CorePolicy that Arachne will use.  The CorePolicy
  *    controls thread allocation to cores.
  * \param argcp
@@ -870,7 +880,7 @@ ThreadContext::initializeStack() {
  *    remove the options that Arachne recognizes.
  */
 void
-init(CorePolicy* initCorePolicy, int* argcp, const char** argv) {
+init(CorePolicy* arachneCorePolicy, int* argcp, const char** argv) {
     if (initialized)
         return;
     initialized = true;
@@ -878,7 +888,7 @@ init(CorePolicy* initCorePolicy, int* argcp, const char** argv) {
 
     coreArbiter = (useCoreArbiter) ? CoreArbiterClient::getInstance(TEST_SOCKET) : ArbiterClientShim::getInstance();
 
-    corePolicy = initCorePolicy;
+    corePolicy = arachneCorePolicy;
 
     if (minNumCores == 0)
         minNumCores = 1;
@@ -912,6 +922,8 @@ init(CorePolicy* initCorePolicy, int* argcp, const char** argv) {
         }
         allThreadContexts.push_back(contexts);
         virtualCoreTable[i] = i;
+        cvArray.push_back(new std::condition_variable);
+        isIdledArray.push_back(false);
     }
 
     // Allocate space to store all the original kernel pointers
@@ -1306,10 +1318,10 @@ bool makeExclusiveOnCore(bool forScaleDown) {
             virtualCoreTable[numActiveCores - 1] = core.kernelThreadId;
             break;
         }
+
+    // Update the CorePolicy
     if (forScaleDown) {
-      coreChangeMutex.lock();
       corePolicy->removeCore(core.kernelThreadId);
-      coreChangeMutex.unlock();
     }
 
     // Migrate off all threads other than the current one.  Round robin among
@@ -1324,7 +1336,7 @@ bool makeExclusiveOnCore(bool forScaleDown) {
         }
         // Choose a victim core that we will pawn our work on.
         ThreadClass threadClass = core.localThreadContexts[i]->threadClass;
-        CoreList* entry = corePolicy->getCoreList(threadClass);
+        CoreList* entry = corePolicy->getRunnableCores(threadClass);
         nextMigrationTarget = (nextMigrationTarget + 1) % entry->numFilled;
         int coreId = entry->map[nextMigrationTarget];
         if ((blockedOccupiedAndCount.occupied >> i) & 1) {
@@ -1431,6 +1443,50 @@ void makeSharedOnCore() {
     // The time that this core spent in exclusive mode should not be counted
     // towards utilization of shared cores.
     DispatchTimeKeeper::lastTotalCollectionTime = 0;
+}
+
+/*
+ * Idle a core so it performs no computation until unidled. Do nothing to
+ * cores that are currently idled.
+ *
+ * \param coreId
+ *     The coreId of the core that will idle
+ */
+void idleCore(int coreId) {
+    std::lock_guard<SpinLock> _(coreIdlerLock);
+    if (!isIdledArray[coreId]) {
+      isIdledArray[coreId] = true;
+      if (createThreadOnCore(corePolicy->defaultClass, coreId,
+        idleCorePrivate, coreId) == NullThread) {
+          ARACHNE_LOG(ERROR, "Error creating idleCorePrivate thread\n");
+      }
+    }
+}
+
+/*
+ * Idle a core so it performs no computation until unidled.
+ *
+ * \param coreId
+ *     The coreId of the core that will idle
+ */
+void idleCorePrivate(int coreId) {
+    std::mutex cvMutex;
+    std::unique_lock<std::mutex> lk(cvMutex);
+    std::condition_variable* cv = cvArray[coreId];
+    cv->wait(lk);
+    isIdledArray[coreId] = false;
+}
+
+/*
+ * Unidle an idled core.  Do nothing to cores that are not currently idled.
+ *
+ * \param coreId
+ *     The coreId of the core that will be unidled.
+ */
+void unidleCore(int coreId) {
+    std::lock_guard<SpinLock> _(coreIdlerLock);
+    std::condition_variable* cv = cvArray[coreId];
+    cv->notify_one();
 }
 
 } // namespace Arachne
