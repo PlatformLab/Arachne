@@ -906,4 +906,17 @@ TEST_F(ArachneTest, makeExclusiveOnCore) {
     EXPECT_NE(Arachne::NullThread, Arachne::createThreadOnCore(corePolicyTest->defaultClass, virtualCoreTable[0], doNothing));
     stage = 3;
 }
+
+// Since blockCore and unblockCore are paired, they are tested together.
+TEST_F(ArachneTest, CoreBlocker_blockAndUnblock) {
+    CoreBlocker* coreBlocker = new CoreBlocker();
+    EXPECT_NE(Arachne::NullThread,
+            createThreadOnCore(corePolicyTest->defaultClass, 0, &CoreBlocker::blockCore, coreBlocker, 0));
+    limitedTimeWait([&coreBlocker]() -> bool {return coreBlocker->isSleepingArray[0];});
+    EXPECT_TRUE(coreBlocker->isSleepingArray[0]);
+    coreBlocker->unblockCore(0);
+    limitedTimeWait([&coreBlocker]() -> bool {return !coreBlocker->isSleepingArray[0];});
+    EXPECT_FALSE(coreBlocker->isSleepingArray[0]);
+}
+
 } // namespace Arachne

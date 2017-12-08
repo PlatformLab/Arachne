@@ -1432,4 +1432,31 @@ void makeSharedOnCore() {
     DispatchTimeKeeper::lastTotalCollectionTime = 0;
 }
 
+/*
+ * Block a core so it performs no computation until unblocked.
+ *
+ * \param coreId
+ *     The coreId of the core that will block
+ */
+void CoreBlocker::blockCore(int coreId) {
+    std::mutex cvMutex;
+    std::unique_lock<std::mutex> lk(cvMutex);
+    std::condition_variable* cv = cvArray[coreId];
+    isSleepingArray[coreId] = true;
+    cv->wait(lk);
+    isSleepingArray[coreId] = false;
+}
+
+/*
+ * Unblock a core that is currently blocking.  If core is not blocked,
+ * do nothing.
+ *
+ * \param coreId
+ *     The coreId of the core that will be unblocked.
+ */
+void CoreBlocker::unblockCore(int coreId) {
+    std::condition_variable* cv = cvArray[coreId];
+    cv->notify_one();
+}
+
 } // namespace Arachne

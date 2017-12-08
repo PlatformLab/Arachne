@@ -117,38 +117,4 @@ class CorePolicy {
 
 };
 
-/*
- * The CoreBlocker class allows for easily blocking threads in the kernel.
- *
- * This is most useful for blocking hypertwins of cores running important
- * threads so that work done on the hypertwin does not slow down the
- * important thread.
- */
-class CoreBlocker {
-  public:
-    /*
-     * Constructor and destructor for CoreBlocker.  Handles allocating and
-     * freeing of the cvArray and isSleepingArray vectors.
-     */
-    CoreBlocker() {
-      for (unsigned i = 0; i < std::thread::hardware_concurrency(); i++) {
-        cvArray.push_back(new std::condition_variable);
-        isSleepingArray.push_back(false);
-      }
-    }
-    ~CoreBlocker() {
-      for (unsigned i = 0; i < std::thread::hardware_concurrency(); i++)
-        delete cvArray[i];
-    }
-    void unblockCore(int coreId);
-    void blockCore(int coreId);
-
-  private:
-    /* An array of condition variables cores can block on. */
-    std::vector<std::condition_variable*> cvArray;
-    /* Which cores are blocking on a condition variable? */
-    std::vector<bool> isSleepingArray;
-
-};
-
 #endif // COREPOLICY_H_

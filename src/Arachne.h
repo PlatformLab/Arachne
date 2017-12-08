@@ -263,6 +263,41 @@ class Semaphore
     }
 };
 
+/*
+ * The CoreBlocker class allows Arachne-managed cores to block completely
+ * and do no work or busy-waiting.
+ *
+ * This is most useful for blocking hypertwins of cores running important
+ * threads so that work done on the hypertwin does not slow down the
+ * important thread.
+ */
+class CoreBlocker {
+  public:
+    /*
+     * Constructor and destructor for CoreBlocker.  Handles allocating and
+     * freeing of the cvArray and isSleepingArray vectors.
+     */
+    CoreBlocker() {
+      for (unsigned i = 0; i < std::thread::hardware_concurrency(); i++) {
+        cvArray.push_back(new std::condition_variable);
+        isSleepingArray.push_back(false);
+      }
+    }
+    ~CoreBlocker() {
+      for (unsigned i = 0; i < std::thread::hardware_concurrency(); i++)
+        delete cvArray[i];
+    }
+    void unblockCore(int coreId);
+    void blockCore(int coreId);
+
+  private:
+    /* An array of condition variables cores can block on. */
+    std::vector<std::condition_variable*> cvArray;
+    /* Which cores are blocking on a condition variable? */
+    std::vector<bool> isSleepingArray;
+
+};
+
 /**
   * This value represents the non-existence of a thread and can be returned by
   * any Arachne function that would normally return a ThreadId.
@@ -759,6 +794,6 @@ struct DispatchTimeKeeper {
 template class std::vector<Arachne::ThreadContext**>;
 template class std::vector<std::atomic<Arachne::MaskAndCount> * >;
 template class std::vector< std::atomic<uint64_t> *>;
-template class  std::vector<Arachne::PerfStats*>;
+template class std::vector<Arachne::PerfStats*>;
 
 #endif // ARACHNE_H_
