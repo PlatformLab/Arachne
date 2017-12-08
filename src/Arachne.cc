@@ -172,8 +172,7 @@ bool useCoreArbiter = true;
 CoreArbiterClient* coreArbiter = NULL;
 
 /*
- *  The CorePolicy that Arachne will use.  It is loaded in the init
- *  function.
+ *  The CorePolicy that Arachne will use.
  */
 
 CorePolicy* corePolicy = NULL;
@@ -858,7 +857,7 @@ ThreadContext::initializeStack() {
  *     --stackSize
  *        The size of each user stack.
  *
- * \param initCorePolicy
+ * \param arachneCorePolicy
  *    A pointer to the CorePolicy that Arachne will use.  The CorePolicy
  *    controls thread allocation to cores.
  * \param argcp
@@ -870,7 +869,7 @@ ThreadContext::initializeStack() {
  *    remove the options that Arachne recognizes.
  */
 void
-init(CorePolicy* initCorePolicy, int* argcp, const char** argv) {
+init(CorePolicy* arachneCorePolicy, int* argcp, const char** argv) {
     if (initialized)
         return;
     initialized = true;
@@ -878,7 +877,7 @@ init(CorePolicy* initCorePolicy, int* argcp, const char** argv) {
 
     coreArbiter = (useCoreArbiter) ? CoreArbiterClient::getInstance(TEST_SOCKET) : ArbiterClientShim::getInstance();
 
-    corePolicy = initCorePolicy;
+    corePolicy = arachneCorePolicy;
 
     if (minNumCores == 0)
         minNumCores = 1;
