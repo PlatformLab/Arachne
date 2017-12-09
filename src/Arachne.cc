@@ -1433,30 +1433,53 @@ void makeSharedOnCore() {
 }
 
 /*
+ * Block all cores corresponding to a ThreadClass so they perform no
+ * computation until unblocked.  Do nothing to cores that are currently
+ * blocked.
+ *
+ * \param threadClass
+ *     The ThreadClass whose cores will be blocked.
+ */
+void CoreBlocker::blockCores(ThreadClass threadClass) {
+    std::lock_guard<SpinLock> _(coreBlockerLock);
+    CoreList* entry = corePolicy->getCoreList(threadClass);
+    for (unsigned coreId = 0; coreId < entry->numFilled; coreId++) {
+      if (!isSleepingArray[coreId]) {
+        isSleepingArray[coreId] = true;
+        createThreadOnCore(threadClass, entry->map[coreId],
+          &CoreBlocker::blockCorePrivate, this, coreId);
+      }
+    }
+}
+
+/*
  * Block a core so it performs no computation until unblocked.
  *
  * \param coreId
  *     The coreId of the core that will block
  */
-void CoreBlocker::blockCore(int coreId) {
+void CoreBlocker::blockCorePrivate(int coreId) {
     std::mutex cvMutex;
     std::unique_lock<std::mutex> lk(cvMutex);
     std::condition_variable* cv = cvArray[coreId];
-    isSleepingArray[coreId] = true;
     cv->wait(lk);
     isSleepingArray[coreId] = false;
 }
 
 /*
- * Unblock a core that is currently blocking.  If core is not blocked,
- * do nothing.
+ * Unblock all cores corresponding to a ThreadClass.  Do nothing
+ * to cores that are not currently blocked.
  *
- * \param coreId
- *     The coreId of the core that will be unblocked.
+ * \param threadClass
+ *     The ThreadClass whose cores will be unblocked.
  */
-void CoreBlocker::unblockCore(int coreId) {
-    std::condition_variable* cv = cvArray[coreId];
-    cv->notify_one();
+void CoreBlocker::unblockCores(ThreadClass threadClass) {
+    std::lock_guard<SpinLock> _(coreBlockerLock);
+    CoreList* entry = corePolicy->getCoreList(threadClass);
+    for (unsigned coreId = 0; coreId < entry->numFilled; coreId++) {
+      std::condition_variable* cv = cvArray[coreId];
+      cv->notify_one();
+    }
 }
 
 } // namespace Arachne

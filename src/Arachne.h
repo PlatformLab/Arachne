@@ -277,7 +277,7 @@ class CoreBlocker {
      * Constructor and destructor for CoreBlocker.  Handles allocating and
      * freeing of the cvArray and isSleepingArray vectors.
      */
-    CoreBlocker() {
+    CoreBlocker() : coreBlockerLock("coreBlockerLock", false) {
       for (unsigned i = 0; i < std::thread::hardware_concurrency(); i++) {
         cvArray.push_back(new std::condition_variable);
         isSleepingArray.push_back(false);
@@ -287,15 +287,17 @@ class CoreBlocker {
       for (unsigned i = 0; i < std::thread::hardware_concurrency(); i++)
         delete cvArray[i];
     }
-    void unblockCore(int coreId);
-    void blockCore(int coreId);
+    void unblockCores(ThreadClass threadClass);
+    void blockCores(ThreadClass threadClass);
 
   private:
+    void blockCorePrivate(int coreId);
     /* An array of condition variables cores can block on. */
     std::vector<std::condition_variable*> cvArray;
     /* Which cores are blocking on a condition variable? */
     std::vector<bool> isSleepingArray;
-
+    /* Protects isSleepingArray so cores do not get blocked multiple times */
+    SpinLock coreBlockerLock;
 };
 
 /**

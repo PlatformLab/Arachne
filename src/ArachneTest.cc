@@ -910,13 +910,16 @@ TEST_F(ArachneTest, makeExclusiveOnCore) {
 // Since blockCore and unblockCore are paired, they are tested together.
 TEST_F(ArachneTest, CoreBlocker_blockAndUnblock) {
     CoreBlocker* coreBlocker = new CoreBlocker();
-    EXPECT_NE(Arachne::NullThread,
-            createThreadOnCore(corePolicyTest->defaultClass, 0, &CoreBlocker::blockCore, coreBlocker, 0));
-    limitedTimeWait([&coreBlocker]() -> bool {return coreBlocker->isSleepingArray[0];});
-    EXPECT_TRUE(coreBlocker->isSleepingArray[0]);
-    coreBlocker->unblockCore(0);
-    limitedTimeWait([&coreBlocker]() -> bool {return !coreBlocker->isSleepingArray[0];});
-    EXPECT_FALSE(coreBlocker->isSleepingArray[0]);
+    coreBlocker->blockCores(corePolicyTest->defaultClass);
+    limitedTimeWait([&coreBlocker]() -> bool {return coreBlocker->isSleepingArray[virtualCoreTable[2]];});
+    EXPECT_TRUE(coreBlocker->isSleepingArray[virtualCoreTable[0]]);
+    EXPECT_TRUE(coreBlocker->isSleepingArray[virtualCoreTable[1]]);
+    EXPECT_TRUE(coreBlocker->isSleepingArray[virtualCoreTable[2]]);
+    coreBlocker->unblockCores(corePolicyTest->defaultClass);
+    limitedTimeWait([&coreBlocker]() -> bool {return !coreBlocker->isSleepingArray[virtualCoreTable[2]];});
+    EXPECT_FALSE(coreBlocker->isSleepingArray[virtualCoreTable[0]]);
+    EXPECT_FALSE(coreBlocker->isSleepingArray[virtualCoreTable[1]]);
+    EXPECT_FALSE(coreBlocker->isSleepingArray[virtualCoreTable[2]]);
 }
 
 } // namespace Arachne
