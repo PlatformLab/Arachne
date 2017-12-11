@@ -77,6 +77,8 @@ extern int* virtualCoreTable;
 
 extern CorePolicy* corePolicy;
 
+extern std::vector<bool> isIdledArray;
+
 /*
  * Testing-specific flag to make sure the core load estimator does not
  * interfere with unit tests.
@@ -144,6 +146,9 @@ void waitForTermination();
 void yield();
 void sleep(uint64_t ns);
 
+void idleCore(int coreId);
+void unidleCore(int coreId);
+
 bool makeExclusiveOnCore(bool forScaleDown = false);
 void makeSharedOnCore();
 
@@ -161,6 +166,7 @@ ThreadId getThreadId();
 void setErrorStream(FILE* ptr);
 void testInit();
 void testDestroy();
+
 
 /**
   * A resource which blocks the current thread until it is available.
@@ -261,43 +267,6 @@ class Semaphore
         }
         return false;
     }
-};
-
-/*
- * The CoreBlocker class allows Arachne-managed cores to block completely
- * and do no work or busy-waiting.
- *
- * This is most useful for blocking hypertwins of cores running important
- * threads so that work done on the hypertwin does not slow down the
- * important thread.
- */
-class CoreBlocker {
-  public:
-    /*
-     * Constructor and destructor for CoreBlocker.  Handles allocating and
-     * freeing of the cvArray and isSleepingArray vectors.
-     */
-    CoreBlocker() : coreBlockerLock("coreBlockerLock", false) {
-      for (unsigned i = 0; i < std::thread::hardware_concurrency(); i++) {
-        cvArray.push_back(new std::condition_variable);
-        isSleepingArray.push_back(false);
-      }
-    }
-    ~CoreBlocker() {
-      for (unsigned i = 0; i < std::thread::hardware_concurrency(); i++)
-        delete cvArray[i];
-    }
-    void unblockCore(int coreId);
-    void blockCore(int coreId);
-
-  private:
-    void blockCorePrivate(int coreId);
-    /* An array of condition variables cores can block on. */
-    std::vector<std::condition_variable*> cvArray;
-    /* Which cores are blocking on a condition variable? */
-    std::vector<bool> isSleepingArray;
-    /* Protects isSleepingArray so cores do not get blocked multiple times */
-    SpinLock coreBlockerLock;
 };
 
 /**

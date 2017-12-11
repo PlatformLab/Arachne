@@ -907,21 +907,20 @@ TEST_F(ArachneTest, makeExclusiveOnCore) {
     stage = 3;
 }
 
-// Since blockCore and unblockCore are paired, they are tested together.
-TEST_F(ArachneTest, CoreBlocker_blockAndUnblock) {
-    CoreBlocker* coreBlocker = new CoreBlocker();
-    coreBlocker->blockCore(virtualCoreTable[0]);
-    coreBlocker->blockCore(virtualCoreTable[2]);
-    limitedTimeWait([&coreBlocker]() -> bool {return coreBlocker->isSleepingArray[virtualCoreTable[2]];});
-    EXPECT_TRUE(coreBlocker->isSleepingArray[virtualCoreTable[0]]);
-    EXPECT_FALSE(coreBlocker->isSleepingArray[virtualCoreTable[1]]);
-    EXPECT_TRUE(coreBlocker->isSleepingArray[virtualCoreTable[2]]);
-    coreBlocker->unblockCore(virtualCoreTable[0]);
-    coreBlocker->unblockCore(virtualCoreTable[2]);
-    limitedTimeWait([&coreBlocker]() -> bool {return !coreBlocker->isSleepingArray[virtualCoreTable[2]];});
-    EXPECT_FALSE(coreBlocker->isSleepingArray[virtualCoreTable[0]]);
-    EXPECT_FALSE(coreBlocker->isSleepingArray[virtualCoreTable[1]]);
-    EXPECT_FALSE(coreBlocker->isSleepingArray[virtualCoreTable[2]]);
+// Since idleCore and unidleCore are paired, they are tested together.
+TEST_F(ArachneTest, idleAndUnidle) {
+    idleCore(virtualCoreTable[0]);
+    idleCore(virtualCoreTable[2]);
+    limitedTimeWait([]() -> bool {return Arachne::isIdledArray[virtualCoreTable[2]];});
+    EXPECT_TRUE(Arachne::isIdledArray[virtualCoreTable[0]]);
+    EXPECT_FALSE(Arachne::isIdledArray[virtualCoreTable[1]]);
+    EXPECT_TRUE(Arachne::isIdledArray[virtualCoreTable[2]]);
+    unidleCore(virtualCoreTable[0]);
+    unidleCore(virtualCoreTable[2]);
+    limitedTimeWait([]() -> bool {return !Arachne::isIdledArray[virtualCoreTable[2]];});
+    EXPECT_FALSE(Arachne::isIdledArray[virtualCoreTable[0]]);
+    EXPECT_FALSE(Arachne::isIdledArray[virtualCoreTable[1]]);
+    EXPECT_FALSE(Arachne::isIdledArray[virtualCoreTable[2]]);
 }
 
 } // namespace Arachne

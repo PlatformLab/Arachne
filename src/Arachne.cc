@@ -147,6 +147,17 @@ std::vector< std::atomic<uint64_t> *> publicPriorityMasks;
 */
 std::atomic<uint8_t> newestThreadOccupiedContext[512];
 
+/* Which cores are idled? */
+std::vector<bool> isIdledArray;
+
+/* An array of condition variables cores can use to idle. */
+std::vector<std::condition_variable*> cvArray;
+
+/* Protects isIdledArray so cores do not get idled multiple times */
+SpinLock coreIdlerLock("coreIdlerLock", false);
+
+void idleCorePrivate(int coreId);
+
 void descheduleCore();
 /**
   * All core-specific state that is not associated with other classes.
@@ -911,6 +922,8 @@ init(CorePolicy* arachneCorePolicy, int* argcp, const char** argv) {
         }
         allThreadContexts.push_back(contexts);
         virtualCoreTable[i] = i;
+        cvArray.push_back(new std::condition_variable);
+        isIdledArray.push_back(false);
     }
 
     // Allocate space to store all the original kernel pointers
@@ -1433,45 +1446,43 @@ void makeSharedOnCore() {
 }
 
 /*
- * Block all cores corresponding to a ThreadClass so they perform no
- * computation until unblocked.  Do nothing to cores that are currently
- * blocked.
+ * Idle a core so it performs no computation until unidled. Do nothing to
+ * cores that are currently idled.
  *
  * \param coreId
- *     The coreId of the core that will block
+ *     The coreId of the core that will idle
  */
-void CoreBlocker::blockCore(int coreId) {
-    std::lock_guard<SpinLock> _(coreBlockerLock);
-    if (!isSleepingArray[coreId]) {
-      isSleepingArray[coreId] = true;
+void idleCore(int coreId) {
+    std::lock_guard<SpinLock> _(coreIdlerLock);
+    if (!isIdledArray[coreId]) {
+      isIdledArray[coreId] = true;
       createThreadOnCore(corePolicy->defaultClass, coreId,
-        &CoreBlocker::blockCorePrivate, this, coreId);
+        idleCorePrivate, coreId);
     }
 }
 
 /*
- * Block a core so it performs no computation until unblocked.
+ * Idle a core so it performs no computation until unidled.
  *
  * \param coreId
- *     The coreId of the core that will block
+ *     The coreId of the core that will idle
  */
-void CoreBlocker::blockCorePrivate(int coreId) {
+void idleCorePrivate(int coreId) {
     std::mutex cvMutex;
     std::unique_lock<std::mutex> lk(cvMutex);
     std::condition_variable* cv = cvArray[coreId];
     cv->wait(lk);
-    isSleepingArray[coreId] = false;
+    isIdledArray[coreId] = false;
 }
 
 /*
- * Unblock all cores corresponding to a ThreadClass.  Do nothing
- * to cores that are not currently blocked.
+ * Unidle an idled core.  Do nothing to cores that are not currently idled.
  *
  * \param coreId
- *     The coreId of the core that will be unblocked
+ *     The coreId of the core that will be unidled.
  */
-void CoreBlocker::unblockCore(int coreId) {
-    std::lock_guard<SpinLock> _(coreBlockerLock);
+void unidleCore(int coreId) {
+    std::lock_guard<SpinLock> _(coreIdlerLock);
     std::condition_variable* cv = cvArray[coreId];
     cv->notify_one();
 }
