@@ -1305,10 +1305,10 @@ bool makeExclusiveOnCore(bool forScaleDown) {
             virtualCoreTable[numActiveCores - 1] = core.kernelThreadId;
             break;
         }
+
+    // Update the CorePolicy
     if (forScaleDown) {
-      coreChangeMutex.lock();
       corePolicy->removeCore(core.kernelThreadId);
-      coreChangeMutex.unlock();
     }
 
     // Migrate off all threads other than the current one.  Round robin among

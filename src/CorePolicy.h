@@ -34,6 +34,7 @@
 #include "Logger.h"
 #include "PerfStats.h"
 #include "Common.h"
+#include "SpinLock.h"
 
 /*
  * The maximum number of thread classes.  All thread classes must be less than
@@ -72,7 +73,7 @@ class CorePolicy {
     /*
      * Constructor and destructor for CorePolicy.
      */
-    CorePolicy() {
+    CorePolicy() : corePolicyMutex("corePolicyMutex", false) {
         threadClassCoreMap = (CoreList**) 
           malloc(MAX_THREAD_CLASSES * sizeof(CoreList*));
         for (int i = 0; i < MAX_THREAD_CLASSES; i++) {
@@ -114,6 +115,11 @@ class CorePolicy {
       * must be large enough to meet future needs.
       */
     CoreList** threadClassCoreMap;
+    /*
+     * A lock that protects the threadClassCoreMap.  Held whenever
+     * threadClassCoreMap is updated.
+     */
+    Arachne::SpinLock corePolicyMutex;
 
 };
 

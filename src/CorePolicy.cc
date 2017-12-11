@@ -90,20 +90,17 @@ int CorePolicy::chooseRemovableCore() {
 }
 
 /*
- * Update threadClassCoreMap when a new core is added.  Callers must guarantee
- * that this function is not called multiple times simultaneously, or at the
- * same time as removeCore.
- *
- * This function will also bootstrap the coreLoadEstimator as soon as it has
- * a core.
+ * Update threadClassCoreMap when a core is added.
  *
  * \param coreId
  *     The coreId of the new core.
  */
 void CorePolicy::addCore(int coreId) {
+  std::lock_guard<Arachne::SpinLock> _(corePolicyMutex);
   CoreList* entry = threadClassCoreMap[defaultClass];
   entry->map[entry->numFilled] = coreId;
   entry->numFilled++;
+  // This function bootstraps the coreLoadEstimator as soon as it has a core.
   if (!loadEstimatorRunning && !Arachne::disableLoadEstimation) {
     loadEstimatorRunning = true;
     Arachne::createThread(defaultClass, &CorePolicy::coreLoadEstimator, this);
@@ -111,14 +108,13 @@ void CorePolicy::addCore(int coreId) {
 }
 
 /*
- * Update threadClassCoreMap when a new core is removed.  Callers must
- * guarantee that this function is not called multiple times simultaneously,
- * or at the same time as addCore.
+ * Update threadClassCoreMap when a core is removed.
  *
  * \param coreId
  *     The coreId of the doomed core.
  */
 void CorePolicy::removeCore(int coreId) {
+  std::lock_guard<Arachne::SpinLock> _(corePolicyMutex);
   CoreList* entry = threadClassCoreMap[defaultClass];
   entry->numFilled--;
   int saveCoreId = entry->map[entry->numFilled];
