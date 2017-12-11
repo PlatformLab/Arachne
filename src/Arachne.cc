@@ -1456,8 +1456,10 @@ void idleCore(int coreId) {
     std::lock_guard<SpinLock> _(coreIdlerLock);
     if (!isIdledArray[coreId]) {
       isIdledArray[coreId] = true;
-      createThreadOnCore(corePolicy->defaultClass, coreId,
-        idleCorePrivate, coreId);
+      if (createThreadOnCore(corePolicy->defaultClass, coreId,
+        idleCorePrivate, coreId) == NullThread) {
+          ARACHNE_LOG(ERROR, "Error creating idleCorePrivate thread\n");
+      }
     }
 }
 

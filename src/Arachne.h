@@ -524,19 +524,6 @@ template<typename _Callable, typename... _Args>
 ThreadId
 createThreadOnCore(ThreadClass threadClass, uint32_t coreId, _Callable&& __f, _Args&&... __args) {
 
-    CoreList* entry = corePolicy->getRunnableCores(threadClass);
-    bool isLegalCoreId = false;
-    for (uint32_t i = 0; i < entry->numFilled; i++) {
-      if (entry->map[i] == (int) coreId)
-        isLegalCoreId = true;
-    }
-    if (!isLegalCoreId) {
-        ARACHNE_LOG(VERBOSE, "createThread failure, coreId = %u, "
-                   "numActiveCores = %d\n", coreId,
-                   numActiveCores.load());
-        return Arachne::NullThread;
-    }
-
     auto task = std::bind(
             std::forward<_Callable>(__f), std::forward<_Args>(__args)...);
 
