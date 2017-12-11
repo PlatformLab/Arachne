@@ -910,12 +910,14 @@ TEST_F(ArachneTest, makeExclusiveOnCore) {
 // Since blockCore and unblockCore are paired, they are tested together.
 TEST_F(ArachneTest, CoreBlocker_blockAndUnblock) {
     CoreBlocker* coreBlocker = new CoreBlocker();
-    coreBlocker->blockCores(corePolicyTest->defaultClass);
+    coreBlocker->blockCore(virtualCoreTable[0]);
+    coreBlocker->blockCore(virtualCoreTable[2]);
     limitedTimeWait([&coreBlocker]() -> bool {return coreBlocker->isSleepingArray[virtualCoreTable[2]];});
     EXPECT_TRUE(coreBlocker->isSleepingArray[virtualCoreTable[0]]);
-    EXPECT_TRUE(coreBlocker->isSleepingArray[virtualCoreTable[1]]);
+    EXPECT_FALSE(coreBlocker->isSleepingArray[virtualCoreTable[1]]);
     EXPECT_TRUE(coreBlocker->isSleepingArray[virtualCoreTable[2]]);
-    coreBlocker->unblockCores(corePolicyTest->defaultClass);
+    coreBlocker->unblockCore(virtualCoreTable[0]);
+    coreBlocker->unblockCore(virtualCoreTable[2]);
     limitedTimeWait([&coreBlocker]() -> bool {return !coreBlocker->isSleepingArray[virtualCoreTable[2]];});
     EXPECT_FALSE(coreBlocker->isSleepingArray[virtualCoreTable[0]]);
     EXPECT_FALSE(coreBlocker->isSleepingArray[virtualCoreTable[1]]);

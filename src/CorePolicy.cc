@@ -135,7 +135,7 @@ void CorePolicy::removeCore(int coreId) {
  * \param threadClass
  *     The threadClass whose CoreList will be returned.
  */
-CoreList* CorePolicy::getCoreList(ThreadClass threadClass) {
+CoreList* CorePolicy::getRunnableCores(ThreadClass threadClass) {
   return threadClassCoreMap[threadClass];
 }
 
@@ -159,7 +159,7 @@ void CorePolicy::coreLoadEstimator() {
         // estimation to avoid races between estimation and the fulfillment of
         // a previous core request.
         uint32_t curActiveCores =
-          getCoreList(defaultClass)->numFilled;
+          getRunnableCores(defaultClass)->numFilled;
 
         // Evaluate idle time precentage multiplied by number of cores to
         // determine whether we need to decrease the number of cores.

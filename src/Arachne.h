@@ -287,8 +287,8 @@ class CoreBlocker {
       for (unsigned i = 0; i < std::thread::hardware_concurrency(); i++)
         delete cvArray[i];
     }
-    void unblockCores(ThreadClass threadClass);
-    void blockCores(ThreadClass threadClass);
+    void unblockCore(int coreId);
+    void blockCore(int coreId);
 
   private:
     void blockCorePrivate(int coreId);
@@ -555,7 +555,7 @@ template<typename _Callable, typename... _Args>
 ThreadId
 createThreadOnCore(ThreadClass threadClass, uint32_t coreId, _Callable&& __f, _Args&&... __args) {
 
-    CoreList* entry = corePolicy->getCoreList(threadClass);
+    CoreList* entry = corePolicy->getRunnableCores(threadClass);
     bool isLegalCoreId = false;
     for (uint32_t i = 0; i < entry->numFilled; i++) {
       if (entry->map[i] == (int) coreId)
@@ -665,7 +665,7 @@ createThread(ThreadClass threadClass, _Callable&& __f, _Args&&... __args) {
     // Find a kernel thread to enqueue to by picking two at random and choosing
     // the one with the fewest Arachne threads.
     uint32_t kId;
-    CoreList* entry = corePolicy->getCoreList(threadClass);
+    CoreList* entry = corePolicy->getRunnableCores(threadClass);
     uint32_t index1 = static_cast<uint32_t>(random()) % entry->numFilled;
     uint32_t index2 = static_cast<uint32_t>(random()) % entry->numFilled;
     while (index2 == index1 && entry->numFilled > 1)

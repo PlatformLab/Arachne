@@ -1323,7 +1323,7 @@ bool makeExclusiveOnCore(bool forScaleDown) {
         }
         // Choose a victim core that we will pawn our work on.
         ThreadClass threadClass = core.localThreadContexts[i]->threadClass;
-        CoreList* entry = corePolicy->getCoreList(threadClass);
+        CoreList* entry = corePolicy->getRunnableCores(threadClass);
         nextMigrationTarget = (nextMigrationTarget + 1) % entry->numFilled;
         int coreId = entry->map[nextMigrationTarget];
         if ((blockedOccupiedAndCount.occupied >> i) & 1) {
@@ -1437,18 +1437,15 @@ void makeSharedOnCore() {
  * computation until unblocked.  Do nothing to cores that are currently
  * blocked.
  *
- * \param threadClass
- *     The ThreadClass whose cores will be blocked.
+ * \param coreId
+ *     The coreId of the core that will block
  */
-void CoreBlocker::blockCores(ThreadClass threadClass) {
+void CoreBlocker::blockCore(int coreId) {
     std::lock_guard<SpinLock> _(coreBlockerLock);
-    CoreList* entry = corePolicy->getCoreList(threadClass);
-    for (unsigned coreId = 0; coreId < entry->numFilled; coreId++) {
-      if (!isSleepingArray[coreId]) {
-        isSleepingArray[coreId] = true;
-        createThreadOnCore(threadClass, entry->map[coreId],
-          &CoreBlocker::blockCorePrivate, this, coreId);
-      }
+    if (!isSleepingArray[coreId]) {
+      isSleepingArray[coreId] = true;
+      createThreadOnCore(corePolicy->defaultClass, coreId,
+        &CoreBlocker::blockCorePrivate, this, coreId);
     }
 }
 
@@ -1470,16 +1467,13 @@ void CoreBlocker::blockCorePrivate(int coreId) {
  * Unblock all cores corresponding to a ThreadClass.  Do nothing
  * to cores that are not currently blocked.
  *
- * \param threadClass
- *     The ThreadClass whose cores will be unblocked.
+ * \param coreId
+ *     The coreId of the core that will be unblocked
  */
-void CoreBlocker::unblockCores(ThreadClass threadClass) {
+void CoreBlocker::unblockCore(int coreId) {
     std::lock_guard<SpinLock> _(coreBlockerLock);
-    CoreList* entry = corePolicy->getCoreList(threadClass);
-    for (unsigned coreId = 0; coreId < entry->numFilled; coreId++) {
-      std::condition_variable* cv = cvArray[coreId];
-      cv->notify_one();
-    }
+    std::condition_variable* cv = cvArray[coreId];
+    cv->notify_one();
 }
 
 } // namespace Arachne

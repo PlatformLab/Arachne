@@ -94,7 +94,7 @@ class CorePolicy {
     virtual int chooseRemovableCore();
     virtual void addCore(int coreId);
     virtual void removeCore(int coreId);
-    CoreList* getCoreList(ThreadClass threadClass);
+    CoreList* getRunnableCores(ThreadClass threadClass);
 
     /* 
      * The default thread class, which all core policies must support.
@@ -104,7 +104,7 @@ class CorePolicy {
     static const ThreadClass defaultClass = 0;
     
   protected:
-    void coreLoadEstimator();
+    virtual void coreLoadEstimator();
      /*
       * A map from thread classes to cores on which threads of those classes
       * can run.  threadClassCoreMap[i] is a CoreList of the cores on which
