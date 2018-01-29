@@ -54,7 +54,7 @@ typedef uint32_t ThreadClass;
 struct CoreList {
   /* The number of cores in the list */
   uint32_t numFilled;
-  /* 
+  /*
    * An array containing the list.  Must be dynamically allocated to a size
    * equal to the number of cores on the machine.
    */
@@ -63,7 +63,7 @@ struct CoreList {
 
 /*
  * This class allows applications to control the allocation and use of cores
- * in Arachne. It decides which Arachne threads get to run on which 
+ * in Arachne. It decides which Arachne threads get to run on which
  * cores.  It also decides how many cores Arachne should have.  It does
  * load estimation to decide when to request cores or release held cores
  * and, if a core is released, chooses which core to lose.
@@ -74,12 +74,12 @@ class CorePolicy {
      * Constructor and destructor for CorePolicy.
      */
     CorePolicy() : corePolicyMutex("corePolicyMutex", false) {
-        threadClassCoreMap = (CoreList**) 
+        threadClassCoreMap = (CoreList**)
           malloc(MAX_THREAD_CLASSES * sizeof(CoreList*));
         for (int i = 0; i < MAX_THREAD_CLASSES; i++) {
-            threadClassCoreMap[i] = (CoreList*) 
+            threadClassCoreMap[i] = (CoreList*)
               malloc(sizeof(CoreList));
-            threadClassCoreMap[i]->map = (int*) 
+            threadClassCoreMap[i]->map = (int*)
               calloc(std::thread::hardware_concurrency(), sizeof(int));
             threadClassCoreMap[i]->numFilled = 0;
           }
@@ -96,19 +96,19 @@ class CorePolicy {
     virtual void removeCore(int coreId);
     CoreList* getRunnableCores(ThreadClass threadClass);
 
-    /* 
+    /*
      * The default thread class, which all core policies must support.
      * It is used as a default within Arachne and benchmarks when necessary.
      * Other core policies can add more thread classes as needed.
      */
     static const ThreadClass defaultClass = 0;
-    
+
   protected:
     virtual void coreLoadEstimator();
      /*
       * A map from thread classes to cores on which threads of those classes
       * can run.  threadClassCoreMap[i] is a CoreList of the cores on which
-      * threads of class i can run.  
+      * threads of class i can run.
       *
       * Resizing of the threadClassCoreMap is not safe, so the
       * threadClassCoreMap is entirely allocated once at startup and

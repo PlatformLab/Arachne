@@ -49,7 +49,7 @@ double *utilizationThresholds = NULL;
 /*
  * The difference in load, expressed as a fraction of a core, between a
  * ramp-down threshold and the corresponding ramp-up threshold (i.e., we
- * wait to ramp down until the load gets a bit below the point at 
+ * wait to ramp down until the load gets a bit below the point at
  * which we ramped up).
  */
 const double idleCoreFractionHysteresis = 0.2;
