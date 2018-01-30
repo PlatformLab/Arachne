@@ -585,7 +585,8 @@ createThreadOnCore(ThreadClass threadClass, uint32_t coreId, _Callable&& __f,
     } while (!success);
 
     PerfStats::threadStats.numThreadsCreated++;
-    if (failureCount) PerfStats::threadStats.numContendedCreations++;
+    if (failureCount)
+        PerfStats::threadStats.numContendedCreations++;
 
     return ThreadId(threadContext, generation);
 }

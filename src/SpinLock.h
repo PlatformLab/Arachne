@@ -68,7 +68,8 @@ class SpinLock {
                     startOfContention = now;
                 }
             }
-            if (shouldYield) yield();
+            if (shouldYield)
+                yield();
         }
         owner = core.loadedContext;
     }
