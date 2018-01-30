@@ -29,8 +29,7 @@ using PerfUtils::Cycles;
 // Forward declarations to resolve various circular dependencies of separating
 // this out.
 struct ThreadContext;
-void
-yield();
+void yield();
 extern thread_local Core core;
 
 /**

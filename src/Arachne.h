@@ -66,8 +66,7 @@ extern int stackSize;
 
 // Used in inline functions.
 extern FILE* errorStream;
-void
-dispatch();
+void dispatch();
 
 // Used for user per-core data structure initialization.
 extern std::function<void()> initCore;
@@ -131,26 +130,18 @@ struct ThreadId {
     bool operator!() const { return *this == ThreadId(); }
 };
 
-void
-init(CorePolicy* initCorePolicy, int* argcp = NULL, const char** argv = NULL);
-void
-shutDown();
-void
-waitForTermination();
-void
-yield();
-void
-sleep(uint64_t ns);
+void init(CorePolicy* initCorePolicy, int* argcp = NULL,
+          const char** argv = NULL);
+void shutDown();
+void waitForTermination();
+void yield();
+void sleep(uint64_t ns);
 
-void
-idleCore(int coreId);
-void
-unidleCore(int coreId);
+void idleCore(int coreId);
+void unidleCore(int coreId);
 
-bool
-makeExclusiveOnCore(bool forScaleDown = false);
-void
-makeSharedOnCore();
+bool makeExclusiveOnCore(bool forScaleDown = false);
+void makeSharedOnCore();
 
 /**
  * Block the current thread until another thread invokes join() with the
@@ -160,19 +151,13 @@ inline void
 block() {
     dispatch();
 }
-void
-signal(ThreadId id);
-void
-join(ThreadId id);
-ThreadId
-getThreadId();
+void signal(ThreadId id);
+void join(ThreadId id);
+ThreadId getThreadId();
 
-void
-setErrorStream(FILE* ptr);
-void
-testInit();
-void
-testDestroy();
+void setErrorStream(FILE* ptr);
+void testInit();
+void testDestroy();
 
 /**
  * A resource which blocks the current thread until it is available.
@@ -449,17 +434,12 @@ const uint64_t COMPLETION_WAIT_TIME = 100000;
  */
 const uint8_t EXCLUSIVE = maxThreadsPerCore * 2 + 1;
 
-void
-schedulerMainLoop();
-void
-swapcontext(void** saved, void** target);
-void
-threadMain();
+void schedulerMainLoop();
+void swapcontext(void** saved, void** target);
+void threadMain();
 
-void
-incrementCoreCount();
-void
-decrementCoreCount();
+void incrementCoreCount();
+void decrementCoreCount();
 
 /// This structure tracks the live threads on a single core.
 struct MaskAndCount {

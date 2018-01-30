@@ -43,8 +43,8 @@ extern CoreArbiterClient* coreArbiter;
 
 CorePolicy* corePolicyTest;
 
-static void
-limitedTimeWait(std::function<bool()> condition, int numIterations = 1000);
+static void limitedTimeWait(std::function<bool()> condition,
+                            int numIterations = 1000);
 
 struct Environment : public ::testing::Environment {
     CoreArbiterServer* coreArbiterServer;
