@@ -22,8 +22,8 @@ extern FILE* errorStream;
 LogLevel Logger::displayMinLevel = NOTICE;
 std::mutex Logger::mutex;
 
-void Logger::log(LogLevel level, const char* fmt, ...)
-{
+void
+Logger::log(LogLevel level, const char* fmt, ...) {
     if (level < displayMinLevel) {
         return;
     }
@@ -36,4 +36,4 @@ void Logger::log(LogLevel level, const char* fmt, ...)
     va_end(args);
 }
 
-} // namespace Arachne
+}  // namespace Arachne

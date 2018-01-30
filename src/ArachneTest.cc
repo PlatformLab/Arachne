@@ -19,17 +19,17 @@
 
 #define private public
 #include "Arachne.h"
-#include "CorePolicy.h"
-#include "CoreArbiter/CoreArbiterServer.h"
-#include "CoreArbiter/CoreArbiterClient.h"
-#include "CoreArbiter/MockSyscall.h"
-#include "CoreArbiter/Logger.h"
 #include "CoreArbiter/ArbiterClientShim.h"
+#include "CoreArbiter/CoreArbiterClient.h"
+#include "CoreArbiter/CoreArbiterServer.h"
+#include "CoreArbiter/Logger.h"
+#include "CoreArbiter/MockSyscall.h"
+#include "CorePolicy.h"
 
 namespace Arachne {
 
-using CoreArbiter::CoreArbiterServer;
 using CoreArbiter::CoreArbiterClient;
+using CoreArbiter::CoreArbiterServer;
 using CoreArbiter::MockSyscall;
 
 extern bool useCoreArbiter;
@@ -42,8 +42,8 @@ extern CoreArbiterClient* coreArbiter;
 
 CorePolicy* corePolicyTest;
 
-static void limitedTimeWait(std::function<bool()> condition,
-        int numIterations = 1000);
+static void
+limitedTimeWait(std::function<bool()> condition, int numIterations = 1000);
 
 struct Environment : public ::testing::Environment {
     CoreArbiterServer* coreArbiterServer;
@@ -60,14 +60,11 @@ struct Environment : public ::testing::Environment {
         CoreArbiterServer::testingSkipCpusetAllocation = true;
 
         CoreArbiterServer::sys = sys;
-        coreArbiterServer = new CoreArbiterServer(
-                std::string(TEST_SOCKET),
-                std::string(TEST_MEM),
-                {1,2,3,4,5,6,7}, false);
-        coreArbiterServerThread = new std::thread([=] {
-                coreArbiterServer->startArbitration();
-                });
-
+        coreArbiterServer = new CoreArbiterServer(std::string(TEST_SOCKET),
+                                                  std::string(TEST_MEM),
+                                                  {1, 2, 3, 4, 5, 6, 7}, false);
+        coreArbiterServerThread =
+            new std::thread([=] { coreArbiterServer->startArbitration(); });
     }
     // Override this to define how to tear down the environment.
     virtual void TearDown() {
@@ -79,27 +76,27 @@ struct Environment : public ::testing::Environment {
     }
 };
 
-::testing::Environment* const testEnvironment = (useCoreArbiter) ?
-    ::testing::AddGlobalTestEnvironment(new Environment) : NULL;
+::testing::Environment* const testEnvironment =
+    (useCoreArbiter) ? ::testing::AddGlobalTestEnvironment(new Environment)
+                     : NULL;
 
 struct ArachneTest : public ::testing::Test {
-    virtual void SetUp()
-    {
+    virtual void SetUp() {
         Arachne::minNumCores = 1;
         Arachne::maxNumCores = 3;
         Arachne::disableLoadEstimation = true;
         corePolicyTest = new CorePolicy();
         Arachne::init(corePolicyTest);
         // Articially wake up all threads for testing purposes
-        std::vector<uint32_t> coreRequest({3,0,0,0,0,0,0,0});
+        std::vector<uint32_t> coreRequest({3, 0, 0, 0, 0, 0, 0, 0});
         coreArbiter->setRequestedCores(coreRequest);
-        limitedTimeWait([]() -> bool { return numActiveCores == 3;});
+        limitedTimeWait([]() -> bool { return numActiveCores == 3; });
     }
 
-    virtual void TearDown()
-    {
+    virtual void TearDown() {
         // Unblock all cores so they can shut down and be joined.
-        coreArbiter->setRequestedCores({Arachne::maxNumCores,0,0,0,0,0,0,0});
+        coreArbiter->setRequestedCores(
+            {Arachne::maxNumCores, 0, 0, 0, 0, 0, 0, 0});
 
         shutDown();
         waitForTermination();
@@ -113,8 +110,8 @@ static Arachne::SleepLock sleepLock;
 
 // Helper function for tests with timing dependencies, so that we wait for a
 // finite amount of time in the case of a bug causing an infinite loop.
-static void limitedTimeWait(std::function<bool()> condition,
-                int numIterations) {
+static void
+limitedTimeWait(std::function<bool()> condition, int numIterations) {
     for (int i = 0; i < numIterations; i++) {
         if (condition()) {
             break;
@@ -134,7 +131,7 @@ static volatile int flag;
 // Helper function for SpinLock tests
 template <typename L>
 static void
-lockTaker(L *mutex) {
+lockTaker(L* mutex) {
     flag = 1;
     mutex->lock();
     EXPECT_EQ(core.loadedContext, mutex->owner);
@@ -147,14 +144,15 @@ TEST_F(ArachneTest, SpinLock_lockUnlock) {
     flag = 0;
     mutex.lock();
     EXPECT_NE(Arachne::NullThread,
-            createThreadOnCore(corePolicyTest->defaultClass, 0, lockTaker<SpinLock>, &mutex));
-    limitedTimeWait([]() -> bool {return flag;});
+              createThreadOnCore(corePolicyTest->defaultClass, 0,
+                                 lockTaker<SpinLock>, &mutex));
+    limitedTimeWait([]() -> bool { return flag; });
     EXPECT_EQ(1, flag);
     usleep(1);
     EXPECT_EQ(1, flag);
     EXPECT_EQ(NULL, mutex.owner);
     mutex.unlock();
-    limitedTimeWait([]() -> bool {return !flag;});
+    limitedTimeWait([]() -> bool { return !flag; });
     EXPECT_EQ(0, flag);
 }
 
@@ -166,15 +164,15 @@ lockContender(SpinLock& lock) {
 
 TEST_F(ArachneTest, SpinLock_printWarning) {
     Arachne::testInit();
-    char *str;
+    char* str;
     size_t size;
     FILE* newStream = open_memstream(&str, &size);
     setErrorStream(newStream);
 
-
     SpinLock lock("SpinLockTest");
     lock.lock();
-    Arachne::ThreadId contender = createThread(corePolicyTest->defaultClass, lockContender, std::ref(lock));
+    Arachne::ThreadId contender = createThread(corePolicyTest->defaultClass,
+                                               lockContender, std::ref(lock));
     sleep(1E9 + 5000);
     lock.unlock();
     join(contender);
@@ -183,7 +181,7 @@ TEST_F(ArachneTest, SpinLock_printWarning) {
     fflush(newStream);
     setErrorStream(stderr);
     EXPECT_EQ("SpinLockTest SpinLock locked for one second; deadlock?\n",
-            std::string(str));
+              std::string(str));
     free(str);
 }
 
@@ -196,20 +194,21 @@ TEST_F(ArachneTest, SpinLock_tryLock) {
 }
 
 // This is needed because SleepLocks cannot be taken by non-Arachne threads.
-void sleepLockTest() {
+void
+sleepLockTest() {
     flag = 0;
     sleepLock.lock();
-    Arachne::ThreadId tid =
-        createThreadOnCore(corePolicyTest->defaultClass, 0, lockTaker<SleepLock>, &sleepLock);
+    Arachne::ThreadId tid = createThreadOnCore(
+        corePolicyTest->defaultClass, 0, lockTaker<SleepLock>, &sleepLock);
     Arachne::sleep(1000);
-    limitedTimeWait([]() -> bool {return flag;});
+    limitedTimeWait([]() -> bool { return flag; });
     EXPECT_EQ(1, flag);
     EXPECT_EQ(Arachne::BLOCKED, tid.context->wakeupTimeInCycles);
     Arachne::sleep(1000);
     EXPECT_EQ(1, flag);
     EXPECT_EQ(Arachne::core.loadedContext, sleepLock.owner);
     sleepLock.unlock();
-    limitedTimeWait([]() -> bool {return !flag;});
+    limitedTimeWait([]() -> bool { return !flag; });
     EXPECT_EQ(0, flag);
     flag = 2;
 }
@@ -217,10 +216,11 @@ void sleepLockTest() {
 TEST_F(ArachneTest, SleepLock) {
     EXPECT_EQ(NULL, core.loadedContext);
     Arachne::createThreadOnCore(corePolicyTest->defaultClass, 1, sleepLockTest);
-    limitedTimeWait([]() -> bool {return flag == 2;});
+    limitedTimeWait([]() -> bool { return flag == 2; });
 }
 
-void sleepOnLock(int id) {
+void
+sleepOnLock(int id) {
     std::lock_guard<SleepLock> guard(sleepLock);
     char tempBuffer[100];
     memset(tempBuffer, 0, 100);
@@ -228,13 +228,14 @@ void sleepOnLock(int id) {
     strcat(outputBuffer, tempBuffer);
     completionCounter++;
 }
-void lockHolder() {
+void
+lockHolder() {
     std::lock_guard<SleepLock> guard(sleepLock);
-    while (!completionCounter)
-        yield();
+    while (!completionCounter) yield();
 }
 
-void silentLocker() {
+void
+silentLocker() {
     std::lock_guard<SleepLock> guard(sleepLock);
     completionCounter++;
 }
@@ -243,11 +244,13 @@ TEST_F(ArachneTest, SleepLock_fairness) {
     memset(outputBuffer, 0, 1024);
     completionCounter = 0;
     createThreadOnCore(corePolicyTest->defaultClass, 0, lockHolder);
-    for (int i = 0; i < 20; i ++) {
-        ThreadId tid = createThreadOnCore(corePolicyTest->defaultClass, 0, sleepOnLock, i);
+    for (int i = 0; i < 20; i++) {
+        ThreadId tid =
+            createThreadOnCore(corePolicyTest->defaultClass, 0, sleepOnLock, i);
         // Wait until this thread is actually running.
-        limitedTimeWait([tid]()->bool {
-                return tid.context->wakeupTimeInCycles == BLOCKED;});
+        limitedTimeWait([tid]() -> bool {
+            return tid.context->wakeupTimeInCycles == BLOCKED;
+        });
 
         // Interference on another core should not change the order
         createThreadOnCore(corePolicyTest->defaultClass, 1, silentLocker);
@@ -255,13 +258,12 @@ TEST_F(ArachneTest, SleepLock_fairness) {
     // Allow the lockHolder to awaken and release the lock.
     completionCounter++;
 
-    limitedTimeWait([]()->bool {
-            return completionCounter == 41;});
+    limitedTimeWait([]() -> bool { return completionCounter == 41; });
 
     char tempBuffer[100];
     char inputBuffer[1024];
     memset(inputBuffer, 0, 1024);
-    for (int i = 0; i < 20; i ++) {
+    for (int i = 0; i < 20; i++) {
         memset(tempBuffer, 0, 100);
         snprintf(tempBuffer, sizeof(tempBuffer), "T %d takes lock.\n", i);
         strcat(inputBuffer, tempBuffer);
@@ -269,7 +271,8 @@ TEST_F(ArachneTest, SleepLock_fairness) {
     EXPECT_STREQ(inputBuffer, outputBuffer);
 }
 
-void sleepLockTryLockTest() {
+void
+sleepLockTryLockTest() {
     sleepLock.lock();
     EXPECT_FALSE(sleepLock.try_lock());
     sleepLock.unlock();
@@ -285,15 +288,13 @@ static volatile int threadCreationIndicator = 0;
 
 void
 clearFlag() {
-    limitedTimeWait([]()-> bool {
-            return threadCreationIndicator;});
+    limitedTimeWait([]() -> bool { return threadCreationIndicator; });
     threadCreationIndicator = 0;
 }
 
 void
 setFlagForCreation(int a) {
-    limitedTimeWait([]()-> bool {
-            return threadCreationIndicator;});
+    limitedTimeWait([]() -> bool { return threadCreationIndicator; });
     threadCreationIndicator = a;
 }
 
@@ -305,15 +306,17 @@ TEST_F(ArachneTest, createThread_noArgs) {
     // This test may be a little fragile since it depends on the internal
     // structure of std::function
     EXPECT_EQ(reinterpret_cast<uint64_t>(clearFlag),
-            *(reinterpret_cast<uint64_t*>(
-                    &Arachne::allThreadContexts[0][0]->threadInvocation) + 1));
+              *(reinterpret_cast<uint64_t*>(
+                    &Arachne::allThreadContexts[0][0]->threadInvocation) +
+                1));
     EXPECT_EQ(1U, Arachne::occupiedAndCount[0]->load().numOccupied);
     EXPECT_EQ(1U, Arachne::occupiedAndCount[0]->load().occupied);
     threadCreationIndicator = 1;
 
     // Wait for thread to exit
-    limitedTimeWait([]()-> bool {
-            return Arachne::occupiedAndCount[0]->load().numOccupied != 1;});
+    limitedTimeWait([]() -> bool {
+        return Arachne::occupiedAndCount[0]->load().numOccupied != 1;
+    });
     EXPECT_EQ(0U, Arachne::occupiedAndCount[0]->load().numOccupied);
     EXPECT_EQ(0U, Arachne::occupiedAndCount[0]->load().occupied);
 }
@@ -324,7 +327,7 @@ TEST_F(ArachneTest, createThread_withArgs) {
     EXPECT_EQ(1U, Arachne::occupiedAndCount[0]->load().occupied);
     EXPECT_EQ(0, threadCreationIndicator);
     threadCreationIndicator = 1;
-    limitedTimeWait([]()->bool { return threadCreationIndicator != 1; });
+    limitedTimeWait([]() -> bool { return threadCreationIndicator != 1; });
     EXPECT_EQ(2, threadCreationIndicator);
     threadCreationIndicator = 0;
 }
@@ -345,12 +348,12 @@ TEST_F(ArachneTest, createThread_findCorrectSlot) {
     EXPECT_EQ(0b1111U, Arachne::occupiedAndCount[0]->load().occupied);
     EXPECT_EQ(0, threadCreationIndicator);
     threadCreationIndicator = 1;
-    limitedTimeWait([]()->bool { return threadCreationIndicator != 1; });
+    limitedTimeWait([]() -> bool { return threadCreationIndicator != 1; });
     EXPECT_EQ(2, threadCreationIndicator);
     threadCreationIndicator = 0;
 
-    limitedTimeWait([]()->bool {
-            return occupiedAndCount[0]->load().numOccupied != 4; });
+    limitedTimeWait(
+        []() -> bool { return occupiedAndCount[0]->load().numOccupied != 4; });
 
     // Clear out the seeded occupiedAndCount
     *occupiedAndCount[0] = {0, 0};
@@ -358,8 +361,11 @@ TEST_F(ArachneTest, createThread_findCorrectSlot) {
 
 TEST_F(ArachneTest, createThread_maxThreadsExceeded) {
     for (int i = 0; i < Arachne::maxThreadsPerCore; i++)
-        EXPECT_NE(Arachne::NullThread, createThreadOnCore(corePolicyTest->defaultClass, 0, clearFlag));
-    EXPECT_EQ(Arachne::NullThread, createThreadOnCore(corePolicyTest->defaultClass, 0, clearFlag));
+        EXPECT_NE(
+            Arachne::NullThread,
+            createThreadOnCore(corePolicyTest->defaultClass, 0, clearFlag));
+    EXPECT_EQ(Arachne::NullThread,
+              createThreadOnCore(corePolicyTest->defaultClass, 0, clearFlag));
 
     // Clean up the threads
     while (Arachne::occupiedAndCount[0]->load().numOccupied > 0)
@@ -377,7 +383,7 @@ TEST_F(ArachneTest, createThread_pickLeastLoaded) {
     threadCreationIndicator = 1;
 
     limitedTimeWait(
-            []()->bool { return occupiedAndCount[1]->load().numOccupied == 0;});
+        []() -> bool { return occupiedAndCount[1]->load().numOccupied == 0; });
 
     mockRandomValues.push_back(0);
     mockRandomValues.push_back(1);
@@ -410,8 +416,8 @@ checkSchedulerState() {
 
 TEST_F(ArachneTest, schedulerMainLoop) {
     createThreadOnCore(corePolicyTest->defaultClass, 0, checkSchedulerState);
-    limitedTimeWait([]()->bool {
-            return occupiedAndCount[0]->load().numOccupied == 0; });
+    limitedTimeWait(
+        []() -> bool { return occupiedAndCount[0]->load().numOccupied == 0; });
 
     EXPECT_EQ(UNOCCUPIED, allThreadContexts[0][0]->wakeupTimeInCycles);
     EXPECT_EQ(2U, allThreadContexts[0][0]->generation);
@@ -421,8 +427,7 @@ static volatile int keepYielding;
 
 static void
 yielder() {
-    while (keepYielding)
-        Arachne::yield();
+    while (keepYielding) Arachne::yield();
 }
 
 static void
@@ -446,8 +451,9 @@ TEST_F(ArachneTest, yield_secondThreadGotControl) {
 
     flag = 0;
     createThreadOnCore(corePolicyTest->defaultClass, 0, setFlag);
-    limitedTimeWait([]()->bool {
-            return Arachne::occupiedAndCount[0]->load().numOccupied <= 1;});
+    limitedTimeWait([]() -> bool {
+        return Arachne::occupiedAndCount[0]->load().numOccupied <= 1;
+    });
     EXPECT_EQ(1, flag);
     flag = 0;
     keepYielding = false;
@@ -462,7 +468,7 @@ TEST_F(ArachneTest, yield_allThreadsRan) {
     createThreadOnCore(corePolicyTest->defaultClass, 0, bitSetter, 0);
     createThreadOnCore(corePolicyTest->defaultClass, 0, bitSetter, 1);
     createThreadOnCore(corePolicyTest->defaultClass, 0, bitSetter, 2);
-    limitedTimeWait([]()->bool {return flag == 7;});
+    limitedTimeWait([]() -> bool { return flag == 7; });
     keepYielding = false;
 }
 
@@ -480,7 +486,7 @@ void
 simplesleeper() {
     Arachne::sleep(10000);
     flag = 1;
-    limitedTimeWait([]()->bool { return !flag; });
+    limitedTimeWait([]() -> bool { return !flag; });
 }
 
 TEST_F(ArachneTest, sleep_minimumDelay) {
@@ -494,7 +500,7 @@ TEST_F(ArachneTest, sleep_wakeupTimeSetAndCleared) {
     Arachne::init(new CorePolicy());
     flag = 0;
     createThreadOnCore(corePolicyTest->defaultClass, 0, simplesleeper);
-    limitedTimeWait([]()->bool { return flag; });
+    limitedTimeWait([]() -> bool { return flag; });
     EXPECT_EQ(BLOCKED, Arachne::allThreadContexts[0][0]->wakeupTimeInCycles);
     flag = 0;
 }
@@ -508,14 +514,16 @@ blocker() {
 }
 
 TEST_F(ArachneTest, block_basics) {
-    Arachne::ThreadId id = createThreadOnCore(corePolicyTest->defaultClass, 0, blocker);
+    Arachne::ThreadId id =
+        createThreadOnCore(corePolicyTest->defaultClass, 0, blocker);
     EXPECT_EQ(1U, Arachne::occupiedAndCount[0]->load().numOccupied);
     EXPECT_EQ(1U, Arachne::occupiedAndCount[0]->load().occupied);
 
-    limitedTimeWait([]()->bool { return blockerHasStarted;});
+    limitedTimeWait([]() -> bool { return blockerHasStarted; });
     Arachne::signal(id);
-    limitedTimeWait([]()->bool {
-            return Arachne::occupiedAndCount[0]->load().numOccupied < 1;});
+    limitedTimeWait([]() -> bool {
+        return Arachne::occupiedAndCount[0]->load().numOccupied < 1;
+    });
     EXPECT_EQ(0U, Arachne::occupiedAndCount[0]->load().occupied);
 }
 
@@ -542,13 +550,15 @@ blockingThread() {
     strcat(outputBuffer, "Thread 1 unblocked.");
     completionCounter++;
 }
-void signalingThread(ThreadId toBeSignaled) {
+void
+signalingThread(ThreadId toBeSignaled) {
     strcat(outputBuffer, "Thread 2 signaling.");
     signal(toBeSignaled);
     EXPECT_EQ(1LU, *publicPriorityMasks[0]);
     completionCounter++;
 }
-void normalThread() {
+void
+normalThread() {
     strcat(outputBuffer, "Thread 3 running.");
     completionCounter++;
 }
@@ -556,21 +566,24 @@ void normalThread() {
 TEST_F(ArachneTest, block_priorities) {
     memset(outputBuffer, 0, 1024);
     completionCounter = 0;
-    ThreadId blocking = createThreadOnCore(corePolicyTest->defaultClass, 0, blockingThread);
-    createThreadOnCore(corePolicyTest->defaultClass, 0, signalingThread, blocking);
+    ThreadId blocking =
+        createThreadOnCore(corePolicyTest->defaultClass, 0, blockingThread);
+    createThreadOnCore(corePolicyTest->defaultClass, 0, signalingThread,
+                       blocking);
     createThreadOnCore(corePolicyTest->defaultClass, 0, normalThread);
-    limitedTimeWait([]()->bool {
-            return completionCounter == 3;});
-    EXPECT_STREQ("Thread 1 blocking.Thread 2 signaling.Thread 1 unblocked."
-            "Thread 3 running.", outputBuffer);
+    limitedTimeWait([]() -> bool { return completionCounter == 3; });
+    EXPECT_STREQ(
+        "Thread 1 blocking.Thread 2 signaling.Thread 1 unblocked."
+        "Thread 3 running.",
+        outputBuffer);
 }
 
 static Arachne::ThreadId joineeId;
 
 void
 joinee() {
-    EXPECT_LE(1U,
-            Arachne::occupiedAndCount[virtualCoreTable[0]]->load().numOccupied);
+    EXPECT_LE(
+        1U, Arachne::occupiedAndCount[virtualCoreTable[0]]->load().numOccupied);
 }
 
 void
@@ -598,8 +611,9 @@ TEST_F(ArachneTest, join_afterTermination) {
 
     // Wait for threads to finish so that tests do not interfere with each
     // other.
-    limitedTimeWait([]()->bool {
-            return Arachne::occupiedAndCount[0]->load().numOccupied == 0;});
+    limitedTimeWait([]() -> bool {
+        return Arachne::occupiedAndCount[0]->load().numOccupied == 0;
+    });
 }
 
 TEST_F(ArachneTest, join_DuringRun) {
@@ -610,8 +624,9 @@ TEST_F(ArachneTest, join_DuringRun) {
     Arachne::init(new CorePolicy());
     joineeId = createThreadOnCore(corePolicyTest->defaultClass, 0, joinee2);
     createThreadOnCore(corePolicyTest->defaultClass, 0, joiner);
-    limitedTimeWait([]() ->bool {
-            return Arachne::occupiedAndCount[0]->load().numOccupied == 0;});
+    limitedTimeWait([]() -> bool {
+        return Arachne::occupiedAndCount[0]->load().numOccupied == 0;
+    });
 }
 
 extern int stackSize;
@@ -639,9 +654,15 @@ TEST_F(ArachneTest, parseOptions_longOptions) {
 
     int originalStackSize = stackSize;
     int argc = 9;
-    const char* argv[] =
-        {"ArachneTest", "--minNumCores", "5", "--stackSize", "4096",
-            "--maxNumCores", "6", "--enableArbiter", "0"};
+    const char* argv[] = {"ArachneTest",
+                          "--minNumCores",
+                          "5",
+                          "--stackSize",
+                          "4096",
+                          "--maxNumCores",
+                          "6",
+                          "--enableArbiter",
+                          "0"};
     Arachne::init(new CorePolicy(), &argc, argv);
     EXPECT_EQ(1, argc);
     EXPECT_EQ(useCoreArbiter, false);
@@ -662,9 +683,9 @@ TEST_F(ArachneTest, parseOptions_mixedOptions) {
 
     int originalStackSize = stackSize;
     int argc = 7;
-    const char* originalArgv[] =
-        {"ArachneTest", "--appOptionB", "2", "--stackSize", "8192",
-            "--appOptionA", "Argument"};
+    const char* originalArgv[] = {"ArachneTest", "--appOptionB", "2",
+                                  "--stackSize", "8192",         "--appOptionA",
+                                  "Argument"};
     const char** argv = originalArgv;
     Arachne::init(new CorePolicy(), &argc, argv);
     EXPECT_EQ(5, argc);
@@ -690,9 +711,15 @@ TEST_F(ArachneTest, parseOptions_mixedOptions_noArbiter) {
 
     int originalStackSize = stackSize;
     int argc = 9;
-    const char* originalArgv[] =
-        {"ArachneTest", "--appOptionB", "2", "--stackSize", "8192",
-            "--appOptionA", "Argument", "--enableArbiter", "0"};
+    const char* originalArgv[] = {"ArachneTest",
+                                  "--appOptionB",
+                                  "2",
+                                  "--stackSize",
+                                  "8192",
+                                  "--appOptionA",
+                                  "Argument",
+                                  "--enableArbiter",
+                                  "0"};
     const char** argv = originalArgv;
     Arachne::init(new CorePolicy(), &argc, argv);
     EXPECT_EQ(5, argc);
@@ -718,8 +745,8 @@ TEST_F(ArachneTest, parseOptions_noArgumentOptions) {
     waitForTermination();
     Arachne::disableLoadEstimation = false;
     int argc = 4;
-    const char* originalArgv[] =
-        {"ArachneTest", "--disableLoadEstimation", "--minNumCores", "5"};
+    const char* originalArgv[] = {"ArachneTest", "--disableLoadEstimation",
+                                  "--minNumCores", "5"};
     const char** argv = originalArgv;
     Arachne::init(new CorePolicy(), &argc, argv);
     EXPECT_EQ(1, argc);
@@ -743,8 +770,7 @@ TEST_F(ArachneTest, parseOptions_appOptionsOnly) {
 static void
 waiter() {
     mutex.lock();
-    while (!numWaitedOn)
-        cv.wait(mutex);
+    while (!numWaitedOn) cv.wait(mutex);
     numWaitedOn--;
     mutex.unlock();
 }
@@ -759,14 +785,14 @@ TEST_F(ArachneTest, ConditionVariable_notifyOne) {
     mutex.lock();
     cv.notifyOne();
     mutex.unlock();
-    limitedTimeWait([]() -> bool {return numWaitedOn != 2;});
+    limitedTimeWait([]() -> bool { return numWaitedOn != 2; });
     // We test for GE here because it is possible that one of the two threads
     // ran after numWaitedOn = 2 was set, which means it would not wait at all.
     EXPECT_GE(1, numWaitedOn);
     mutex.lock();
     cv.notifyOne();
     mutex.unlock();
-    limitedTimeWait([]() -> bool {return numWaitedOn != 1;});
+    limitedTimeWait([]() -> bool { return numWaitedOn != 1; });
     EXPECT_EQ(0, numWaitedOn);
 }
 
@@ -778,8 +804,9 @@ TEST_F(ArachneTest, ConditionVariable_notifyAll) {
     numWaitedOn = 5;
     cv.notifyAll();
     mutex.unlock();
-    limitedTimeWait([]()-> bool {
-            return Arachne::occupiedAndCount[0]->load().numOccupied <= 5;});
+    limitedTimeWait([]() -> bool {
+        return Arachne::occupiedAndCount[0]->load().numOccupied <= 5;
+    });
     mutex.lock();
     EXPECT_EQ(0, numWaitedOn);
     numWaitedOn = 5;
@@ -797,12 +824,12 @@ timedWaiter() {
 TEST_F(ArachneTest, ConditionVariable_waitFor) {
     numWaitedOn = 1;
     createThreadOnCore(corePolicyTest->defaultClass, 0, timedWaiter);
-    limitedTimeWait([]() -> bool {return numWaitedOn != 1;});
+    limitedTimeWait([]() -> bool { return numWaitedOn != 1; });
     EXPECT_EQ(0, numWaitedOn);
 }
 
 TEST_F(ArachneTest, setErrorStream) {
-    char *str;
+    char* str;
     size_t size;
     FILE* newStream = open_memstream(&str, &size);
     setErrorStream(newStream);
@@ -813,14 +840,15 @@ TEST_F(ArachneTest, setErrorStream) {
     free(str);
 }
 
-void doNothing() { }
+void
+doNothing() {}
 extern volatile bool coreChangeActive;
 
-bool canThreadBeCreatedOnCore(ThreadClass threadClass, int coreId) {
+bool
+canThreadBeCreatedOnCore(ThreadClass threadClass, int coreId) {
     CoreList* entry = corePolicyTest->getRunnableCores(threadClass);
     for (uint32_t i = 0; i < entry->numFilled; i++) {
-      if (entry->map[i] == coreId)
-        return true;
+        if (entry->map[i] == coreId) return true;
     }
     return false;
 }
@@ -834,43 +862,49 @@ TEST_F(ArachneTest, incrementCoreCount) {
     corePolicyTest = new CorePolicy();
     Arachne::init(corePolicyTest);
     // Articially wake up all threads for testing purposes
-    std::vector<uint32_t> coreRequest({3,0,0,0,0,0,0,0});
+    std::vector<uint32_t> coreRequest({3, 0, 0, 0, 0, 0, 0, 0});
     coreArbiter->setRequestedCores(coreRequest);
-    limitedTimeWait([]() -> bool { return numActiveCores == 3;});
-    char *str;
+    limitedTimeWait([]() -> bool { return numActiveCores == 3; });
+    char* str;
     size_t size;
     FILE* newStream = open_memstream(&str, &size);
     setErrorStream(newStream);
-    EXPECT_FALSE(canThreadBeCreatedOnCore(corePolicyTest->defaultClass, virtualCoreTable[3]));
+    EXPECT_FALSE(canThreadBeCreatedOnCore(corePolicyTest->defaultClass,
+                                          virtualCoreTable[3]));
     incrementCoreCount();
-    limitedTimeWait([]() -> bool { return numActiveCores > 3;});
-    EXPECT_TRUE(canThreadBeCreatedOnCore(corePolicyTest->defaultClass, virtualCoreTable[3]));
+    limitedTimeWait([]() -> bool { return numActiveCores > 3; });
+    EXPECT_TRUE(canThreadBeCreatedOnCore(corePolicyTest->defaultClass,
+                                         virtualCoreTable[3]));
     fflush(newStream);
     EXPECT_EQ("Attempting to increase number of cores 3 --> 4\n",
-            std::string(str));
+              std::string(str));
     free(str);
 }
 
 TEST_F(ArachneTest, decrementCoreCount) {
     void decrementCoreCount();
-    limitedTimeWait([]() -> bool { return numActiveCores == 3;}, 500000);
-    char *str;
+    limitedTimeWait([]() -> bool { return numActiveCores == 3; }, 500000);
+    char* str;
     size_t size;
     FILE* newStream = open_memstream(&str, &size);
     setErrorStream(newStream);
-    EXPECT_TRUE(canThreadBeCreatedOnCore(corePolicyTest->defaultClass, virtualCoreTable[2]));
+    EXPECT_TRUE(canThreadBeCreatedOnCore(corePolicyTest->defaultClass,
+                                         virtualCoreTable[2]));
     decrementCoreCount();
     limitedTimeWait(
-            []() -> bool { return numActiveCores < 3 && !coreChangeActive;});
-    EXPECT_FALSE(canThreadBeCreatedOnCore(corePolicyTest->defaultClass, virtualCoreTable[2]));
+        []() -> bool { return numActiveCores < 3 && !coreChangeActive; });
+    EXPECT_FALSE(canThreadBeCreatedOnCore(corePolicyTest->defaultClass,
+                                          virtualCoreTable[2]));
     decrementCoreCount();
     limitedTimeWait(
-            []() -> bool { return numActiveCores < 2 && !coreChangeActive;});
-    EXPECT_FALSE(canThreadBeCreatedOnCore(corePolicyTest->defaultClass, virtualCoreTable[1]));
+        []() -> bool { return numActiveCores < 2 && !coreChangeActive; });
+    EXPECT_FALSE(canThreadBeCreatedOnCore(corePolicyTest->defaultClass,
+                                          virtualCoreTable[1]));
     fflush(newStream);
-    EXPECT_EQ("Attempting to decrease number of cores 3 --> 2\n"
-              "Attempting to decrease number of cores 2 --> 1\n"
-              , std::string(str));
+    EXPECT_EQ(
+        "Attempting to decrease number of cores 3 --> 2\n"
+        "Attempting to decrease number of cores 2 --> 1\n",
+        std::string(str));
     free(str);
 }
 
@@ -879,42 +913,58 @@ TEST_F(ArachneTest, decrementCoreCount) {
 // Stage 1: Exclusive
 // Stage 2: Non-Exclusive Again
 std::atomic<int> stage;
-void exclusiveThread() {
-    while (stage != 1);
+void
+exclusiveThread() {
+    while (stage != 1)
+        ;
     makeExclusiveOnCore();
-    while (stage != 2);
+    while (stage != 2)
+        ;
     makeSharedOnCore();
-    while (stage != 3);
+    while (stage != 3)
+        ;
 }
-void yieldForever() {
+void
+yieldForever() {
     while (true) yield();
 }
 // Since the functions are paired, this also serves as the test for
 // makeSharedOnCore.
 TEST_F(ArachneTest, makeExclusiveOnCore) {
-    createThreadOnCore(corePolicyTest->defaultClass, virtualCoreTable[0], exclusiveThread);
-    limitedTimeWait([]()-> bool {
-            return Arachne::occupiedAndCount[0]->load().numOccupied == 1;});
+    createThreadOnCore(corePolicyTest->defaultClass, virtualCoreTable[0],
+                       exclusiveThread);
+    limitedTimeWait([]() -> bool {
+        return Arachne::occupiedAndCount[0]->load().numOccupied == 1;
+    });
     // Check that thread creations are possible.
-    EXPECT_NE(
-            Arachne::NullThread, Arachne::createThreadOnCore(corePolicyTest->defaultClass, virtualCoreTable[0], yieldForever));
+    EXPECT_NE(Arachne::NullThread,
+              Arachne::createThreadOnCore(corePolicyTest->defaultClass,
+                                          virtualCoreTable[0], yieldForever));
     stage = 1;
     // Check that other threads have been moved off or finished, and that
     // thread creations fail.
-    limitedTimeWait([]()-> bool {
-            return Arachne::occupiedAndCount[0]->load().occupied == 1;},
-            10000);
-    EXPECT_EQ(Arachne::NullThread, Arachne::createThreadOnCore(corePolicyTest->defaultClass, virtualCoreTable[2], doNothing));
+    limitedTimeWait(
+        []() -> bool {
+            return Arachne::occupiedAndCount[0]->load().occupied == 1;
+        },
+        10000);
+    EXPECT_EQ(Arachne::NullThread,
+              Arachne::createThreadOnCore(corePolicyTest->defaultClass,
+                                          virtualCoreTable[2], doNothing));
     // That eternally yielding thread must have moved somewhere.
     EXPECT_EQ(EXCLUSIVE, Arachne::occupiedAndCount[0]->load().numOccupied);
     EXPECT_EQ(1, Arachne::occupiedAndCount[1]->load().numOccupied);
     EXPECT_EQ(0, Arachne::occupiedAndCount[2]->load().numOccupied);
     stage = 2;
-    limitedTimeWait([]()-> bool {
-            return Arachne::occupiedAndCount[0]->load().numOccupied == 1;},
-            10000);
+    limitedTimeWait(
+        []() -> bool {
+            return Arachne::occupiedAndCount[0]->load().numOccupied == 1;
+        },
+        10000);
     // Verify that thread creations are once again allowed.
-    EXPECT_NE(Arachne::NullThread, Arachne::createThreadOnCore(corePolicyTest->defaultClass, virtualCoreTable[0], doNothing));
+    EXPECT_NE(Arachne::NullThread,
+              Arachne::createThreadOnCore(corePolicyTest->defaultClass,
+                                          virtualCoreTable[0], doNothing));
     stage = 3;
 }
 
@@ -922,16 +972,18 @@ TEST_F(ArachneTest, makeExclusiveOnCore) {
 TEST_F(ArachneTest, idleAndUnidle) {
     idleCore(virtualCoreTable[0]);
     idleCore(virtualCoreTable[2]);
-    limitedTimeWait([]() -> bool {return Arachne::isIdledArray[virtualCoreTable[2]];});
+    limitedTimeWait(
+        []() -> bool { return Arachne::isIdledArray[virtualCoreTable[2]]; });
     EXPECT_TRUE(Arachne::isIdledArray[virtualCoreTable[0]]);
     EXPECT_FALSE(Arachne::isIdledArray[virtualCoreTable[1]]);
     EXPECT_TRUE(Arachne::isIdledArray[virtualCoreTable[2]]);
     unidleCore(virtualCoreTable[0]);
     unidleCore(virtualCoreTable[2]);
-    limitedTimeWait([]() -> bool {return !Arachne::isIdledArray[virtualCoreTable[2]];});
+    limitedTimeWait(
+        []() -> bool { return !Arachne::isIdledArray[virtualCoreTable[2]]; });
     EXPECT_FALSE(Arachne::isIdledArray[virtualCoreTable[0]]);
     EXPECT_FALSE(Arachne::isIdledArray[virtualCoreTable[1]]);
     EXPECT_FALSE(Arachne::isIdledArray[virtualCoreTable[2]]);
 }
 
-} // namespace Arachne
+}  // namespace Arachne

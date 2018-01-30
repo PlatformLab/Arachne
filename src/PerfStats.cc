@@ -43,8 +43,7 @@ PerfStats::PerfStats(bool shouldRegister) {
  *      counters will be initialized.
  */
 void
-PerfStats::registerStats(PerfStats* stats)
-{
+PerfStats::registerStats(PerfStats* stats) {
     std::lock_guard<SpinLock> lock(mutex);
 
     // First see if this structure is already registered; if so,
@@ -69,13 +68,12 @@ PerfStats::registerStats(PerfStats* stats)
  *      PerfStats structure to drop from usage by collectStats.
  */
 void
-PerfStats::deregisterStats(PerfStats* stats)
-{
+PerfStats::deregisterStats(PerfStats* stats) {
     std::lock_guard<SpinLock> lock(mutex);
-    registeredStats.erase(std::remove(registeredStats.begin(),
-                registeredStats.end(), stats), registeredStats.end());
+    registeredStats.erase(
+        std::remove(registeredStats.begin(), registeredStats.end(), stats),
+        registeredStats.end());
 }
-
 
 /**
  * This method aggregates performance information from all of the
@@ -90,8 +88,7 @@ PerfStats::deregisterStats(PerfStats* stats)
  *      PerfStat structures; any existing contents are overwritten.
  */
 void
-PerfStats::collectStats(PerfStats* total)
-{
+PerfStats::collectStats(PerfStats* total) {
     std::lock_guard<SpinLock> lock(mutex);
     memset(total, 0, sizeof(*total));
     total->collectionTime = Cycles::rdtsc();
@@ -99,13 +96,13 @@ PerfStats::collectStats(PerfStats* total)
     for (PerfStats* stats : registeredStats) {
         // Note: the order of the statements below should match the
         // declaration order in PerfStats.h.
-        total->idleCycles            += stats->idleCycles;
-        total->totalCycles           += stats->totalCycles;
-        total->weightedLoadedCycles  += stats->weightedLoadedCycles;
-        total->numThreadsCreated     += stats->numThreadsCreated;
-        total->numThreadsFinished    += stats->numThreadsFinished;
-        total->numCoreIncrements     += stats->numCoreIncrements;
-        total->numCoreDecrements     += stats->numCoreDecrements;
+        total->idleCycles += stats->idleCycles;
+        total->totalCycles += stats->totalCycles;
+        total->weightedLoadedCycles += stats->weightedLoadedCycles;
+        total->numThreadsCreated += stats->numThreadsCreated;
+        total->numThreadsFinished += stats->numThreadsFinished;
+        total->numCoreIncrements += stats->numCoreIncrements;
+        total->numCoreDecrements += stats->numCoreDecrements;
         total->numContendedCreations += stats->numContendedCreations;
     }
 }

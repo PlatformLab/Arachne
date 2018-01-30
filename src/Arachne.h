@@ -19,31 +19,31 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
-#include <functional>
-#include <vector>
-#include <mutex>
-#include <deque>
 #include <atomic>
+#include <deque>
+#include <functional>
+#include <mutex>
 #include <queue>
 #include <string>
+#include <vector>
 
-#include "PerfUtils/Cycles.h"
-#include "PerfUtils/Util.h"
-#include "Logger.h"
-#include "PerfStats.h"
 #include "Common.h"
 #include "CorePolicy.h"
+#include "Logger.h"
+#include "PerfStats.h"
+#include "PerfUtils/Cycles.h"
+#include "PerfUtils/Util.h"
 
 namespace Arachne {
 
 // Current location of CoreArbiter testsocket and testmem
 #define TEST_SOCKET "/tmp/CoreArbiter/testsocket"
-#define TEST_MEM    "/tmp/CoreArbiter/testmem"
+#define TEST_MEM "/tmp/CoreArbiter/testmem"
 
 // A macro to disallow the copy constructor and operator= functions
 #ifndef DISALLOW_COPY_AND_ASSIGN
 #define DISALLOW_COPY_AND_ASSIGN(TypeName) \
-    TypeName(const TypeName&) = delete; \
+    TypeName(const TypeName&) = delete;    \
     TypeName& operator=(const TypeName&) = delete;
 #endif
 
@@ -66,7 +66,8 @@ extern int stackSize;
 
 // Used in inline functions.
 extern FILE* errorStream;
-void dispatch();
+void
+dispatch();
 
 // Used for user per-core data structure initialization.
 extern std::function<void()> initCore;
@@ -97,9 +98,9 @@ extern bool disableLoadEstimation;
  * @{
  */
 /**
-  * This structure is used to identify an Arachne thread to methods of the
-  * Arachne API.
-  */
+ * This structure is used to identify an Arachne thread to methods of the
+ * Arachne API.
+ */
 struct ThreadId {
     /// The storage where this thread's state is held.
     ThreadContext* context;
@@ -114,69 +115,77 @@ struct ThreadId {
     ///    Used to differentiate this thread from others that lived at this
     ///    context in the past and future.
     ThreadId(ThreadContext* context, uint32_t generation)
-        : context(context)
-        , generation(generation) { }
+        : context(context), generation(generation) {}
 
-    ThreadId()
-        : context(NULL)
-        , generation(0) { }
+    ThreadId() : context(NULL), generation(0) {}
 
     /// The equality operator is generally used for comparing against
     /// Arachne::NullThread.
-    bool
-    operator==(const ThreadId& other) const {
+    bool operator==(const ThreadId& other) const {
         return context == other.context && generation == other.generation;
     }
 
     /// Negation of the function above.
-    bool
-    operator!=(const ThreadId& other) const {
-        return !(*this == other);
-    }
+    bool operator!=(const ThreadId& other) const { return !(*this == other); }
 
-    bool
-    operator!() const {
-        return *this == ThreadId();
-    }
+    bool operator!() const { return *this == ThreadId(); }
 };
 
-void init(CorePolicy* initCorePolicy, int* argcp = NULL, const char** argv = NULL);
-void shutDown();
-void waitForTermination();
-void yield();
-void sleep(uint64_t ns);
+void
+init(CorePolicy* initCorePolicy, int* argcp = NULL, const char** argv = NULL);
+void
+shutDown();
+void
+waitForTermination();
+void
+yield();
+void
+sleep(uint64_t ns);
 
-void idleCore(int coreId);
-void unidleCore(int coreId);
+void
+idleCore(int coreId);
+void
+unidleCore(int coreId);
 
-bool makeExclusiveOnCore(bool forScaleDown = false);
-void makeSharedOnCore();
+bool
+makeExclusiveOnCore(bool forScaleDown = false);
+void
+makeSharedOnCore();
 
 /**
  * Block the current thread until another thread invokes join() with the
  * current thread's ThreadId.
  */
-inline void block() {
+inline void
+block() {
     dispatch();
 }
-void signal(ThreadId id);
-void join(ThreadId id);
-ThreadId getThreadId();
+void
+signal(ThreadId id);
+void
+join(ThreadId id);
+ThreadId
+getThreadId();
 
-void setErrorStream(FILE* ptr);
-void testInit();
-void testDestroy();
-
+void
+setErrorStream(FILE* ptr);
+void
+testInit();
+void
+testDestroy();
 
 /**
-  * A resource which blocks the current thread until it is available.
-  * This resources should not be acquired from non-Arachne threads.
-  */
+ * A resource which blocks the current thread until it is available.
+ * This resources should not be acquired from non-Arachne threads.
+ */
 class SleepLock {
   public:
     /** Constructor and destructor for sleepLock. */
-    SleepLock() : blockedThreads(), blockedThreadsLock("blockedthreadslock", false), owner(NULL) {}
-    ~SleepLock(){}
+    SleepLock()
+        : blockedThreads(),
+          blockedThreadsLock("blockedthreadslock", false),
+          owner(NULL) {}
+    ~SleepLock() {}
     void lock();
     bool try_lock();
     void unlock();
@@ -196,17 +205,20 @@ class SleepLock {
 };
 
 /**
-  * This class enables one or more threads to block until a condition is true,
-  * and then be awoken when the condition might be true.
-  */
+ * This class enables one or more threads to block until a condition is true,
+ * and then be awoken when the condition might be true.
+ */
 class ConditionVariable {
   public:
     ConditionVariable();
     ~ConditionVariable();
     void notifyOne();
     void notifyAll();
-    template <typename LockType> void wait(LockType& lock);
-    template <typename LockType> void waitFor(LockType& lock, uint64_t ns);
+    template <typename LockType>
+    void wait(LockType& lock);
+    template <typename LockType>
+    void waitFor(LockType& lock, uint64_t ns);
+
   private:
     // Ordered collection of threads that are waiting on this condition
     // variable. Threads are processed from this list in FIFO order when a
@@ -216,30 +228,30 @@ class ConditionVariable {
 };
 
 /**
-  * This class enables a thread to block until a resource is available.
-  */
-class Semaphore
-{
+ * This class enables a thread to block until a resource is available.
+ */
+class Semaphore {
   private:
     SpinLock countProtector;
     ConditionVariable countWaiter;
-    uint64_t count; // Initialized as locked.
+    uint64_t count;  // Initialized as locked.
 
   public:
     // Constructor initializing a non-yielding SpinLock.
-    Semaphore() : countProtector("countprotector", false), countWaiter(), count(0) { }
+    Semaphore()
+        : countProtector("countprotector", false), countWaiter(), count(0) {}
 
     /**
-      * Change this Semaphore to a fully locked state.
-      */
+     * Change this Semaphore to a fully locked state.
+     */
     void reset() {
         std::unique_lock<decltype(countProtector)> lock(countProtector);
         count = 0;
     }
 
     /**
-      * Wake up one of the waiters on this Semaphore.
-      */
+     * Wake up one of the waiters on this Semaphore.
+     */
     void notify() {
         std::unique_lock<decltype(countProtector)> lock(countProtector);
         ++count;
@@ -247,18 +259,18 @@ class Semaphore
     }
 
     /**
-      * Block until another thread notifies.
-      */
+     * Block until another thread notifies.
+     */
     void wait() {
         std::unique_lock<decltype(countProtector)> lock(countProtector);
-        while (!count) // Handle spurious wake-ups.
+        while (!count)  // Handle spurious wake-ups.
             countWaiter.wait(lock);
         --count;
     }
 
     /**
-      * Attempt to acquire the resource if it is available.
-      */
+     * Attempt to acquire the resource if it is available.
+     */
     bool try_wait() {
         std::unique_lock<decltype(countProtector)> lock(countProtector);
         if (count) {
@@ -270,12 +282,12 @@ class Semaphore
 };
 
 /**
-  * This value represents the non-existence of a thread and can be returned by
-  * any Arachne function that would normally return a ThreadId.
-  *
-  * One example is createThread when there are not enough resources to create a
-  * new thread.
-  */
+ * This value represents the non-existence of a thread and can be returned by
+ * any Arachne function that would normally return a ThreadId.
+ *
+ * One example is createThread when there are not enough resources to create a
+ * new thread.
+ */
 const Arachne::ThreadId NullThread;
 /**@}*/
 
@@ -284,50 +296,47 @@ const Arachne::ThreadId NullThread;
 ////////////////////////////////////////////////////////////////////////////////
 
 /**
-  * We need to invoke a ThreadInvocation with unknown template types, which has
-  * been stored in a character array, and this class enables us to do this.
-  */
+ * We need to invoke a ThreadInvocation with unknown template types, which has
+ * been stored in a character array, and this class enables us to do this.
+ */
 struct ThreadInvocationEnabler {
     /// This function allows us to invoke the templated subtype, without
     /// casting to a pointer of unknown type.
     virtual void runThread() = 0;
-    virtual ~ThreadInvocationEnabler() { }
+    virtual ~ThreadInvocationEnabler() {}
 };
 
 /**
-  * This structure is used during thread creation to pass the function and
-  * arguments for the new thread's top-level function from a creating thread to
-  * the core that runs the new thread. It also ensures that the arguments will
-  * fit in a single cache line, since they will be stored in a single cache
-  * line.
-  *
-  * \tparam F
-  *     The type of the return value of std::bind, which is a value type of
-  *     unspecified class.
-  *
-  * This wrapper enables us to bypass the dynamic memory allocation that is
-  * sometimes performed by std::function.
-  */
-template<typename F>
+ * This structure is used during thread creation to pass the function and
+ * arguments for the new thread's top-level function from a creating thread to
+ * the core that runs the new thread. It also ensures that the arguments will
+ * fit in a single cache line, since they will be stored in a single cache
+ * line.
+ *
+ * \tparam F
+ *     The type of the return value of std::bind, which is a value type of
+ *     unspecified class.
+ *
+ * This wrapper enables us to bypass the dynamic memory allocation that is
+ * sometimes performed by std::function.
+ */
+template <typename F>
 struct ThreadInvocation : public ThreadInvocationEnabler {
     /// The top-level function of the Arachne thread.
     F mainFunction;
 
     /// Construct a threadInvocation from the type that is returned by
     /// std::bind.
-    explicit ThreadInvocation(F mainFunction)
-        : mainFunction(mainFunction) {
-        static_assert(sizeof(ThreadInvocation<F>) <= CACHE_LINE_SIZE - 8,
-                "Arachne requires the function and arguments for a thread to "
-                "fit within one cache line.");
+    explicit ThreadInvocation(F mainFunction) : mainFunction(mainFunction) {
+        static_assert(
+            sizeof(ThreadInvocation<F>) <= CACHE_LINE_SIZE - 8,
+            "Arachne requires the function and arguments for a thread to "
+            "fit within one cache line.");
     }
 
     /// This is invoked exactly once for each Arachne thread to begin its
     /// execution.
-    void
-    runThread() {
-        mainFunction();
-    }
+    void runThread() { mainFunction(); }
 };
 
 /**
@@ -399,57 +408,61 @@ struct ThreadContext {
     explicit ThreadContext(uint8_t coreId, uint8_t idInCore);
 };
 
-
 // Largest number of Arachne threads that can be simultaneously created on each
 // core.
 const int maxThreadsPerCore = 56;
 
 /**
-  * This is the number of bytes needed on the stack to store the callee-saved
-  * registers that are defined by the current processor and operating system's
-  * calling convention.
-  */
+ * This is the number of bytes needed on the stack to store the callee-saved
+ * registers that are defined by the current processor and operating system's
+ * calling convention.
+ */
 const size_t SpaceForSavedRegisters = 48;
 
 /**
-  * This value is placed at the lowest allocated address of the stack to detect
-  * stack overflows.
-  */
+ * This value is placed at the lowest allocated address of the stack to detect
+ * stack overflows.
+ */
 const uint64_t StackCanary = 0xDEADBAAD;
 
 /**
-  * This is the value for wakeupTimeInCycles when a live thread is blocked.
-  */
+ * This is the value for wakeupTimeInCycles when a live thread is blocked.
+ */
 const uint64_t BLOCKED = ~0L;
 
 /**
-  * This is the value for wakeupTimeInCycles when a ThreadContext is not
-  * hosting a thread.
-  */
+ * This is the value for wakeupTimeInCycles when a ThreadContext is not
+ * hosting a thread.
+ */
 const uint64_t UNOCCUPIED = ~0L - 1;
 
 /**
-  * Amount of time in nanoseconds to wait for extant threads to finish before
-  * commencing migration.
-  */
+ * Amount of time in nanoseconds to wait for extant threads to finish before
+ * commencing migration.
+ */
 const uint64_t COMPLETION_WAIT_TIME = 100000;
 
 /**
-  * Initial value of numOccupied for cores that are exclusive to a thread.
-  * This value is sufficiently high that when other threads exit and decrement
-  * numOccupied, creation will continue to be blocked on the target core.
-  */
+ * Initial value of numOccupied for cores that are exclusive to a thread.
+ * This value is sufficiently high that when other threads exit and decrement
+ * numOccupied, creation will continue to be blocked on the target core.
+ */
 const uint8_t EXCLUSIVE = maxThreadsPerCore * 2 + 1;
 
-void schedulerMainLoop();
-void swapcontext(void **saved, void **target);
-void threadMain();
+void
+schedulerMainLoop();
+void
+swapcontext(void** saved, void** target);
+void
+threadMain();
 
-void incrementCoreCount();
-void decrementCoreCount();
+void
+incrementCoreCount();
+void
+decrementCoreCount();
 
 /// This structure tracks the live threads on a single core.
-struct MaskAndCount{
+struct MaskAndCount {
     /// Each bit corresponds to a particular ThreadContext which has the
     /// idInCore corresponding to its index.
     /// 0 means this context is available for a new thread.
@@ -459,9 +472,9 @@ struct MaskAndCount{
     uint8_t numOccupied : 8;
 };
 
-extern std::vector< std::atomic<MaskAndCount> *> occupiedAndCount;
+extern std::vector<std::atomic<MaskAndCount>*> occupiedAndCount;
 
-extern std::vector< std::atomic<uint64_t> *> publicPriorityMasks;
+extern std::vector<std::atomic<uint64_t>*> publicPriorityMasks;
 
 extern std::atomic<uint8_t> newestThreadOccupiedContext[512];
 
@@ -469,9 +482,9 @@ extern std::atomic<uint8_t> newestThreadOccupiedContext[512];
 static std::deque<uint64_t> mockRandomValues;
 #endif
 /**
-  * A random number generator from the Internet that returns 64-bit integers.
-  * It is used for selecting candidate cores to create threads on.
-  */
+ * A random number generator from the Internet that returns 64-bit integers.
+ * It is used for selecting candidate cores to create threads on.
+ */
 inline uint64_t
 random(void) {
 #ifdef TEST
@@ -502,30 +515,30 @@ random(void) {
 }
 
 /**
-  * Spawn a thread with main function f invoked with the given args on the
-  * kernel thread with id = coreId
-  * This function should usually only be invoked directly in tests, since it
-  * does not perform load balancing.
-  *
-  * \param threadClass
-  *     The thread class of the new thread.
-  * \param coreId
-  *     The id for the kernel thread to put the new Arachne thread on.
-  * \param __f
-  *     The main function for the new thread.
-  * \param __args
-  *     The arguments for __f.
-  * \return
-  *     The return value is an identifier for the newly created thread. If
-  *     there are insufficient resources for creating a new thread, then
-  *     NullThread will be returned.
-  */
-template<typename _Callable, typename... _Args>
+ * Spawn a thread with main function f invoked with the given args on the
+ * kernel thread with id = coreId
+ * This function should usually only be invoked directly in tests, since it
+ * does not perform load balancing.
+ *
+ * \param threadClass
+ *     The thread class of the new thread.
+ * \param coreId
+ *     The id for the kernel thread to put the new Arachne thread on.
+ * \param __f
+ *     The main function for the new thread.
+ * \param __args
+ *     The arguments for __f.
+ * \return
+ *     The return value is an identifier for the newly created thread. If
+ *     there are insufficient resources for creating a new thread, then
+ *     NullThread will be returned.
+ */
+template <typename _Callable, typename... _Args>
 ThreadId
-createThreadOnCore(ThreadClass threadClass, uint32_t coreId, _Callable&& __f, _Args&&... __args) {
-
-    auto task = std::bind(
-            std::forward<_Callable>(__f), std::forward<_Args>(__args)...);
+createThreadOnCore(ThreadClass threadClass, uint32_t coreId, _Callable&& __f,
+                   _Args&&... __args) {
+    auto task =
+        std::bind(std::forward<_Callable>(__f), std::forward<_Args>(__args)...);
 
     ThreadContext* threadContext;
     bool success;
@@ -539,19 +552,21 @@ createThreadOnCore(ThreadClass threadClass, uint32_t coreId, _Callable&& __f, _A
         MaskAndCount oldSlotMap = slotMap;
 
         if (slotMap.numOccupied >= maxThreadsPerCore) {
-            ARACHNE_LOG(VERBOSE, "createThread failure, coreId = %u, "
-                    "numOccupied = %d\n", coreId,
-                       slotMap.numOccupied);
+            ARACHNE_LOG(VERBOSE,
+                        "createThread failure, coreId = %u, "
+                        "numOccupied = %d\n",
+                        coreId, slotMap.numOccupied);
             return NullThread;
         }
 
         // Search for a non-occupied slot and attempt to reserve the slot
         index = ffsll(~slotMap.occupied);
         if (!index) {
-            ARACHNE_LOG(WARNING, "createThread failed after passing numOccupied"
-                    " check, coreId = %u,"
-                    " numOccupied = %d\n",
-                    coreId, slotMap.numOccupied);
+            ARACHNE_LOG(WARNING,
+                        "createThread failed after passing numOccupied"
+                        " check, coreId = %u,"
+                        " numOccupied = %d\n",
+                        coreId, slotMap.numOccupied);
             return NullThread;
         }
 
@@ -563,16 +578,16 @@ createThreadOnCore(ThreadClass threadClass, uint32_t coreId, _Callable&& __f, _A
         slotMap.numOccupied++;
         threadContext = allThreadContexts[coreId][index];
         success = occupiedAndCount[coreId]->compare_exchange_strong(oldSlotMap,
-                slotMap);
+                                                                    slotMap);
         if (!success) {
-          failureCount++;
+            failureCount++;
         }
     } while (!success);
 
     // Copy the thread invocation into the byte array.
     new (&threadContext->threadInvocation.data)
         Arachne::ThreadInvocation<decltype(task)>(task);
-    
+
     // Read the generation number *before* waking up the thread, to avoid a
     // race where the thread finishes executing so fast that we read the next
     // generation number instead of the current one.
@@ -580,19 +595,19 @@ createThreadOnCore(ThreadClass threadClass, uint32_t coreId, _Callable&& __f, _A
     threadContext->threadClass = threadClass;
     threadContext->wakeupTimeInCycles = 0;
 
-    // Ensure the highestOccupiedContext is high enough for the new thread to run.
+    // Ensure the highestOccupiedContext is high enough for the new thread to
+    // run.
     do {
-      uint8_t oldNewestContext = newestThreadOccupiedContext[coreId];
-      uint8_t newestContext = std::max(oldNewestContext, (uint8_t) index);
-      success = newestThreadOccupiedContext[coreId].compare_exchange_strong(oldNewestContext, newestContext);
-    } while (!success);    
+        uint8_t oldNewestContext = newestThreadOccupiedContext[coreId];
+        uint8_t newestContext = std::max(oldNewestContext, (uint8_t)index);
+        success = newestThreadOccupiedContext[coreId].compare_exchange_strong(
+            oldNewestContext, newestContext);
+    } while (!success);
 
     PerfStats::threadStats.numThreadsCreated++;
-    if (failureCount)
-        PerfStats::threadStats.numContendedCreations++;
+    if (failureCount) PerfStats::threadStats.numContendedCreations++;
 
-    return ThreadId(threadContext,
-            generation);
+    return ThreadId(threadContext, generation);
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -600,22 +615,22 @@ createThreadOnCore(ThreadClass threadClass, uint32_t coreId, _Callable&& __f, _A
 ////////////////////////////////////////////////////////////////////////////////
 
 /**
-  * Spawn a new thread with a function and arguments.
-  *
-  * \param __f
-  *     The main function for the new thread.
-  * \param __args
-  *     The arguments for __f. The total size of the arguments cannot exceed 48
-  *     bytes, and arguments are taken by value, so any reference must be
-  *     wrapped with std::ref.
-  * \return
-  *     The return value is an identifier for the newly created thread. If
-  *     there are insufficient resources for creating a new thread, then
-  *     NullThread will be returned.
-  *
-  * \ingroup api
-  */
-template<typename _Callable, typename... _Args>
+ * Spawn a new thread with a function and arguments.
+ *
+ * \param __f
+ *     The main function for the new thread.
+ * \param __args
+ *     The arguments for __f. The total size of the arguments cannot exceed 48
+ *     bytes, and arguments are taken by value, so any reference must be
+ *     wrapped with std::ref.
+ * \return
+ *     The return value is an identifier for the newly created thread. If
+ *     there are insufficient resources for creating a new thread, then
+ *     NullThread will be returned.
+ *
+ * \ingroup api
+ */
+template <typename _Callable, typename... _Args>
 ThreadId
 createThread(ThreadClass threadClass, _Callable&& __f, _Args&&... __args) {
     // Find a kernel thread to enqueue to by picking two at random and choosing
@@ -631,7 +646,7 @@ createThread(ThreadClass threadClass, _Callable&& __f, _Args&&... __args) {
     int choice2 = entry->map[index2];
 
     if (occupiedAndCount[choice1]->load().numOccupied <
-            occupiedAndCount[choice2]->load().numOccupied)
+        occupiedAndCount[choice2]->load().numOccupied)
         kId = choice1;
     else
         kId = choice2;
@@ -639,20 +654,21 @@ createThread(ThreadClass threadClass, _Callable&& __f, _Args&&... __args) {
 }
 
 /**
-  * Block the current thread until the condition variable is notified.
-  *
-  * \param lock
-  *     The mutex associated with this condition variable; must be held by
-  *     caller before calling wait. This function releases the mutex before
-  *     blocking, and re-acquires it before returning to the user.
-  */
-template <typename LockType> void
+ * Block the current thread until the condition variable is notified.
+ *
+ * \param lock
+ *     The mutex associated with this condition variable; must be held by
+ *     caller before calling wait. This function releases the mutex before
+ *     blocking, and re-acquires it before returning to the user.
+ */
+template <typename LockType>
+void
 ConditionVariable::wait(LockType& lock) {
 #if TIME_TRACE
     TimeTrace::record("Wait on Core %d", core.kernelThreadId);
 #endif
     blockedThreads.push_back(
-            ThreadId(core.loadedContext, core.loadedContext->generation));
+        ThreadId(core.loadedContext, core.loadedContext->generation));
     lock.unlock();
     dispatch();
 #if TIME_TRACE
@@ -662,21 +678,22 @@ ConditionVariable::wait(LockType& lock) {
 }
 
 /**
-  * Block the current thread until the condition variable is notified or at
-  * least ns nanoseconds has passed.
-  *
-  * \param lock
-  *     The mutex associated with this condition variable; must be held by
-  *     caller before calling wait. This function releases the mutex before
-  *     blocking, and re-acquires it before returning to the user.
-  * \param ns
-  *     The time in nanoseconds this thread should wait before returning in the
-  *     absence of a signal.
-  */
-template <typename LockType> void
+ * Block the current thread until the condition variable is notified or at
+ * least ns nanoseconds has passed.
+ *
+ * \param lock
+ *     The mutex associated with this condition variable; must be held by
+ *     caller before calling wait. This function releases the mutex before
+ *     blocking, and re-acquires it before returning to the user.
+ * \param ns
+ *     The time in nanoseconds this thread should wait before returning in the
+ *     absence of a signal.
+ */
+template <typename LockType>
+void
 ConditionVariable::waitFor(LockType& lock, uint64_t ns) {
     blockedThreads.push_back(
-            ThreadId(core.loadedContext, core.loadedContext->generation));
+        ThreadId(core.loadedContext, core.loadedContext->generation));
     core.loadedContext->wakeupTimeInCycles =
         Cycles::rdtsc() + Cycles::fromNanoseconds(ns);
     lock.unlock();
@@ -685,16 +702,16 @@ ConditionVariable::waitFor(LockType& lock, uint64_t ns) {
 }
 
 /**
-  * This class keeps a per-core record of recent idle time and recent total
-  * time in Cycles.
-  */
+ * This class keeps a per-core record of recent idle time and recent total
+ * time in Cycles.
+ */
 struct DispatchTimeKeeper {
     /**
-      * Cycle counter of the last time we accumulated the total running time in
-      * cycles. This variable should be updated each time we update
-      * PerfStats::totalCycles, as well as when a thread gets unblocked,
-      * to avoid counting cycles when we are blocked.
-      */
+     * Cycle counter of the last time we accumulated the total running time in
+     * cycles. This variable should be updated each time we update
+     * PerfStats::totalCycles, as well as when a thread gets unblocked,
+     * to avoid counting cycles when we are blocked.
+     */
     static thread_local uint64_t lastTotalCollectionTime;
 
     /**
@@ -727,31 +744,30 @@ struct DispatchTimeKeeper {
     // time into PerfStats.
     // This method is used in dispatch() in place of destruction followed by
     // construction to avoid leaking idle cycles.
-    void
-    flush() {
+    void flush() {
         uint64_t currentTime = Cycles::rdtsc();
-        PerfStats::threadStats.totalCycles += currentTime -
-            lastTotalCollectionTime;
+        PerfStats::threadStats.totalCycles +=
+            currentTime - lastTotalCollectionTime;
         PerfStats::threadStats.idleCycles += currentTime - dispatchStartCycles;
         lastTotalCollectionTime = currentTime;
         dispatchStartCycles = currentTime;
     }
 
-    ~DispatchTimeKeeper(){
+    ~DispatchTimeKeeper() {
         uint64_t currentTime = Cycles::rdtsc();
-        PerfStats::threadStats.totalCycles += currentTime -
-            lastTotalCollectionTime;
+        PerfStats::threadStats.totalCycles +=
+            currentTime - lastTotalCollectionTime;
         PerfStats::threadStats.idleCycles += currentTime - dispatchStartCycles;
         lastTotalCollectionTime = currentTime;
     }
 };
 
-} // namespace Arachne
+}  // namespace Arachne
 
 // Force instantiation for debugging with operator[]
 template class std::vector<Arachne::ThreadContext**>;
-template class std::vector<std::atomic<Arachne::MaskAndCount> * >;
-template class std::vector< std::atomic<uint64_t> *>;
+template class std::vector<std::atomic<Arachne::MaskAndCount>*>;
+template class std::vector<std::atomic<uint64_t>*>;
 template class std::vector<Arachne::PerfStats*>;
 
-#endif // ARACHNE_H_
+#endif  // ARACHNE_H_

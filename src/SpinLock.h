@@ -18,9 +18,9 @@
 
 #include <atomic>
 
-#include "PerfUtils/Cycles.h"
-#include "Logger.h"
 #include "Common.h"
+#include "Logger.h"
+#include "PerfUtils/Cycles.h"
 
 namespace Arachne {
 
@@ -29,7 +29,8 @@ using PerfUtils::Cycles;
 // Forward declarations to resolve various circular dependencies of separating
 // this out.
 struct ThreadContext;
-void yield();
+void
+yield();
 extern thread_local Core core;
 
 /**
@@ -39,24 +40,21 @@ class SpinLock {
   public:
     /** Constructor and destructor for spinlock. */
     explicit SpinLock(std::string name, bool shouldYield = true)
-        : state(false)
-        , name(name)
-        , shouldYield(shouldYield) {}
+        : state(false), name(name), shouldYield(shouldYield) {}
 
     // Delegating constructor forces const char* to resolve to string instead
     // of bool.
     explicit SpinLock(const char* name, bool shouldYield = true)
         : SpinLock(std::string(name), shouldYield) {}
     explicit SpinLock(bool shouldYield = true)
-        : state(false)
-        , owner(NULL)
-        , name("unnamed")
-        , shouldYield(shouldYield) {}
-    ~SpinLock(){}
+        : state(false),
+          owner(NULL),
+          name("unnamed"),
+          shouldYield(shouldYield) {}
+    ~SpinLock() {}
 
     /** Repeatedly try to acquire this resource until success. */
-    inline void
-    lock() {
+    inline void lock() {
         uint64_t startOfContention = 0;
         while (state.exchange(true, std::memory_order_acquire) != false) {
             if (startOfContention == 0) {
@@ -64,9 +62,10 @@ class SpinLock {
             } else {
                 uint64_t now = Cycles::rdtsc();
                 if (Cycles::toSeconds(now - startOfContention) > 1.0) {
-                    ARACHNE_LOG(WARNING,
-                            "%s SpinLock locked for one second; deadlock?\n",
-                            name.c_str());
+                    ARACHNE_LOG(
+                        WARNING,
+                        "%s SpinLock locked for one second; deadlock?\n",
+                        name.c_str());
                     startOfContention = now;
                 }
             }
@@ -80,8 +79,7 @@ class SpinLock {
      * \return
      *    Whether or not the acquisition succeeded.  inline bool
      */
-    inline bool
-    try_lock() {
+    inline bool try_lock() {
         // If the original value was false, then we successfully acquired the
         // lock. Otherwise we failed.
         if (!state.exchange(true, std::memory_order_acquire)) {
@@ -92,16 +90,10 @@ class SpinLock {
     }
 
     /** Release resource. */
-    inline void
-    unlock() {
-        state.store(false, std::memory_order_release);
-    }
+    inline void unlock() { state.store(false, std::memory_order_release); }
 
     /** Set the label used for deadlock warning. */
-    inline void
-    setName(std::string name) {
-        this->name = name;
-    }
+    inline void setName(std::string name) { this->name = name; }
 
   private:
     // Implements the lock: false means free, true means locked
@@ -125,5 +117,5 @@ class SpinLock {
     // to set this to true to avoid deadlock.
     bool shouldYield;
 };
-} // namespace Arachne
+}  // namespace Arachne
 #endif

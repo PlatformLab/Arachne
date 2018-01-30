@@ -27,17 +27,14 @@ namespace Arachne {
 /**
  * Log levels from most to least inclusive.
  */
-enum LogLevel {VERBOSE, DEBUG, NOTICE, WARNING, ERROR, SILENT };
+enum LogLevel { VERBOSE, DEBUG, NOTICE, WARNING, ERROR, SILENT };
 
 class Logger {
   public:
-
     /**
      * Used to set the minimum severity to print out.
      */
-    static void setLogLevel(LogLevel level) {
-        displayMinLevel = level;
-    }
+    static void setLogLevel(LogLevel level) { displayMinLevel = level; }
 
     /**
      * Print a message to the console at a given severity level. Accepts
@@ -60,6 +57,6 @@ class Logger {
     static std::mutex mutex;
 };
 
-} // namespace Arachne
+}  // namespace Arachne
 
 #endif
