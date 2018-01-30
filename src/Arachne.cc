@@ -215,13 +215,15 @@ alignedAlloc(size_t size, size_t alignment) {
  */
 void
 threadMain() {
-    if (initCore) initCore();
+    if (initCore)
+        initCore();
 
     for (;;) {
         coreArbiter->blockUntilCoreAvailable();
         // Prevent the use of abandoned ThreadContext which occurred as a
         // result of a shutdown request.
-        if (shutdown) break;
+        if (shutdown)
+            break;
         {
             std::lock_guard<SpinLock> _(coreChangeMutex);
             core.kernelThreadId = virtualCoreTable[numActiveCores];
@@ -245,7 +247,8 @@ threadMain() {
             TimeTrace::record("Core Count %d --> %d", numActiveCores - 1,
                               numActiveCores.load());
 #endif
-            if (coreChangeActive) coreChangeActive = false;
+            if (coreChangeActive)
+                coreChangeActive = false;
             PerfStats::threadStats.numCoreIncrements++;
         }
 
@@ -270,7 +273,8 @@ threadMain() {
         swapcontext(&core.loadedContext->sp,
                     &kernelThreadStacks[core.kernelThreadId]);
         numActiveCores--;
-        if (shutdown) break;
+        if (shutdown)
+            break;
         {
             std::lock_guard<SpinLock> _(coreChangeMutex);
             ARACHNE_LOG(DEBUG, "Number of cores decreased from %d to %d\n",
@@ -284,7 +288,8 @@ threadMain() {
             // Cleanup is completed, so we can carry on with the next core
             // release if needed.
             coreReleaseRequestCount--;
-            if (coreReleaseRequestCount) descheduleCore();
+            if (coreReleaseRequestCount)
+                descheduleCore();
         }
         PerfStats::threadStats.numCoreDecrements++;
     }
@@ -396,7 +401,8 @@ schedulerMainLoop() {
         do {
             MaskAndCount slotMap = *core.localOccupiedAndCount;
             MaskAndCount oldSlotMap = slotMap;
-            if (slotMap.numOccupied == 0) abort();
+            if (slotMap.numOccupied == 0)
+                abort();
             slotMap.numOccupied--;
 
             slotMap.occupied = slotMap.occupied &
@@ -424,7 +430,8 @@ schedulerMainLoop() {
  */
 void
 yield() {
-    if (!core.loadedContext) return;
+    if (!core.loadedContext)
+        return;
     if (core.localOccupiedAndCount->load().numOccupied == 1 && !shutdown &&
         !core.threadShouldYield)
         return;
@@ -664,7 +671,8 @@ void
 join(ThreadId id) {
     std::unique_lock<SpinLock> joinGuard(id.context->joinLock);
     // Thread has already exited.
-    if (id.generation != id.context->generation) return;
+    if (id.generation != id.context->generation)
+        return;
     id.context->joinCV.wait(joinGuard);
 }
 
@@ -715,7 +723,8 @@ waitForTermination() {
  */
 void
 parseOptions(int* argcp, const char** argv) {
-    if (argcp == NULL) return;
+    if (argcp == NULL)
+        return;
 
     int argc = *argcp;
 
@@ -877,7 +886,8 @@ ThreadContext::initializeStack() {
  */
 void
 init(CorePolicy* arachneCorePolicy, int* argcp, const char** argv) {
-    if (initialized) return;
+    if (initialized)
+        return;
     initialized = true;
     parseOptions(argcp, argv);
 
@@ -886,8 +896,10 @@ init(CorePolicy* arachneCorePolicy, int* argcp, const char** argv) {
 
     corePolicy = arachneCorePolicy;
 
-    if (minNumCores == 0) minNumCores = 1;
-    if (maxNumCores == 0) maxNumCores = std::thread::hardware_concurrency();
+    if (minNumCores == 0)
+        minNumCores = 1;
+    if (maxNumCores == 0)
+        maxNumCores = std::thread::hardware_concurrency();
     maxNumCores = std::max(minNumCores, maxNumCores);
 
     std::vector<uint32_t> coreRequest({minNumCores, 0, 0, 0, 0, 0, 0, 0});
@@ -1085,7 +1097,8 @@ ConditionVariable::~ConditionVariable() {}
  */
 void
 ConditionVariable::notifyOne() {
-    if (blockedThreads.empty()) return;
+    if (blockedThreads.empty())
+        return;
     ThreadId awakenedThread = blockedThreads.front();
     blockedThreads.pop_front();
     signal(awakenedThread);
@@ -1130,8 +1143,10 @@ releaseCore() {
 void
 incrementCoreCount() {
     std::lock_guard<SpinLock> _(coreChangeMutex);
-    if (coreChangeActive) return;
-    if (numActiveCores >= maxNumCores) return;
+    if (coreChangeActive)
+        return;
+    if (numActiveCores >= maxNumCores)
+        return;
 
     coreChangeActive = true;
     ARACHNE_LOG(NOTICE, "Attempting to increase number of cores %u --> %u\n",
@@ -1153,8 +1168,10 @@ incrementCoreCount() {
 void
 decrementCoreCount() {
     std::lock_guard<SpinLock> _(coreChangeMutex);
-    if (coreChangeActive) return;
-    if (numActiveCores <= minNumCores) return;
+    if (coreChangeActive)
+        return;
+    if (numActiveCores <= minNumCores)
+        return;
 
     coreChangeActive = true;
     ARACHNE_LOG(NOTICE, "Attempting to decrease number of cores %u --> %u\n",
@@ -1215,15 +1232,18 @@ descheduleCore() {
  */
 void
 checkForArbiterRequest() {
-    if (!coreArbiter->mustReleaseCore()) return;
+    if (!coreArbiter->mustReleaseCore())
+        return;
     std::lock_guard<SpinLock> _(coreChangeMutex);
     coreReleaseRequestCount++;
 
-    if (coreReleaseRequestCount >= numActiveCores) abort();
+    if (coreReleaseRequestCount >= numActiveCores)
+        abort();
 
     // Deschedule a core iff we are the first thread to read that a
     // core release is needed.
-    if (coreReleaseRequestCount == 1) descheduleCore();
+    if (coreReleaseRequestCount == 1)
+        descheduleCore();
 }
 
 /**
@@ -1393,7 +1413,8 @@ makeExclusiveOnCore(bool forScaleDown) {
     // Sanity checking that we are the only thread left on this core.
     int count = 0;
     for (int i = 0; i < maxThreadsPerCore; i++)
-        if (blockedOccupiedAndCount.occupied & (1L << i)) count++;
+        if (blockedOccupiedAndCount.occupied & (1L << i))
+            count++;
     if (count != 1) {
         abort();
     }
