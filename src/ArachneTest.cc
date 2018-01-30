@@ -848,7 +848,8 @@ bool
 canThreadBeCreatedOnCore(ThreadClass threadClass, int coreId) {
     CoreList* entry = corePolicyTest->getRunnableCores(threadClass);
     for (uint32_t i = 0; i < entry->numFilled; i++) {
-        if (entry->map[i] == coreId) return true;
+        if (entry->map[i] == coreId)
+            return true;
     }
     return false;
 }

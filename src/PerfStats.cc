@@ -27,7 +27,8 @@ thread_local PerfStats PerfStats::threadStats(true);
 // This constructor will automatically register a PerfStats structure
 // if `true` is passed.
 PerfStats::PerfStats(bool shouldRegister) {
-    if (shouldRegister) registerStats(this);
+    if (shouldRegister)
+        registerStats(this);
 }
 
 /**
