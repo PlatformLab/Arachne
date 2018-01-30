@@ -156,11 +156,9 @@ std::vector<std::condition_variable*> cvArray;
 /* Protects isIdledArray so cores do not get idled multiple times */
 SpinLock coreIdlerLock("coreIdlerLock", false);
 
-void
-idleCorePrivate(int coreId);
+void idleCorePrivate(int coreId);
 
-void
-descheduleCore();
+void descheduleCore();
 /**
  * All core-specific state that is not associated with other classes.
  */

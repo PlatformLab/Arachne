@@ -69,8 +69,7 @@ const uint64_t MEASUREMENT_PERIOD = 50 * 1000 * 1000;
 /* Is the core load estimator running? */
 bool loadEstimatorRunning = false;
 
-void
-coreLoadEstimator(CorePolicy* corePolicy);
+void coreLoadEstimator(CorePolicy* corePolicy);
 
 /*
  * Choose a core to deschedule.  Return its coreId.

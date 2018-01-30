@@ -86,8 +86,7 @@ struct Core {
     uint8_t highestOccupiedContext;
 };
 
-void*
-alignedAlloc(size_t size, size_t alignment = CACHE_LINE_SIZE);
+void* alignedAlloc(size_t size, size_t alignment = CACHE_LINE_SIZE);
 }  // namespace Arachne
 
 #endif
