@@ -19,21 +19,21 @@
 #include <assert.h>
 #include <stdio.h>
 #include <string.h>
-#include <functional>
-#include <vector>
-#include <mutex>
-#include <deque>
 #include <atomic>
+#include <condition_variable>
+#include <deque>
+#include <functional>
+#include <mutex>
 #include <queue>
 #include <string>
-#include <condition_variable>
 #include <thread>
+#include <vector>
 
-#include "PerfUtils/Cycles.h"
-#include "PerfUtils/Util.h"
+#include "Common.h"
 #include "Logger.h"
 #include "PerfStats.h"
-#include "Common.h"
+#include "PerfUtils/Cycles.h"
+#include "PerfUtils/Util.h"
 #include "SpinLock.h"
 
 /*
@@ -52,13 +52,13 @@ typedef uint32_t ThreadClass;
  * An unordered list of cores, defined as {map[i] for i < numFilled}.
  */
 struct CoreList {
-  /* The number of cores in the list */
-  uint32_t numFilled;
-  /*
-   * An array containing the list.  Must be dynamically allocated to a size
-   * equal to the number of cores on the machine.
-   */
-  int* map;
+    /* The number of cores in the list */
+    uint32_t numFilled;
+    /*
+     * An array containing the list.  Must be dynamically allocated to a size
+     * equal to the number of cores on the machine.
+     */
+    int* map;
 };
 
 /*
@@ -74,21 +74,21 @@ class CorePolicy {
      * Constructor and destructor for CorePolicy.
      */
     CorePolicy() : corePolicyMutex("corePolicyMutex", false) {
-        threadClassCoreMap = (CoreList**)
-          malloc(MAX_THREAD_CLASSES * sizeof(CoreList*));
+        threadClassCoreMap = reinterpret_cast<CoreList**>(
+            malloc(MAX_THREAD_CLASSES * sizeof(CoreList*)));
         for (int i = 0; i < MAX_THREAD_CLASSES; i++) {
-            threadClassCoreMap[i] = (CoreList*)
-              malloc(sizeof(CoreList));
-            threadClassCoreMap[i]->map = (int*)
-              calloc(std::thread::hardware_concurrency(), sizeof(int));
+            threadClassCoreMap[i] =
+                reinterpret_cast<CoreList*>(malloc(sizeof(CoreList)));
+            threadClassCoreMap[i]->map = reinterpret_cast<int*>(
+                calloc(std::thread::hardware_concurrency(), sizeof(int)));
             threadClassCoreMap[i]->numFilled = 0;
-          }
+        }
     }
     virtual ~CorePolicy() {
         for (int i = 0; i < MAX_THREAD_CLASSES; i++) {
             free(threadClassCoreMap[i]->map);
             free(threadClassCoreMap[i]);
-          }
+        }
         free(threadClassCoreMap);
     }
     virtual int chooseRemovableCore();
@@ -105,22 +105,21 @@ class CorePolicy {
 
   protected:
     virtual void coreLoadEstimator();
-     /*
-      * A map from thread classes to cores on which threads of those classes
-      * can run.  threadClassCoreMap[i] is a CoreList of the cores on which
-      * threads of class i can run.
-      *
-      * Resizing of the threadClassCoreMap is not safe, so the
-      * threadClassCoreMap is entirely allocated once at startup and
-      * must be large enough to meet future needs.
-      */
+    /*
+     * A map from thread classes to cores on which threads of those classes
+     * can run.  threadClassCoreMap[i] is a CoreList of the cores on which
+     * threads of class i can run.
+     *
+     * Resizing of the threadClassCoreMap is not safe, so the
+     * threadClassCoreMap is entirely allocated once at startup and
+     * must be large enough to meet future needs.
+     */
     CoreList** threadClassCoreMap;
     /*
      * A lock that protects the threadClassCoreMap.  Held whenever
      * threadClassCoreMap is updated.
      */
     Arachne::SpinLock corePolicyMutex;
-
 };
 
-#endif // COREPOLICY_H_
+#endif  // COREPOLICY_H_

@@ -15,15 +15,15 @@
 
 #include <stdio.h>
 #include <thread>
+#include "CoreArbiter/CoreArbiterClient.h"
+#include "PerfUtils/Cycles.h"
 #include "PerfUtils/TimeTrace.h"
 #include "PerfUtils/Util.h"
-#include "PerfUtils/Cycles.h"
-#include "CoreArbiter/CoreArbiterClient.h"
 
 #include "Arachne.h"
+#include "CoreArbiter/ArbiterClientShim.h"
 #include "CorePolicy.h"
 #include "PerfStats.h"
-#include "CoreArbiter/ArbiterClientShim.h"
 
 using PerfUtils::Cycles;
 
@@ -44,7 +44,7 @@ const double loadFactorThreshold = 1.0;
  * utilizationThresholds[i] is the active core fraction at the time the number
  * of cores was ramped up from i to i + 1.  Allocated in bootstrapLoadEstimator.
  */
-double *utilizationThresholds = NULL;
+double* utilizationThresholds = NULL;
 
 /*
  * The difference in load, expressed as a fraction of a core, between a
@@ -69,12 +69,14 @@ const uint64_t MEASUREMENT_PERIOD = 50 * 1000 * 1000;
 /* Is the core load estimator running? */
 bool loadEstimatorRunning = false;
 
-void coreLoadEstimator(CorePolicy* corePolicy);
+void
+coreLoadEstimator(CorePolicy* corePolicy);
 
 /*
  * Choose a core to deschedule.  Return its coreId.
  */
-int CorePolicy::chooseRemovableCore() {
+int
+CorePolicy::chooseRemovableCore() {
     CoreList* entry = threadClassCoreMap[defaultClass];
     uint8_t minLoaded =
         Arachne::occupiedAndCount[entry->map[0]]->load().numOccupied;
@@ -95,16 +97,18 @@ int CorePolicy::chooseRemovableCore() {
  * \param coreId
  *     The coreId of the new core.
  */
-void CorePolicy::addCore(int coreId) {
-  std::lock_guard<Arachne::SpinLock> _(corePolicyMutex);
-  CoreList* entry = threadClassCoreMap[defaultClass];
-  entry->map[entry->numFilled] = coreId;
-  entry->numFilled++;
-  // This function bootstraps the coreLoadEstimator as soon as it has a core.
-  if (!loadEstimatorRunning && !Arachne::disableLoadEstimation) {
-    loadEstimatorRunning = true;
-    Arachne::createThread(defaultClass, &CorePolicy::coreLoadEstimator, this);
-  }
+void
+CorePolicy::addCore(int coreId) {
+    std::lock_guard<Arachne::SpinLock> _(corePolicyMutex);
+    CoreList* entry = threadClassCoreMap[defaultClass];
+    entry->map[entry->numFilled] = coreId;
+    entry->numFilled++;
+    // This function bootstraps the coreLoadEstimator as soon as it has a core.
+    if (!loadEstimatorRunning && !Arachne::disableLoadEstimation) {
+        loadEstimatorRunning = true;
+        Arachne::createThread(defaultClass, &CorePolicy::coreLoadEstimator,
+                              this);
+    }
 }
 
 /*
@@ -113,17 +117,18 @@ void CorePolicy::addCore(int coreId) {
  * \param coreId
  *     The coreId of the doomed core.
  */
-void CorePolicy::removeCore(int coreId) {
-  std::lock_guard<Arachne::SpinLock> _(corePolicyMutex);
-  CoreList* entry = threadClassCoreMap[defaultClass];
-  entry->numFilled--;
-  int saveCoreId = entry->map[entry->numFilled];
-  for (uint32_t i = 0; i < entry->numFilled; i++) {
-    if (entry->map[i] == coreId) {
-      entry->map[i] = saveCoreId;
-      return;
+void
+CorePolicy::removeCore(int coreId) {
+    std::lock_guard<Arachne::SpinLock> _(corePolicyMutex);
+    CoreList* entry = threadClassCoreMap[defaultClass];
+    entry->numFilled--;
+    int saveCoreId = entry->map[entry->numFilled];
+    for (uint32_t i = 0; i < entry->numFilled; i++) {
+        if (entry->map[i] == coreId) {
+            entry->map[i] = saveCoreId;
+            return;
+        }
     }
-  }
 }
 
 /*
@@ -135,8 +140,9 @@ void CorePolicy::removeCore(int coreId) {
  * \param threadClass
  *     The threadClass whose CoreList will be returned.
  */
-CoreList* CorePolicy::getRunnableCores(ThreadClass threadClass) {
-  return threadClassCoreMap[threadClass];
+CoreList*
+CorePolicy::getRunnableCores(ThreadClass threadClass) {
+    return threadClassCoreMap[threadClass];
 }
 
 /*
@@ -144,22 +150,22 @@ CoreList* CorePolicy::getRunnableCores(ThreadClass threadClass) {
  * whether it is necessary to increase or reduce the number of cores used by
  * Arachne.  Runs as the top-level method in an Arachne thread.
  */
-void CorePolicy::coreLoadEstimator() {
+void
+CorePolicy::coreLoadEstimator() {
     utilizationThresholds = new double[Arachne::maxNumCores];
     Arachne::PerfStats previousStats;
     Arachne::PerfStats::collectStats(&previousStats);
 
     // Each loop cycle makes measurements and uses them to evaluate whether
     // to increment the core count, decrement it, or do nothing.
-    for (Arachne::PerfStats currentStats; ; previousStats = currentStats) {
+    for (Arachne::PerfStats currentStats;; previousStats = currentStats) {
         Arachne::sleep(MEASUREMENT_PERIOD);
         Arachne::PerfStats::collectStats(&currentStats);
 
         // Take a snapshot of currently active cores before performing
         // estimation to avoid races between estimation and the fulfillment of
         // a previous core request.
-        uint32_t curActiveCores =
-          getRunnableCores(defaultClass)->numFilled;
+        uint32_t curActiveCores = getRunnableCores(defaultClass)->numFilled;
 
         // Evaluate idle time precentage multiplied by number of cores to
         // determine whether we need to decrease the number of cores.
@@ -170,20 +176,17 @@ void CorePolicy::coreLoadEstimator() {
         uint64_t utilizedCycles = totalCycles - idleCycles;
         uint64_t totalMeasurementCycles =
             Cycles::fromNanoseconds(MEASUREMENT_PERIOD);
-        double totalUtilizedCores =
-            static_cast<double>(utilizedCycles) /
-            static_cast<double>(totalMeasurementCycles);
+        double totalUtilizedCores = static_cast<double>(utilizedCycles) /
+                                    static_cast<double>(totalMeasurementCycles);
 
         // Estimate load to determine whether we need to increment the number
         // of cores.
-        uint64_t weightedLoadedCycles =
-            currentStats.weightedLoadedCycles -
-            previousStats.weightedLoadedCycles;
-        double averageLoadFactor =
-            static_cast<double>(weightedLoadedCycles) /
-            static_cast<double>(totalCycles);
+        uint64_t weightedLoadedCycles = currentStats.weightedLoadedCycles -
+                                        previousStats.weightedLoadedCycles;
+        double averageLoadFactor = static_cast<double>(weightedLoadedCycles) /
+                                   static_cast<double>(totalCycles);
         if (curActiveCores < Arachne::maxNumCores &&
-                averageLoadFactor > loadFactorThreshold) {
+            averageLoadFactor > loadFactorThreshold) {
             // Record our current totalUtilizedCores, so we will only ramp down
             // if utilization would drop below this level.
             utilizationThresholds[curActiveCores] = totalUtilizedCores;
@@ -192,16 +195,16 @@ void CorePolicy::coreLoadEstimator() {
         }
 
         // We should not ramp down if we have high occupancy of slots.
-        double averageNumSlotsUsed = static_cast<double>(
-                currentStats.numThreadsCreated -
-                currentStats.numThreadsFinished) /
-                curActiveCores / Arachne::maxThreadsPerCore;
+        double averageNumSlotsUsed =
+            static_cast<double>(currentStats.numThreadsCreated -
+                                currentStats.numThreadsFinished) /
+            curActiveCores / Arachne::maxThreadsPerCore;
 
         // Scale down if the idle time after scale down is greater than the
         // time at which we scaled up, plus a hysteresis threshold.
-        if (totalUtilizedCores < utilizationThresholds[curActiveCores - 1]
-                - idleCoreFractionHysteresis &&
-                averageNumSlotsUsed < SLOT_OCCUPANCY_THRESHOLD) {
+        if (totalUtilizedCores < utilizationThresholds[curActiveCores - 1] -
+                                     idleCoreFractionHysteresis &&
+            averageNumSlotsUsed < SLOT_OCCUPANCY_THRESHOLD) {
             Arachne::decrementCoreCount();
         }
     }

@@ -88,6 +88,6 @@ struct PerfStats {
     static void deregisterStats(PerfStats* stats);
     static void collectStats(PerfStats* total);
 };
-} // namespace Arachne
+}  // namespace Arachne
 
 #endif  // ARACHNE_PERFSTATS_H

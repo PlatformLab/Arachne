@@ -20,17 +20,17 @@
 #define private public
 #define protected public
 #include "Arachne.h"
-#include "CorePolicy.h"
-#include "CoreArbiter/CoreArbiterServer.h"
-#include "CoreArbiter/CoreArbiterClient.h"
-#include "CoreArbiter/MockSyscall.h"
-#include "CoreArbiter/Logger.h"
 #include "CoreArbiter/ArbiterClientShim.h"
+#include "CoreArbiter/CoreArbiterClient.h"
+#include "CoreArbiter/CoreArbiterServer.h"
+#include "CoreArbiter/Logger.h"
+#include "CoreArbiter/MockSyscall.h"
+#include "CorePolicy.h"
 
 namespace Arachne {
 
-using CoreArbiter::CoreArbiterServer;
 using CoreArbiter::CoreArbiterClient;
+using CoreArbiter::CoreArbiterServer;
 using CoreArbiter::MockSyscall;
 
 extern bool useCoreArbiter;
@@ -43,8 +43,8 @@ extern CoreArbiterClient* coreArbiter;
 
 CorePolicy* corePolicyTest;
 
-static void limitedTimeWait(std::function<bool()> condition,
-        int numIterations = 1000);
+static void
+limitedTimeWait(std::function<bool()> condition, int numIterations = 1000);
 
 struct Environment : public ::testing::Environment {
     CoreArbiterServer* coreArbiterServer;
@@ -61,14 +61,11 @@ struct Environment : public ::testing::Environment {
         CoreArbiterServer::testingSkipCpusetAllocation = true;
 
         CoreArbiterServer::sys = sys;
-        coreArbiterServer = new CoreArbiterServer(
-                std::string(TEST_SOCKET),
-                std::string(TEST_MEM),
-                {1,2,3,4,5,6,7}, false);
-        coreArbiterServerThread = new std::thread([=] {
-                coreArbiterServer->startArbitration();
-                });
-
+        coreArbiterServer = new CoreArbiterServer(std::string(TEST_SOCKET),
+                                                  std::string(TEST_MEM),
+                                                  {1, 2, 3, 4, 5, 6, 7}, false);
+        coreArbiterServerThread =
+            new std::thread([=] { coreArbiterServer->startArbitration(); });
     }
     // Override this to define how to tear down the environment.
     virtual void TearDown() {
@@ -80,27 +77,27 @@ struct Environment : public ::testing::Environment {
     }
 };
 
-::testing::Environment* const testEnvironment = (useCoreArbiter) ?
-    ::testing::AddGlobalTestEnvironment(new Environment) : NULL;
+::testing::Environment* const testEnvironment =
+    (useCoreArbiter) ? ::testing::AddGlobalTestEnvironment(new Environment)
+                     : NULL;
 
 struct ArachneTest : public ::testing::Test {
-    virtual void SetUp()
-    {
+    virtual void SetUp() {
         Arachne::minNumCores = 1;
         Arachne::maxNumCores = 3;
         Arachne::disableLoadEstimation = true;
         corePolicyTest = new CorePolicy();
         Arachne::init(corePolicyTest);
         // Artificially wake up all threads for testing purposes
-        std::vector<uint32_t> coreRequest({3,0,0,0,0,0,0,0});
+        std::vector<uint32_t> coreRequest({3, 0, 0, 0, 0, 0, 0, 0});
         coreArbiter->setRequestedCores(coreRequest);
-        limitedTimeWait([]() -> bool { return numActiveCores == 3;});
+        limitedTimeWait([]() -> bool { return numActiveCores == 3; });
     }
 
-    virtual void TearDown()
-    {
+    virtual void TearDown() {
         // Unblock all cores so they can shut down and be joined.
-        coreArbiter->setRequestedCores({Arachne::maxNumCores,0,0,0,0,0,0,0});
+        coreArbiter->setRequestedCores(
+            {Arachne::maxNumCores, 0, 0, 0, 0, 0, 0, 0});
 
         shutDown();
         waitForTermination();
@@ -109,8 +106,8 @@ struct ArachneTest : public ::testing::Test {
 
 // Helper function for tests with timing dependencies, so that we wait for a
 // finite amount of time in the case of a bug causing an infinite loop.
-static void limitedTimeWait(std::function<bool()> condition,
-                int numIterations) {
+static void
+limitedTimeWait(std::function<bool()> condition, int numIterations) {
     for (int i = 0; i < numIterations; i++) {
         if (condition()) {
             break;
@@ -125,7 +122,9 @@ static void limitedTimeWait(std::function<bool()> condition,
 TEST_F(ArachneTest, CorePolicy_constructor) {
     CorePolicy* corePolicy = new CorePolicy();
     for (unsigned i = 0; i < std::thread::hardware_concurrency(); i++) {
-        EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[i], 0);
+        EXPECT_EQ(
+            corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[i],
+            0);
     }
     delete corePolicy;
 }
@@ -133,13 +132,19 @@ TEST_F(ArachneTest, CorePolicy_constructor) {
 TEST_F(ArachneTest, CorePolicy_addCore) {
     CorePolicy* corePolicy = new CorePolicy();
     corePolicy->addCore(5);
-    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[0], 5);
+    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[0],
+              5);
     corePolicy->addCore(4);
     corePolicy->addCore(7);
-    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[0], 5);
-    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[1], 4);
-    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[2], 7);
-    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->numFilled, 3U);
+    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[0],
+              5);
+    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[1],
+              4);
+    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[2],
+              7);
+    EXPECT_EQ(
+        corePolicy->threadClassCoreMap[corePolicy->defaultClass]->numFilled,
+        3U);
     delete corePolicy;
 }
 
@@ -149,14 +154,23 @@ TEST_F(ArachneTest, CorePolicy_removeCore) {
     corePolicy->addCore(4);
     corePolicy->addCore(7);
     corePolicy->removeCore(5);
-    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->numFilled, 2U);
-    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[0], 7);
-    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[1], 4);
+    EXPECT_EQ(
+        corePolicy->threadClassCoreMap[corePolicy->defaultClass]->numFilled,
+        2U);
+    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[0],
+              7);
+    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[1],
+              4);
     corePolicy->removeCore(4);
-    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->numFilled, 1U);
-    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[0], 7);
+    EXPECT_EQ(
+        corePolicy->threadClassCoreMap[corePolicy->defaultClass]->numFilled,
+        1U);
+    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[0],
+              7);
     corePolicy->removeCore(7);
-    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->numFilled, 0U);
+    EXPECT_EQ(
+        corePolicy->threadClassCoreMap[corePolicy->defaultClass]->numFilled,
+        0U);
     delete corePolicy;
 }
 
@@ -174,4 +188,4 @@ TEST_F(ArachneTest, CorePolicy_getRunnableCores) {
     delete corePolicy;
 }
 
-} // namespace Arachne
+}  // namespace Arachne
