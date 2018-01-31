@@ -713,6 +713,7 @@ waitForTermination() {
     delete[] virtualCoreTable;
     PerfUtils::Util::serialize();
     coreArbiter->reset();
+    corePolicy = NULL;
     initialized = false;
 }
 
@@ -854,6 +855,37 @@ ThreadContext::initializeStack() {
 }
 
 /**
+ * Set the core policy for Arachne, if the application wants a policy other
+ * than the default. This function should be invoked before Arachne::init(),
+ * and the object passed in is owned by Arachne after this function returns.
+ *
+ * \param arachneCorePolicy
+ *    A pointer to the CorePolicy that Arachne will use.  The CorePolicy
+ *    controls thread allocation to cores.
+ */
+void
+setCorePolicy(CorePolicy* arachneCorePolicy) {
+    if (initialized) {
+        ARACHNE_LOG(ERROR,
+                    "Attempting to set core policy after Arachne::init has "
+                    "already been invoked");
+        abort();
+    }
+    if (corePolicy != NULL)
+        delete corePolicy;
+    corePolicy = arachneCorePolicy;
+}
+
+/**
+ * Get the current core policy used by Arachne. This should be used only for
+ * testing.
+ */
+CorePolicy*
+getCorePolicyForTest() {
+    return corePolicy;
+}
+
+/**
  * This function sets up state needed by the thread library, and must be
  * invoked before any other function in the thread library is invoked. It is
  * undefined behavior to invoke other Arachne functions before this one.
@@ -873,9 +905,6 @@ ThreadContext::initializeStack() {
  *     --stackSize
  *        The size of each user stack.
  *
- * \param arachneCorePolicy
- *    A pointer to the CorePolicy that Arachne will use.  The CorePolicy
- *    controls thread allocation to cores.
  * \param argcp
  *    The pointer to argc, the number of arguments passed to the application.
  *    This pointer will be used to update argc after Arachne has consumed its
@@ -885,7 +914,7 @@ ThreadContext::initializeStack() {
  *    remove the options that Arachne recognizes.
  */
 void
-init(CorePolicy* arachneCorePolicy, int* argcp, const char** argv) {
+init(int* argcp, const char** argv) {
     if (initialized)
         return;
     initialized = true;
@@ -894,7 +923,9 @@ init(CorePolicy* arachneCorePolicy, int* argcp, const char** argv) {
     coreArbiter = (useCoreArbiter) ? CoreArbiterClient::getInstance(TEST_SOCKET)
                                    : ArbiterClientShim::getInstance();
 
-    corePolicy = arachneCorePolicy;
+    if (corePolicy == NULL) {
+        corePolicy = new CorePolicy();
+    }
 
     if (minNumCores == 0)
         minNumCores = 1;

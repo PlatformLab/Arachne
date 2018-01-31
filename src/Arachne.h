@@ -130,8 +130,7 @@ struct ThreadId {
     bool operator!() const { return *this == ThreadId(); }
 };
 
-void init(CorePolicy* initCorePolicy, int* argcp = NULL,
-          const char** argv = NULL);
+void init(int* argcp = NULL, const char** argv = NULL);
 void shutDown();
 void waitForTermination();
 void yield();
@@ -142,6 +141,9 @@ void unidleCore(int coreId);
 
 bool makeExclusiveOnCore(bool forScaleDown = false);
 void makeSharedOnCore();
+
+void setCorePolicy(CorePolicy* arachneCorePolicy);
+CorePolicy* getCorePolicyForTest();
 
 /**
  * Block the current thread until another thread invokes join() with the
