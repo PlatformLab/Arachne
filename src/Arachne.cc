@@ -949,7 +949,8 @@ init(CorePolicy* arachneCorePolicy, int* argcp, const char** argv) {
     }
 
     // Block until minNumCores is active, per the application's requirements.
-    while (numActiveCores != minNumCores) usleep(1);
+    while (numActiveCores != minNumCores)
+        usleep(1);
 }
 
 /**
@@ -1111,7 +1112,8 @@ ConditionVariable::notifyOne() {
  */
 void
 ConditionVariable::notifyAll() {
-    while (!blockedThreads.empty()) notifyOne();
+    while (!blockedThreads.empty())
+        notifyOne();
 }
 
 /**
@@ -1219,8 +1221,7 @@ descheduleCore() {
     // hold it for too long.
     // If this creation fails, it would implies that we are overloaded and
     // should not ramp down.
-    if (createThreadOnCore(corePolicy->defaultClass, minCoreId, releaseCore) ==
-        NullThread) {
+    if (createThreadOnCore(minCoreId, releaseCore) == NullThread) {
         coreChangeActive = false;
         ARACHNE_LOG(WARNING, "Release core thread creation failed to %d!\n",
                     minCoreId);
@@ -1471,8 +1472,7 @@ idleCore(int coreId) {
     std::lock_guard<SpinLock> _(coreIdlerLock);
     if (!isIdledArray[coreId]) {
         isIdledArray[coreId] = true;
-        if (createThreadOnCore(corePolicy->defaultClass, coreId,
-                               idleCorePrivate, coreId) == NullThread) {
+        if (createThreadOnCore(coreId, idleCorePrivate, coreId) == NullThread) {
             ARACHNE_LOG(ERROR, "Error creating idleCorePrivate thread\n");
         }
     }

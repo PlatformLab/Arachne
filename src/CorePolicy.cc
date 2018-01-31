@@ -105,8 +105,7 @@ CorePolicy::addCore(int coreId) {
     // This function bootstraps the coreLoadEstimator as soon as it has a core.
     if (!loadEstimatorRunning && !Arachne::disableLoadEstimation) {
         loadEstimatorRunning = true;
-        Arachne::createThread(defaultClass, &CorePolicy::coreLoadEstimator,
-                              this);
+        Arachne::createThread(&CorePolicy::coreLoadEstimator, this);
     }
 }
 
