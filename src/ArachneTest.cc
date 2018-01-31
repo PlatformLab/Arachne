@@ -40,8 +40,6 @@ extern int* virtualCoreTable;
 
 extern CoreArbiterClient* coreArbiter;
 
-CorePolicy* corePolicyTest;
-
 static void limitedTimeWait(std::function<bool()> condition,
                             int numIterations = 1000);
 
@@ -85,8 +83,7 @@ struct ArachneTest : public ::testing::Test {
         Arachne::minNumCores = 1;
         Arachne::maxNumCores = 3;
         Arachne::disableLoadEstimation = true;
-        corePolicyTest = new CorePolicy();
-        Arachne::init(corePolicyTest);
+        Arachne::init();
         // Articially wake up all threads for testing purposes
         std::vector<uint32_t> coreRequest({3, 0, 0, 0, 0, 0, 0, 0});
         coreArbiter->setRequestedCores(coreRequest);
@@ -439,7 +436,7 @@ bitSetter(int index) {
 
 TEST_F(ArachneTest, yield_secondThreadGotControl) {
     minNumCores = 2;
-    init(new CorePolicy());
+    Arachne::init();
     keepYielding = true;
     createThreadOnCore(0, yielder);
 
@@ -455,7 +452,7 @@ TEST_F(ArachneTest, yield_secondThreadGotControl) {
 
 TEST_F(ArachneTest, yield_allThreadsRan) {
     Arachne::minNumCores = 2;
-    Arachne::init(new CorePolicy());
+    Arachne::init();
     keepYielding = true;
     flag = 0;
 
@@ -485,13 +482,13 @@ simplesleeper() {
 
 TEST_F(ArachneTest, sleep_minimumDelay) {
     minNumCores = 2;
-    init(new CorePolicy());
+    init();
     createThreadOnCore(0, sleeper);
 }
 
 TEST_F(ArachneTest, sleep_wakeupTimeSetAndCleared) {
     Arachne::minNumCores = 2;
-    Arachne::init(new CorePolicy());
+    Arachne::init();
     flag = 0;
     createThreadOnCore(0, simplesleeper);
     limitedTimeWait([]() -> bool { return flag; });
@@ -593,7 +590,7 @@ TEST_F(ArachneTest, join_afterTermination) {
     waitForTermination();
 
     Arachne::minNumCores = 2;
-    Arachne::init(new CorePolicy());
+    Arachne::init();
 
     // Since the joinee does not yield, we know that it terminated before the
     // joiner got a chance to run.
@@ -612,7 +609,7 @@ TEST_F(ArachneTest, join_DuringRun) {
     waitForTermination();
 
     Arachne::minNumCores = 2;
-    Arachne::init(new CorePolicy());
+    Arachne::init();
     joineeId = createThreadOnCore(0, joinee2);
     createThreadOnCore(0, joiner);
     limitedTimeWait([]() -> bool {
@@ -631,7 +628,7 @@ TEST_F(ArachneTest, parseOptions_noOptions) {
     int argc = 3;
     const char* originalArgv[] = {"ArachneTest", "foo", "bar"};
     const char** argv = originalArgv;
-    Arachne::init(new CorePolicy(), &argc, argv);
+    Arachne::init(&argc, argv);
     EXPECT_EQ(3, argc);
     EXPECT_EQ(originalArgv, argv);
     EXPECT_EQ(1U, minNumCores);
@@ -654,7 +651,7 @@ TEST_F(ArachneTest, parseOptions_longOptions) {
                           "6",
                           "--enableArbiter",
                           "0"};
-    Arachne::init(new CorePolicy(), &argc, argv);
+    Arachne::init(&argc, argv);
     EXPECT_EQ(1, argc);
     EXPECT_EQ(useCoreArbiter, false);
     EXPECT_EQ(5U, minNumCores);
@@ -664,7 +661,7 @@ TEST_F(ArachneTest, parseOptions_longOptions) {
     shutDown();
     waitForTermination();
     stackSize = originalStackSize;
-    Arachne::init(new CorePolicy());
+    Arachne::init();
 }
 
 TEST_F(ArachneTest, parseOptions_mixedOptions) {
@@ -678,7 +675,7 @@ TEST_F(ArachneTest, parseOptions_mixedOptions) {
                                   "--stackSize", "8192",         "--appOptionA",
                                   "Argument"};
     const char** argv = originalArgv;
-    Arachne::init(new CorePolicy(), &argc, argv);
+    Arachne::init(&argc, argv);
     EXPECT_EQ(5, argc);
     EXPECT_EQ(stackSize, 8192);
     EXPECT_EQ("--appOptionB", argv[1]);
@@ -692,7 +689,7 @@ TEST_F(ArachneTest, parseOptions_mixedOptions) {
     shutDown();
     waitForTermination();
     stackSize = originalStackSize;
-    Arachne::init(new CorePolicy());
+    Arachne::init();
 }
 
 TEST_F(ArachneTest, parseOptions_mixedOptions_noArbiter) {
@@ -712,7 +709,7 @@ TEST_F(ArachneTest, parseOptions_mixedOptions_noArbiter) {
                                   "--enableArbiter",
                                   "0"};
     const char** argv = originalArgv;
-    Arachne::init(new CorePolicy(), &argc, argv);
+    Arachne::init(&argc, argv);
     EXPECT_EQ(5, argc);
     EXPECT_EQ(useCoreArbiter, false);
     EXPECT_EQ(stackSize, 8192);
@@ -727,7 +724,7 @@ TEST_F(ArachneTest, parseOptions_mixedOptions_noArbiter) {
     shutDown();
     waitForTermination();
     stackSize = originalStackSize;
-    Arachne::init(new CorePolicy());
+    Arachne::init();
 }
 
 TEST_F(ArachneTest, parseOptions_noArgumentOptions) {
@@ -739,7 +736,7 @@ TEST_F(ArachneTest, parseOptions_noArgumentOptions) {
     const char* originalArgv[] = {"ArachneTest", "--disableLoadEstimation",
                                   "--minNumCores", "5"};
     const char** argv = originalArgv;
-    Arachne::init(new CorePolicy(), &argc, argv);
+    Arachne::init(&argc, argv);
     EXPECT_EQ(1, argc);
     EXPECT_EQ(5U, Arachne::minNumCores);
     EXPECT_EQ(5U, Arachne::maxNumCores);
@@ -753,7 +750,7 @@ TEST_F(ArachneTest, parseOptions_appOptionsOnly) {
 
     int argc = 3;
     const char* argv[] = {"ArachneTest", "--appOptionA", "Argument"};
-    Arachne::init(new CorePolicy(), &argc, argv);
+    Arachne::init(&argc, argv);
     EXPECT_EQ(3, argc);
 }
 
@@ -837,8 +834,9 @@ doNothing() {}
 extern volatile bool coreChangeActive;
 
 bool
-canThreadBeCreatedOnCore(ThreadClass threadClass, int coreId) {
-    CoreList* entry = corePolicyTest->getRunnableCores(threadClass);
+canThreadBeCreatedOnCore(ThreadClass threadClass, CorePolicy* corePolicy,
+                         int coreId) {
+    CoreList* entry = corePolicy->getRunnableCores(threadClass);
     for (uint32_t i = 0; i < entry->numFilled; i++) {
         if (entry->map[i] == coreId)
             return true;
@@ -851,9 +849,9 @@ TEST_F(ArachneTest, incrementCoreCount) {
     shutDown();
     waitForTermination();
     maxNumCores = 4;
-    delete corePolicyTest;
-    corePolicyTest = new CorePolicy();
-    Arachne::init(corePolicyTest);
+    CorePolicy* corePolicy = new CorePolicy();
+    Arachne::setCorePolicy(corePolicy);
+    Arachne::init();
     // Articially wake up all threads for testing purposes
     std::vector<uint32_t> coreRequest({3, 0, 0, 0, 0, 0, 0, 0});
     coreArbiter->setRequestedCores(coreRequest);
@@ -862,11 +860,11 @@ TEST_F(ArachneTest, incrementCoreCount) {
     size_t size;
     FILE* newStream = open_memstream(&str, &size);
     setErrorStream(newStream);
-    EXPECT_FALSE(canThreadBeCreatedOnCore(corePolicyTest->defaultClass,
+    EXPECT_FALSE(canThreadBeCreatedOnCore(corePolicy->defaultClass, corePolicy,
                                           virtualCoreTable[3]));
     incrementCoreCount();
     limitedTimeWait([]() -> bool { return numActiveCores > 3; });
-    EXPECT_TRUE(canThreadBeCreatedOnCore(corePolicyTest->defaultClass,
+    EXPECT_TRUE(canThreadBeCreatedOnCore(corePolicy->defaultClass, corePolicy,
                                          virtualCoreTable[3]));
     fflush(newStream);
     EXPECT_EQ("Attempting to increase number of cores 3 --> 4\n",
@@ -881,17 +879,18 @@ TEST_F(ArachneTest, decrementCoreCount) {
     size_t size;
     FILE* newStream = open_memstream(&str, &size);
     setErrorStream(newStream);
-    EXPECT_TRUE(canThreadBeCreatedOnCore(corePolicyTest->defaultClass,
+    CorePolicy* corePolicy = getCorePolicyForTest();
+    EXPECT_TRUE(canThreadBeCreatedOnCore(corePolicy->defaultClass, corePolicy,
                                          virtualCoreTable[2]));
     decrementCoreCount();
     limitedTimeWait(
         []() -> bool { return numActiveCores < 3 && !coreChangeActive; });
-    EXPECT_FALSE(canThreadBeCreatedOnCore(corePolicyTest->defaultClass,
+    EXPECT_FALSE(canThreadBeCreatedOnCore(corePolicy->defaultClass, corePolicy,
                                           virtualCoreTable[2]));
     decrementCoreCount();
     limitedTimeWait(
         []() -> bool { return numActiveCores < 2 && !coreChangeActive; });
-    EXPECT_FALSE(canThreadBeCreatedOnCore(corePolicyTest->defaultClass,
+    EXPECT_FALSE(canThreadBeCreatedOnCore(corePolicy->defaultClass, corePolicy,
                                           virtualCoreTable[1]));
     fflush(newStream);
     EXPECT_EQ(
