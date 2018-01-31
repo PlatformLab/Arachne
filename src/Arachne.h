@@ -500,8 +500,6 @@ random(void) {
  * This function should usually only be invoked directly in tests, since it
  * does not perform load balancing.
  *
- * \param threadClass
- *     The thread class of the new thread.
  * \param coreId
  *     The id for the kernel thread to put the new Arachne thread on.
  * \param __f
@@ -515,8 +513,7 @@ random(void) {
  */
 template <typename _Callable, typename... _Args>
 ThreadId
-createThreadOnCore(ThreadClass threadClass, uint32_t coreId, _Callable&& __f,
-                   _Args&&... __args) {
+createThreadOnCore(uint32_t coreId, _Callable&& __f, _Args&&... __args) {
     auto task =
         std::bind(std::forward<_Callable>(__f), std::forward<_Args>(__args)...);
 
@@ -572,7 +569,7 @@ createThreadOnCore(ThreadClass threadClass, uint32_t coreId, _Callable&& __f,
     // race where the thread finishes executing so fast that we read the next
     // generation number instead of the current one.
     uint32_t generation = allThreadContexts[coreId][index]->generation;
-    threadContext->threadClass = threadClass;
+    threadContext->threadClass = 0;
     threadContext->wakeupTimeInCycles = 0;
 
     // Ensure the highestOccupiedContext is high enough for the new thread to
@@ -613,11 +610,11 @@ createThreadOnCore(ThreadClass threadClass, uint32_t coreId, _Callable&& __f,
  */
 template <typename _Callable, typename... _Args>
 ThreadId
-createThread(ThreadClass threadClass, _Callable&& __f, _Args&&... __args) {
+createThread(_Callable&& __f, _Args&&... __args) {
     // Find a kernel thread to enqueue to by picking two at random and choosing
     // the one with the fewest Arachne threads.
     uint32_t kId;
-    CoreList* entry = corePolicy->getRunnableCores(threadClass);
+    CoreList* entry = corePolicy->getRunnableCores(0);
     uint32_t index1 = static_cast<uint32_t>(random()) % entry->numFilled;
     uint32_t index2 = static_cast<uint32_t>(random()) % entry->numFilled;
     while (index2 == index1 && entry->numFilled > 1)
@@ -631,7 +628,7 @@ createThread(ThreadClass threadClass, _Callable&& __f, _Args&&... __args) {
         kId = choice1;
     else
         kId = choice2;
-    return createThreadOnCore(threadClass, kId, __f, __args...);
+    return createThreadOnCore(kId, __f, __args...);
 }
 
 /**
