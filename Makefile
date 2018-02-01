@@ -1,12 +1,18 @@
 CXX ?= g++
-CCFLAGS=-g -Wall -Werror -Wformat=2 -Wextra -Wwrite-strings \
+CC ?= gcc
+CXXFLAGS=-g -Wall -Werror -Wformat=2 -Wextra -Wwrite-strings \
 -Wno-unused-parameter -Wmissing-format-attribute -Wno-non-template-friend \
 -Woverloaded-virtual -Wcast-qual -Wcast-align -Wconversion -fomit-frame-pointer \
 -std=c++11 -fPIC -O3
+CFLAGS=-g -Wall -Werror -Wformat=2 -Wextra -Wwrite-strings \
+-Wno-unused-parameter -Wmissing-format-attribute \
+-Wcast-align -Wconversion -fomit-frame-pointer \
+-std=gnu99 -fPIC -O3 -lstdc++
 
 # Output directories
 OBJECT_DIR = obj
 SRC_DIR = src
+WRAPPER_DIR = cwrapper
 INCLUDE_DIR = include/Arachne
 LIB_DIR = lib
 BIN_DIR = bin
@@ -14,20 +20,20 @@ BIN_DIR = bin
 # Depenencies
 PERFUTILS=../PerfUtils
 COREARBITER=../CoreArbiter
-INCLUDE=-I$(PERFUTILS)/include -I$(COREARBITER)/include
+INCLUDE=-I$(PERFUTILS)/include -I$(COREARBITER)/include -I$(SRC_DIR)
 LIBS=$(COREARBITER)/lib/libCoreArbiter.a $(PERFUTILS)/lib/libPerfUtils.a -lpcrecpp -pthread
 
 # Stuff needed for make check
 TOP := $(shell echo $${PWD-`pwd`})
 ifndef CHECK_TARGET
-CHECK_TARGET=$$(find $(SRC_DIR) '(' -name '*.h' -or -name '*.cc' ')' -not -path '$(TOP)/googletest/*' )
+CHECK_TARGET=$$(find $(SRC_DIR) $(WRAPPER_DIR) '(' -name '*.h' -or -name '*.cc' ')' -not -path '$(TOP)/googletest/*' )
 endif
 
 # Conversion to fully qualified names
-OBJECT_NAMES := Arachne.o Logger.o PerfStats.o CorePolicy.o
+OBJECT_NAMES := Arachne.o Logger.o PerfStats.o CorePolicy.o CArachneWrapper.o
 
 OBJECTS = $(patsubst %,$(OBJECT_DIR)/%,$(OBJECT_NAMES))
-HEADERS= $(shell find src -name '*.h')
+HEADERS= $(shell find $(SRC_DIR) $(WRAPPER_DIR) -name '*.h')
 DEP=$(OBJECTS:.o=.d)
 
 install: $(OBJECT_DIR)/libArachne.a
@@ -40,34 +46,58 @@ $(OBJECT_DIR)/libArachne.a: $(OBJECTS)
 
 -include $(DEP)
 
+$(OBJECT_DIR)/%.d: $(WRAPPER_DIR)/%.c | $(OBJECT_DIR)
+	$(CC) $(INCLUDE) $(CFLAGS) $< -MM -MT $(@:.d=.o) > $@
+
+$(OBJECT_DIR)/%.o: $(WRAPPER_DIR)/%.c $(HEADERS) | $(OBJECT_DIR)
+	$(CC) $(INCLUDE) $(CFLAGS) -c $< -o $@
+
+$(OBJECT_DIR)/%.d: $(WRAPPER_DIR)/%.cc | $(OBJECT_DIR)
+	$(CXX) $(INCLUDE) $(CXXFLAGS) $< -MM -MT $(@:.d=.o) > $@
+
+$(OBJECT_DIR)/%.o: $(WRAPPER_DIR)/%.cc $(HEADERS) | $(OBJECT_DIR)
+	$(CXX) $(INCLUDE) $(CXXFLAGS) -c $< -o $@
+
 $(OBJECT_DIR)/%.d: $(SRC_DIR)/%.cc | $(OBJECT_DIR)
-	$(CXX) $(INCLUDE) $(CCFLAGS) $< -MM -MT $(@:.d=.o) > $@
+	$(CXX) $(INCLUDE) $(CXXFLAGS) $< -MM -MT $(@:.d=.o) > $@
 
 $(OBJECT_DIR)/%.o: $(SRC_DIR)/%.cc $(HEADERS) | $(OBJECT_DIR)
-	$(CXX) $(INCLUDE) $(CCFLAGS) -c $< -o $@
+	$(CXX) $(INCLUDE) $(CXXFLAGS) -c $< -o $@
 
 $(OBJECT_DIR):
 	mkdir -p $(OBJECT_DIR)
 
 check:
 	scripts/cpplint.py --filter=-runtime/threadsafe_fn,-readability/streams,-whitespace/blank_line,-whitespace/braces,-whitespace/comments,-runtime/arrays,-build/include_what_you_use,-whitespace/semicolon $(CHECK_TARGET)
-	! grep '.\{81\}' $(SRC_DIR)/*.h $(SRC_DIR)/*.cc
+	! grep '.\{81\}' $(SRC_DIR)/*.h $(SRC_DIR)/*.cc $(WRAPPER_DIR)/*.h $(WRAPPER_DIR)/*.cc
 
 ################################################################################
 # Test Targets
 GTEST_DIR=../googletest/googletest
 TEST_LIBS=-Lobj/ -lArachne $(OBJECT_DIR)/libgtest.a
+CTEST_LIBS=-Lobj/ -lArachne
 INCLUDE+=-I${GTEST_DIR}/include
+COREARBITER_BIN=$(COREARBITER)/bin/coreArbiterServer
 
-test: $(OBJECT_DIR)/ArachneTest $(OBJECT_DIR)/CorePolicyTest
+test: $(OBJECT_DIR)/ArachneTest $(OBJECT_DIR)/CorePolicyTest $(OBJECT_DIR)/CArachneWrapperTest 
 	$(OBJECT_DIR)/ArachneTest
 	$(OBJECT_DIR)/CorePolicyTest
+	$(OBJECT_DIR)/CArachneWrapperTest
+
+ctest: $(OBJECT_DIR)/CArachneWrapperCTest
+	$(OBJECT_DIR)/CArachneWrapperCTest
+
+$(OBJECT_DIR)/CArachneWrapperCTest: $(OBJECT_DIR)/CArachneWrapperCTest.o $(OBJECT_DIR)/libArachne.a
+	$(CC) $(INCLUDE) $(CFLAGS) $< $(CTEST_LIBS) $(LIBS)  -o $@
+
+$(OBJECT_DIR)/CArachneWrapperTest: $(OBJECT_DIR)/CArachneWrapperTest.o $(OBJECT_DIR)/libgtest.a $(OBJECT_DIR)/libArachne.a
+	$(CXX) $(INCLUDE) $(CXXFLAGS) $< $(GTEST_DIR)/src/gtest_main.cc $(TEST_LIBS) $(LIBS)  -o $@
 
 $(OBJECT_DIR)/ArachneTest: $(OBJECT_DIR)/ArachneTest.o $(OBJECT_DIR)/libgtest.a $(OBJECT_DIR)/libArachne.a
-	$(CXX) $(INCLUDE) $(CCFLAGS) $< $(GTEST_DIR)/src/gtest_main.cc $(TEST_LIBS) $(LIBS)  -o $@
+	$(CXX) $(INCLUDE) $(CXXFLAGS) $< $(GTEST_DIR)/src/gtest_main.cc $(TEST_LIBS) $(LIBS)  -o $@
 
 $(OBJECT_DIR)/CorePolicyTest: $(OBJECT_DIR)/CorePolicyTest.o $(OBJECT_DIR)/libgtest.a $(OBJECT_DIR)/libArachne.a
-	$(CXX) $(INCLUDE) $(CCFLAGS) $< $(GTEST_DIR)/src/gtest_main.cc $(TEST_LIBS) $(LIBS)  -o $@
+	$(CXX) $(INCLUDE) $(CXXFLAGS) $< $(GTEST_DIR)/src/gtest_main.cc $(TEST_LIBS) $(LIBS)  -o $@
 
 $(OBJECT_DIR)/libgtest.a:
 	g++ -I${GTEST_DIR}/include -I${GTEST_DIR} \
