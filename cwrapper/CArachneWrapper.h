@@ -45,7 +45,7 @@ struct CArachneThreadId {
 };
 typedef struct CArachneThreadId CArachneThreadId;
 
-void cArachneInit(int* argcp, const char** argv);
+int cArachneInit(int* argcp, const char** argv);
 void cArachneShutDown();
 void cArachneWaitForTermination();
 int cArachneCreateThread(CArachneThreadId* id, void* (*startRoutine)(void*),
