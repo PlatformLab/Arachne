@@ -27,6 +27,7 @@ extern "C" {
  */
 void
 cArachneInit(int* argcp, const char** argv) {
+    Arachne::disableLoadEstimation = true;  // XXX
     Arachne::init(argcp, argv);
 }
 
