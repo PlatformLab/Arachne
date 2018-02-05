@@ -28,6 +28,17 @@
 enum TestReturn { TEST_PASS, TEST_FAIL };
 typedef enum TestReturn TestReturn;
 
+/*
+ * A wrapper to run a command with system() function
+ */
+static void
+testSystem(const char* cmd) {
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wunused-result"
+    system(cmd);
+#pragma GCC diagnostic pop
+}
+
 /**
  * Functions below are used to test thread creation
  */
@@ -118,52 +129,6 @@ mainTestLoop(void* arg) {
 }
 
 /*
- * Start a CoreArbiter server
- * Return 0 on success, return -1 on error.
- */
-static int
-startCoreArbiter(void) {
-    char cmd[] = "../CoreArbiter/bin/coreArbiterServer > /dev/null 2>&1 &";
-    char advisoryPath[] = "/tmp/coreArbiterAdvisoryLock";
-    int retval = 0;
-    char chr = 0;
-
-    system(cmd);
-    int readFd = open(advisoryPath, O_RDONLY);
-    if (readFd < 0) {
-        fprintf(stderr, "Failed to open advisoryPath %s: %s \n", advisoryPath,
-                strerror(errno));
-        return -1;
-    }
-
-    /* Check server started or not, wait at most 1 sec */
-    ssize_t ret;
-    for (int i = 0; i < 1000; ++i) {
-        ret = read(readFd, &chr, 1);
-        if (ret > 0) {
-            break;
-        } else {
-            usleep(1000);
-        }
-    }
-
-    if ((ret == 1) && (chr == 's')) {
-        retval = 0;
-    } else {
-        if (ret < 0) {
-            fprintf(stderr, "Failed to read advisoryPath %s: %s \n",
-                    advisoryPath, strerror(errno));
-        } else {
-            fprintf(stderr, "Timed out waiting for server start \n");
-        }
-        retval = -1;
-    }
-
-    close(readFd);
-    return retval;
-}
-
-/*
  * Create main thread
  */
 int
@@ -175,20 +140,31 @@ main(int argc, char** argv) {
     mainArgs.argc = argc;
     mainArgs.argv = argv;
 
-    retval = startCoreArbiter();
-    if (retval == -1) {
-        fprintf(stderr, "Faild to start CoreArbiter server! \n");
-        exit(1);
+    testSystem("../CoreArbiter/bin/coreArbiterServer > /dev/null 2>&1 &");
+
+    /* Wait at most 10 sec for Arachne to initialize */
+    for (int i = 0; i < 1000; ++i) {
+        retval = cArachneInit(&argc, (const char**)argv);
+        if (retval == 0) {
+            break;
+        } else {
+            usleep(10000);  // Wait 10 ms before retry
+        }
     }
 
-    cArachneInit(&argc, (const char**)argv);
+    if (retval == -1) {
+        fprintf(stderr, "Failed to initialize Arachne!\n");
+        return retval;
+    }
+
     retval = cArachneCreateThread(&threadId, mainTestLoop, (void*)&mainArgs);
     if (retval == -1) {
         fprintf(stderr, "Failed to create main Arachne thread!\n");
-    } else {
-        cArachneWaitForTermination();
+        return retval;
     }
 
-    system("kill $(pidof coreArbiterServer)");
+    cArachneWaitForTermination();
+
+    testSystem("kill $(pidof coreArbiterServer)");
     return retval;
 }

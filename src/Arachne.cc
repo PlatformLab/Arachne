@@ -917,7 +917,7 @@ void
 init(int* argcp, const char** argv) {
     if (initialized)
         return;
-    initialized = true;
+
     parseOptions(argcp, argv);
 
     coreArbiter = (useCoreArbiter) ? CoreArbiterClient::getInstance(TEST_SOCKET)
@@ -982,6 +982,10 @@ init(int* argcp, const char** argv) {
     // Block until minNumCores is active, per the application's requirements.
     while (numActiveCores != minNumCores)
         usleep(1);
+
+    // Only consider Arachne initialized if we've successfully parsed options
+    // allocated all resources, and connected to the CoreArbiter
+    initialized = true;
 }
 
 /**

@@ -13,10 +13,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
+#include <errno.h>
 #include <stdio.h>
 
 #include "Arachne.h"
 #include "CArachneWrapper.h"
+#include "CoreArbiter/CoreArbiterClient.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -24,10 +26,22 @@ extern "C" {
 
 /**
  * This function is the wrapper for Arachne::init
+ *
+ * \return
+ *      The return value is 0 on success and -1 on error. Errno will be set
  */
-void
+int
 cArachneInit(int* argcp, const char** argv) {
-    Arachne::init(argcp, argv);
+    int retval = 0;
+
+    // Capture the exception threw by Arachne::init
+    try {
+        Arachne::init(argcp, argv);
+    } catch (const CoreArbiter::CoreArbiterClient::ClientException& e) {
+        retval = -1;
+        errno = ECONNREFUSED;  // Set errno to "Connection refused"
+    }
+    return retval;
 }
 
 /**
