@@ -7,7 +7,7 @@ CXXFLAGS=-g -Wall -Werror -Wformat=2 -Wextra -Wwrite-strings \
 CFLAGS=-g -Wall -Werror -Wformat=2 -Wextra -Wwrite-strings \
 -Wno-unused-parameter -Wmissing-format-attribute \
 -Wcast-align -Wconversion -fomit-frame-pointer \
--std=gnu99 -fPIC -O3 -lstdc++
+-std=gnu99 -fPIC -O3
 
 # Output directories
 OBJECT_DIR = obj
@@ -22,6 +22,7 @@ PERFUTILS=../PerfUtils
 COREARBITER=../CoreArbiter
 INCLUDE=-I$(PERFUTILS)/include -I$(COREARBITER)/include -I$(SRC_DIR)
 LIBS=$(COREARBITER)/lib/libCoreArbiter.a $(PERFUTILS)/lib/libPerfUtils.a -lpcrecpp -pthread
+CLIBS=$(LIBS) -lstdc++
 
 # Stuff needed for make check
 TOP := $(shell echo $${PWD-`pwd`})
@@ -88,7 +89,7 @@ ctest: $(OBJECT_DIR)/CArachneWrapperCTest
 	$(OBJECT_DIR)/CArachneWrapperCTest
 
 $(OBJECT_DIR)/CArachneWrapperCTest: $(OBJECT_DIR)/CArachneWrapperCTest.o $(OBJECT_DIR)/libArachne.a
-	$(CC) $(INCLUDE) $(CFLAGS) $< $(CTEST_LIBS) $(LIBS)  -o $@
+	$(CC) $(INCLUDE) $(CFLAGS) $< $(CTEST_LIBS) $(CLIBS)  -o $@
 
 $(OBJECT_DIR)/CArachneWrapperTest: $(OBJECT_DIR)/CArachneWrapperTest.o $(OBJECT_DIR)/libgtest.a $(OBJECT_DIR)/libArachne.a
 	$(CXX) $(INCLUDE) $(CXXFLAGS) $< $(GTEST_DIR)/src/gtest_main.cc $(TEST_LIBS) $(LIBS)  -o $@
