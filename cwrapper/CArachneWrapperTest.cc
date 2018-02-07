@@ -85,7 +85,7 @@ struct ArachneTest : public ::testing::Test {
         Arachne::minNumCores = 1;
         Arachne::maxNumCores = 3;
         Arachne::disableLoadEstimation = true;
-        ::cArachneInit(NULL, NULL);
+        ::arachne_init(NULL, NULL);
         // Artificially wake up all threads for testing purposes
         std::vector<uint32_t> coreRequest({3, 0, 0, 0, 0, 0, 0, 0});
         coreArbiter->setRequestedCores(coreRequest);
@@ -97,8 +97,8 @@ struct ArachneTest : public ::testing::Test {
         coreArbiter->setRequestedCores(
             {Arachne::maxNumCores, 0, 0, 0, 0, 0, 0, 0});
 
-        ::cArachneShutDown();
-        ::cArachneWaitForTermination();
+        ::arachne_shutdown();
+        ::arachne_wait_termination();
     }
 };
 
@@ -129,13 +129,13 @@ funcCreateTest(void* arg) {
 
 TEST_F(ArachneTest, CWrapper_createThread) {
     Arachne::testInit();
-    CArachneThreadId threadId;
+    arachne_thread_id threadId;
     unsigned arg = 0;
-    int ret = cArachneCreateThread(&threadId, funcCreateTest,
-                                   reinterpret_cast<void*>(&arg));
+    int ret = ::arachne_thread_create(&threadId, funcCreateTest,
+                                      reinterpret_cast<void*>(&arg));
     EXPECT_EQ(0, ret);
 
-    cArachneJoin(&threadId);
+    ::arachne_thread_join(&threadId);
     EXPECT_EQ(0xDEADBEEF, arg);
     Arachne::testDestroy();
 }
