@@ -17,8 +17,8 @@
 #include <stdio.h>
 
 #include "Arachne.h"
-#include "CArachneWrapper.h"
 #include "CoreArbiter/CoreArbiterClient.h"
+#include "arachne_wrapper.h"
 
 #ifdef __cplusplus
 extern "C" {
