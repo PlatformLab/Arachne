@@ -20,13 +20,13 @@
 #define private public
 #define protected public
 #include "Arachne.h"
-#include "CArachneWrapper.h"
 #include "CoreArbiter/ArbiterClientShim.h"
 #include "CoreArbiter/CoreArbiterClient.h"
 #include "CoreArbiter/CoreArbiterServer.h"
 #include "CoreArbiter/Logger.h"
 #include "CoreArbiter/MockSyscall.h"
 #include "CorePolicy.h"
+#include "arachne_wrapper.h"
 
 namespace Arachne {
 
