@@ -34,23 +34,23 @@ extern "C" {
  * This structure is the C wrapper for Arachne::ThreadContext
  * and can only be used as pointers.
  */
-struct CArachneThreadContext;
-typedef struct CArachneThreadContext CArachneThreadContext;
+struct arachne_thread_context;
+typedef struct arachne_thread_context arachne_thread_context;
 /**
  * This structure is the C wrapper for Arachne::ThreadId.
  */
-struct CArachneThreadId {
-    CArachneThreadContext* context;
+struct arachne_thread_id {
+    arachne_thread_context* context;
     uint32_t generation;
 };
-typedef struct CArachneThreadId CArachneThreadId;
+typedef struct arachne_thread_id arachne_thread_id;
 
-int cArachneInit(int* argcp, const char** argv);
-void cArachneShutDown();
-void cArachneWaitForTermination();
-int cArachneCreateThread(CArachneThreadId* id, void* (*startRoutine)(void*),
-                         void* arg);
-void cArachneJoin(CArachneThreadId* id);
+int arachne_init(int* argcp, const char** argv);
+void arachne_shutdown();
+void arachne_wait_termination();
+int arachne_thread_create(arachne_thread_id* id, void* (*func)(void*),
+                          void* arg);
+void arachne_thread_join(arachne_thread_id* id);
 
 #ifdef __cplusplus
 }

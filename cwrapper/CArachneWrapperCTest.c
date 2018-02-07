@@ -25,14 +25,14 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-enum TestReturn { TEST_PASS, TEST_FAIL };
-typedef enum TestReturn TestReturn;
+enum test_return { TEST_PASS, TEST_FAIL };
+typedef enum test_return test_return;
 
 /*
  * A wrapper to run a command with system() function
  */
 static void
-testSystem(const char* cmd) {
+ctest_system(const char* cmd) {
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wunused-result"
     system(cmd);
@@ -43,7 +43,7 @@ testSystem(const char* cmd) {
  * Functions below are used to test thread creation
  */
 static void*
-funcCreateTest(void* arg) {
+func_create_test(void* arg) {
     /*
      * We sleep 1ms here so that threads joining this thread
      * must contend for the join lock with high probability.
@@ -53,17 +53,17 @@ funcCreateTest(void* arg) {
     return NULL;
 }
 
-static TestReturn
-createThreadTest(void) {
-    CArachneThreadId threadId;
+static test_return
+create_thread_test(void) {
+    arachne_thread_id tid;
     unsigned arg = 0;
-    TestReturn retval = TEST_PASS;
+    test_return retval = TEST_PASS;
 
-    cArachneInit(NULL, NULL);
-    int ret = cArachneCreateThread(&threadId, funcCreateTest, (void*)&arg);
+    arachne_init(NULL, NULL);
+    int ret = arachne_thread_create(&tid, func_create_test, (void*)&arg);
     assert(ret == 0);
 
-    cArachneJoin(&threadId);
+    arachne_thread_join(&tid);
     if (arg != 0xDEADBEEF) {
         retval = TEST_FAIL;
     }
@@ -74,41 +74,41 @@ createThreadTest(void) {
 /**
  * Structures are used to collect all test cases
  */
-typedef TestReturn (*TEST_FUNC)(void);
+typedef test_return (*TEST_FUNC)(void);
 struct testcase {
     const char* description;
     TEST_FUNC function;
 };
 
-struct testcase testcases[] = {{"createThread", createThreadTest},
+struct testcase testcases[] = {{"createThread", create_thread_test},
                                {NULL, NULL}};
 
 /*
  * Wrapper for main function arguments
  */
-struct ArgList {
+struct arg_list {
     int argc;
     char** argv;
 };
-typedef struct ArgList ArgList;
+typedef struct arg_list arg_list;
 
 /**
  * Main entrance for all tests
  */
 static void*
-mainTestLoop(void* arg) {
+main_test_loop(void* arg) {
     int exitcode = 0;
-    int id = 0, numCases = 0;
+    int id = 0, num_cases = 0;
 
-    for (numCases = 0; testcases[numCases].description; numCases++) {
+    for (num_cases = 0; testcases[num_cases].description; num_cases++) {
         /* Counting the number of cases*/
     }
 
-    printf("Testing cases 1..%d\n", numCases);
+    printf("Testing cases 1..%d\n", num_cases);
 
-    for (id = 0; id < numCases; id++) {
+    for (id = 0; id < num_cases; id++) {
         fflush(stdout);
-        TestReturn ret = testcases[id].function();
+        test_return ret = testcases[id].function();
         if (ret == TEST_PASS) {
             fprintf(stdout, "[OK] %d - %s\n", id + 1,
                     testcases[id].description);
@@ -122,9 +122,9 @@ mainTestLoop(void* arg) {
 
     if (exitcode != 0) {
         fprintf(stderr, "Non-zero return code for %d / %d tests \n", exitcode,
-                numCases);
+                num_cases);
     }
-    cArachneShutDown();
+    arachne_shutdown();
     return NULL;
 }
 
@@ -133,18 +133,18 @@ mainTestLoop(void* arg) {
  */
 int
 main(int argc, char** argv) {
-    CArachneThreadId threadId;
+    arachne_thread_id tid;
     int retval = 0;
-    ArgList mainArgs;
+    arg_list main_args;
 
-    mainArgs.argc = argc;
-    mainArgs.argv = argv;
+    main_args.argc = argc;
+    main_args.argv = argv;
 
-    testSystem("../CoreArbiter/bin/coreArbiterServer > /dev/null 2>&1 &");
+    ctest_system("../CoreArbiter/bin/coreArbiterServer > /dev/null 2>&1 &");
 
     /* Wait at most 10 sec for Arachne to initialize */
     for (int i = 0; i < 1000; ++i) {
-        retval = cArachneInit(&argc, (const char**)argv);
+        retval = arachne_init(&argc, (const char**)argv);
         if (retval == 0) {
             break;
         } else {
@@ -157,14 +157,14 @@ main(int argc, char** argv) {
         return retval;
     }
 
-    retval = cArachneCreateThread(&threadId, mainTestLoop, (void*)&mainArgs);
+    retval = arachne_thread_create(&tid, main_test_loop, (void*)&main_args);
     if (retval == -1) {
         fprintf(stderr, "Failed to create main Arachne thread!\n");
         return retval;
     }
 
-    cArachneWaitForTermination();
+    arachne_wait_termination();
 
-    testSystem("kill $(pidof coreArbiterServer)");
+    ctest_system("kill $(pidof coreArbiterServer)");
     return retval;
 }

@@ -31,7 +31,7 @@ extern "C" {
  *      The return value is 0 on success and -1 on error. Errno will be set
  */
 int
-cArachneInit(int* argcp, const char** argv) {
+arachne_init(int* argcp, const char** argv) {
     int retval = 0;
 
     // Capture the exception threw by Arachne::init
@@ -48,7 +48,7 @@ cArachneInit(int* argcp, const char** argv) {
  * This function is the wrapper for Arachne::shutDown
  */
 void
-cArachneShutDown() {
+arachne_shutdown() {
     Arachne::shutDown();
 }
 
@@ -56,7 +56,7 @@ cArachneShutDown() {
  * This function is the wrapper for Arachne::waitForTermination
  */
 void
-cArachneWaitForTermination() {
+arachne_wait_termination() {
     Arachne::waitForTermination();
 }
 
@@ -76,14 +76,13 @@ cArachneWaitForTermination() {
  *      a new thread, and the contents of *thread would be undefined.
  */
 int
-cArachneCreateThread(CArachneThreadId* id, void* (*startRoutine)(void*),
-                     void* arg) {
-    Arachne::ThreadId tid = Arachne::createThread(startRoutine, arg);
+arachne_thread_create(arachne_thread_id* id, void* (*func)(void*), void* arg) {
+    Arachne::ThreadId tid = Arachne::createThread(func, arg);
     if (tid == Arachne::NullThread) {
         return -1;
     }
 
-    id->context = reinterpret_cast<CArachneThreadContext*>(tid.context);
+    id->context = reinterpret_cast<arachne_thread_context*>(tid.context);
     id->generation = tid.generation;
     return 0;
 }
@@ -95,7 +94,7 @@ cArachneCreateThread(CArachneThreadId* id, void* (*startRoutine)(void*),
  *      The pointer to the id of the thread to join.
  */
 void
-cArachneJoin(CArachneThreadId* id) {
+arachne_thread_join(arachne_thread_id* id) {
     Arachne::ThreadId tid(
         reinterpret_cast<Arachne::ThreadContext*>(id->context), id->generation);
     Arachne::join(tid);
