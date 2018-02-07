@@ -100,6 +100,22 @@ arachne_thread_join(arachne_thread_id* id) {
     Arachne::join(tid);
 }
 
+/**
+ * This function is the wrapper for Arachne::yield.
+ */
+void
+arachne_thread_yield() {
+    Arachne::yield();
+}
+
+/**
+ * This function is the wrapper for Arachne::makeExclusiveOnCore.
+ */
+bool
+arachne_thread_exclusive_core(bool scale_down) {
+    return Arachne::makeExclusiveOnCore(scale_down);
+}
+
 #ifdef __cplusplus
 }
 #endif
