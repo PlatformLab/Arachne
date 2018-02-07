@@ -17,6 +17,7 @@
 #define CARACHNEWRAPPER_H_
 
 #include <inttypes.h>
+#include <stdbool.h>
 #include <stdio.h>
 #include <sys/types.h>
 
@@ -51,6 +52,8 @@ void arachne_wait_termination();
 int arachne_thread_create(arachne_thread_id* id, void* (*func)(void*),
                           void* arg);
 void arachne_thread_join(arachne_thread_id* id);
+void arachne_thread_yield();
+bool arachne_thread_exclusive_core(bool scale_down);
 
 #ifdef __cplusplus
 }
