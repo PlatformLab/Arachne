@@ -53,9 +53,10 @@ int arachne_thread_create(arachne_thread_id* id, void* (*func)(void*),
                           void* arg);
 void arachne_thread_join(arachne_thread_id* id);
 void arachne_thread_yield();
-bool arachne_thread_exclusive_core(bool scale_down);
 int arachne_thread_getid();
-
+int arachne_thread_create_with_class(arachne_thread_id* id,
+                                     void* (*func)(void*), void* arg,
+                                     int thread_class);
 #ifdef __cplusplus
 }
 #endif

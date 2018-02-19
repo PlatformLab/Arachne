@@ -16,7 +16,8 @@
 #include <stdio.h>
 #include <thread>
 #include "CoreArbiter/CoreArbiterClient.h"
-#include "CorePolicy.h"
+#include "CoreManager.h"
+#include "DefaultCoreManager.h"
 #include "PerfUtils/TimeTrace.h"
 #include "PerfUtils/Util.h"
 
@@ -62,6 +63,11 @@ volatile uint32_t minNumCores;
  * This tracks the actual number of unblocked cores in the system.
  */
 std::atomic<uint32_t> numActiveCores;
+
+/**
+ * The ID of the next kernel thread to be allocated.
+ */
+static std::atomic<int> nextKernelThreadId(0);
 
 /**
  * Number of outstanding requests to yield cores back to the arbiter.
@@ -128,13 +134,6 @@ std::vector<ThreadContext**> allThreadContexts;
 std::vector<std::atomic<MaskAndCount>*> occupiedAndCount;
 
 /**
- * This table maps a contiguous range of virtual core ID's to indices into an
- * immutable table pairing each ThreadContext** with its corresponding
- * MaskAndCount structure.
- */
-int* virtualCoreTable;
-
-/**
  * Setting a jth bit in the ith element of this vector indicates that the
  * priority of the thread living at index j on core i is temporarily raised.
  */
@@ -158,7 +157,6 @@ SpinLock coreIdlerLock("coreIdlerLock", false);
 
 void idleCorePrivate(int coreId);
 
-void descheduleCore();
 /**
  * All core-specific state that is not associated with other classes.
  */
@@ -184,10 +182,10 @@ std::string coreArbiterSocketPath = PROD_SOCKET;
 CoreArbiterClient* coreArbiter = NULL;
 
 /*
- *  The CorePolicy that Arachne will use.
+ *  The CoreManager that Arachne will use.
  */
 
-CorePolicy* corePolicy = NULL;
+CoreManager* coreManager = NULL;
 
 /**
  * Allocate a block of memory aligned at the beginning of a cache line.
@@ -219,6 +217,9 @@ threadMain() {
     if (initCore)
         initCore();
 
+    // This is currently assigned and never changes. It will switch to physical
+    // core ID after we have built the infrastructure for it.
+    core.kernelThreadId = nextKernelThreadId.fetch_add(1);
     for (;;) {
         coreArbiter->blockUntilCoreAvailable();
         // Prevent the use of abandoned ThreadContext which occurred as a
@@ -227,7 +228,6 @@ threadMain() {
             break;
         {
             std::lock_guard<SpinLock> _(coreChangeMutex);
-            core.kernelThreadId = virtualCoreTable[numActiveCores];
             core.localOccupiedAndCount = occupiedAndCount[core.kernelThreadId];
             core.localThreadContexts = allThreadContexts[core.kernelThreadId];
 
@@ -238,7 +238,7 @@ threadMain() {
             *publicPriorityMasks[core.kernelThreadId] = 0;
             newestThreadOccupiedContext[core.kernelThreadId] = 0;
             core.privatePriorityMask = 0;
-            corePolicy->addCore(core.kernelThreadId);
+            coreManager->coreAvailable(core.kernelThreadId);
 
             // This marks the point at which new thread creations may begin.
             numActiveCores++;
@@ -290,7 +290,7 @@ threadMain() {
             // release if needed.
             coreReleaseRequestCount--;
             if (coreReleaseRequestCount)
-                descheduleCore();
+                coreManager->coreUnavailable();
         }
         PerfStats::threadStats.numCoreDecrements++;
     }
@@ -711,10 +711,9 @@ waitForTermination() {
     allThreadContexts.clear();
     occupiedAndCount.clear();
     publicPriorityMasks.clear();
-    delete[] virtualCoreTable;
     PerfUtils::Util::serialize();
     coreArbiter->reset();
-    corePolicy = NULL;
+    coreManager = NULL;
     initialized = false;
 }
 
@@ -863,30 +862,30 @@ ThreadContext::initializeStack() {
  * than the default. This function should be invoked before Arachne::init(),
  * and the object passed in is owned by Arachne after this function returns.
  *
- * \param arachneCorePolicy
- *    A pointer to the CorePolicy that Arachne will use.  The CorePolicy
+ * \param arachneCoreManager
+ *    A pointer to the CoreManager that Arachne will use.  The CoreManager
  *    controls thread allocation to cores.
  */
 void
-setCorePolicy(CorePolicy* arachneCorePolicy) {
+setCoreManager(CoreManager* arachneCoreManager) {
     if (initialized) {
         ARACHNE_LOG(ERROR,
                     "Attempting to set core policy after Arachne::init has "
                     "already been invoked");
         abort();
     }
-    if (corePolicy != NULL)
-        delete corePolicy;
-    corePolicy = arachneCorePolicy;
+    if (coreManager != NULL)
+        delete coreManager;
+    coreManager = arachneCoreManager;
 }
 
 /**
  * Get the current core policy used by Arachne. This should be used only for
  * testing.
  */
-CorePolicy*
-getCorePolicyForTest() {
-    return corePolicy;
+CoreManager*
+getCoreManagerForTest() {
+    return coreManager;
 }
 
 /**
@@ -928,15 +927,15 @@ init(int* argcp, const char** argv) {
                       ? CoreArbiterClient::getInstance(coreArbiterSocketPath)
                       : ArbiterClientShim::getInstance();
 
-    if (corePolicy == NULL) {
-        corePolicy = new CorePolicy();
-    }
-
     if (minNumCores == 0)
         minNumCores = 1;
     if (maxNumCores == 0)
         maxNumCores = std::thread::hardware_concurrency();
     maxNumCores = std::max(minNumCores, maxNumCores);
+
+    if (coreManager == NULL) {
+        coreManager = new DefaultCoreManager(minNumCores, maxNumCores);
+    }
 
     std::vector<uint32_t> coreRequest({minNumCores, 0, 0, 0, 0, 0, 0, 0});
     coreArbiter->setRequestedCores(coreRequest);
@@ -944,8 +943,6 @@ init(int* argcp, const char** argv) {
 
     // We assume that maxNumCores will not be exceeded in the lifetime of this
     // application.
-    virtualCoreTable = new int[maxNumCores];
-
     for (unsigned int i = 0; i < maxNumCores; i++) {
         occupiedAndCount.push_back(
             reinterpret_cast<std::atomic<Arachne::MaskAndCount>*>(
@@ -962,7 +959,6 @@ init(int* argcp, const char** argv) {
             new (contexts[k]) ThreadContext(static_cast<uint8_t>(i), k);
         }
         allThreadContexts.push_back(contexts);
-        virtualCoreTable[i] = i;
         cvArray.push_back(new std::condition_variable);
         isIdledArray.push_back(false);
     }
@@ -970,6 +966,10 @@ init(int* argcp, const char** argv) {
     // Allocate space to store all the original kernel pointers
     kernelThreadStacks.resize(maxNumCores);
     shutdown = false;
+
+    // Reset the nextKernelThreadId so that a de-initialization followed by a
+    // re-initialization works correctly.
+    nextKernelThreadId.store(0);
 
     // Ensure that data structure and stack allocation completes before we
     // begin to use it in a new thread.
@@ -1048,6 +1048,7 @@ testDestroy() {
         free(core.localThreadContexts[k]);
     }
     delete[] core.localThreadContexts;
+    core.kernelThreadId = -1;
     core.loadedContext = NULL;
     *core.localOccupiedAndCount = {0, 0};
 }
@@ -1166,109 +1167,6 @@ setErrorStream(FILE* stream) {
 }
 
 /**
- * This function runs on a core immediately before it is deallocated, and is
- * responsible for waiting out and then migrating running threads other than
- * itself. By ensuring that the core is busy running this thread, we ensure
- * that all other threads' contexts on this core are saved.
- */
-void
-releaseCore() {
-    // Remove all other threads from this core.
-    makeExclusiveOnCore(true);
-    core.threadShouldYield = true;
-}
-
-/**
- * This function can be called from any thread to increase the number of cores
- * used by Arachne.
- */
-void
-incrementCoreCount() {
-    std::lock_guard<SpinLock> _(coreChangeMutex);
-    if (coreChangeActive)
-        return;
-    if (numActiveCores >= maxNumCores)
-        return;
-
-    coreChangeActive = true;
-    ARACHNE_LOG(NOTICE, "Attempting to increase number of cores %u --> %u\n",
-                numActiveCores.load(), numActiveCores + 1);
-#if TIME_TRACE
-    TimeTrace::record("Start Core Count %d --> %d", numActiveCores.load(),
-                      numActiveCores + 1);
-#endif
-    std::vector<uint32_t> coreRequest(
-        {numActiveCores + 1, 0, 0, 0, 0, 0, 0, 0});
-    coreArbiter->setRequestedCores(coreRequest);
-}
-
-/**
- * This function can be called from any thread to attempt to decrease the
- * number of cores used by Arachne. It may return before a core is actually
- * released, and there is no guarantee that a core will be released.
- */
-void
-decrementCoreCount() {
-    std::lock_guard<SpinLock> _(coreChangeMutex);
-    if (coreChangeActive)
-        return;
-    if (numActiveCores <= minNumCores)
-        return;
-
-    coreChangeActive = true;
-    ARACHNE_LOG(NOTICE, "Attempting to decrease number of cores %u --> %u\n",
-                numActiveCores.load(), numActiveCores - 1);
-#if TIME_TRACE
-    TimeTrace::record("Start Core Count %d --> %d", numActiveCores.load(),
-                      numActiveCores - 1);
-#endif
-
-    std::vector<uint32_t> coreRequest(
-        {numActiveCores - 1, 0, 0, 0, 0, 0, 0, 0});
-    coreArbiter->setRequestedCores(coreRequest);
-}
-
-/*
- * If the Core Arbiter asks the Arachne runtime to yield a core, this function
- * shall begin the process of descheduling a core.
- *
- * The caller must hold the coreChangeMutex when making this call.
- */
-void
-descheduleCore() {
-    int minCoreId = corePolicy->chooseRemovableCore();
-    uint8_t minLoaded = occupiedAndCount[minCoreId]->load().numOccupied;
-    // Give up if the minLoaded core is exclusive or full, since that implies
-    // we are likely pre-empting must-have cores.
-    if (minLoaded >= static_cast<uint8_t>(56)) {
-        coreChangeActive = false;
-        ARACHNE_LOG(DEBUG, "Failed to find an unoccupied core, giving up!\n");
-        ARACHNE_LOG(DEBUG, "minLoaded = %u, minCoreId = %u!\n", minLoaded,
-                    minCoreId);
-        for (uint32_t i = 0; i < numActiveCores; i++) {
-            uint32_t coreId = virtualCoreTable[i];
-            ARACHNE_LOG(DEBUG,
-                        "virtualCoreId = %d, coreId = %u,"
-                        " numOccupied = %d, occupied = %lu\n",
-                        i, coreId, occupiedAndCount[coreId]->load().numOccupied,
-                        occupiedAndCount[coreId]->load().occupied);
-        }
-        return;
-    }
-
-    // Create a thread on the target core to handle the actual core release,
-    // since we are currently borrowing an arbitrary context and should not
-    // hold it for too long.
-    // If this creation fails, it would implies that we are overloaded and
-    // should not ramp down.
-    if (createThreadOnCore(minCoreId, releaseCore) == NullThread) {
-        coreChangeActive = false;
-        ARACHNE_LOG(WARNING, "Release core thread creation failed to %d!\n",
-                    minCoreId);
-    }
-}
-
-/**
  * Detect requests for cores from the core arbiter.
  */
 void
@@ -1284,43 +1182,23 @@ checkForArbiterRequest() {
     // Deschedule a core iff we are the first thread to read that a
     // core release is needed.
     if (coreReleaseRequestCount == 1)
-        descheduleCore();
+        coreManager->coreUnavailable();
 }
 
 /**
- * This function is invoked from an Arachne thread and does not return until
- * it is the only thread on the core. If it returns true, it is valid for this
- * thread to never yield, because no other threads will share its core.
- *
- * Note that if too many threads call this function, Arachne will not be able
- * to offer very much concurrency.
- *
- * NB: If a thread invokes this function, it must invoke makeSharedOnCore
- * before exiting. We require this because this call is expected to be used
- * infrequently, and it does not make sense to pay the performance penalty for
- * checking on every thread exit. A caveat of this requirement is that a
- * thread which never exits until program termination has no need to invoke
- * makeSharedOnCore.
+ * After this function returns, threads may no longer be added to the target
+ * core. This function can be invoked from any thread on any core.
  */
-bool
-makeExclusiveOnCore(bool forScaleDown) {
-    // Cache the original context so that we can survive across migrations to
-    // other kernel threads, since core.loadedContext is not reloaded correctly
-    // from TLS after switching back to this context.
-    ThreadContext* originalContext = core.loadedContext;
+void
+preventCreationsToCore(int coreId) {
+    // Read our current context out to make sure we don't migrate ourselves
+    // while running. Note that depending on the caller, the pointer may not
+    // point to anything reasonable, so we should not dereference it.
+    MaskAndCount originalMask = *occupiedAndCount[coreId];
 
-    std::lock_guard<SleepLock> _(coreExclusionMutex);
-    // Already exclusive
-    // TODO(hq6): Read the new value of core.localOccupiedAndCount, instead of
-    // the value from the previous kernelThread.
-    MaskAndCount originalMask = *core.localOccupiedAndCount;
+    // It is an error if the core we are migrating to is already exclusive.
     if (originalMask.numOccupied > maxThreadsPerCore) {
-        // If we are not the exclusive thread, then an error has occurred.
-        if (originalMask.occupied == (1U << originalContext->idInCore)) {
-            return true;
-        } else {
-            abort();
-        }
+        abort();
     }
 
     // Block future creations on core
@@ -1328,10 +1206,10 @@ makeExclusiveOnCore(bool forScaleDown) {
     MaskAndCount blockedOccupiedAndCount;
     bool success = false;
     do {
-        targetOccupiedAndCount = *core.localOccupiedAndCount;
+        targetOccupiedAndCount = *occupiedAndCount[coreId];
         blockedOccupiedAndCount = targetOccupiedAndCount;
         blockedOccupiedAndCount.numOccupied = EXCLUSIVE;
-        success = core.localOccupiedAndCount->compare_exchange_strong(
+        success = occupiedAndCount[coreId]->compare_exchange_strong(
             targetOccupiedAndCount, blockedOccupiedAndCount);
     } while (!success);
 
@@ -1352,48 +1230,39 @@ makeExclusiveOnCore(bool forScaleDown) {
             }
         }
     } while (pendingCreation);
+}
 
-    // Wait out thread completions
-    // If this interval is discovered to be too long, we can take a sleep &
-    // poll approach.
-    sleep(COMPLETION_WAIT_TIME);
+/**
+ * Remove all threads from the target core (with the exception of the caller),
+ * and place them into outputCores. This function can only be run from the core
+ * that we are removing threads from. The parameter outputCores must not
+ * include the current core.
+ */
+void
+removeThreadsFromCore(CoreListView outputCores) {
+    preventCreationsToCore(core.kernelThreadId);
 
-    blockedOccupiedAndCount = *core.localOccupiedAndCount;
-    // Sanity checking that we blocked creations successfully
-    if (blockedOccupiedAndCount.numOccupied <= maxThreadsPerCore) {
-        abort();
-    }
+    std::lock_guard<SleepLock> _(coreExclusionMutex);
 
-    // Remap this slot in virtualCoreTable to point at the highest number, to
-    // make it easier to pawn off work.
-    for (uint32_t i = 0; i < maxNumCores; i++)
-        if (virtualCoreTable[i] == core.kernelThreadId) {
-            virtualCoreTable[i] = virtualCoreTable[numActiveCores - 1];
-            virtualCoreTable[numActiveCores - 1] = core.kernelThreadId;
-            break;
-        }
-
-    // Update the CorePolicy
-    if (forScaleDown) {
-        corePolicy->removeCore(core.kernelThreadId);
-    }
+    // Start migration of remaining threads.
+    MaskAndCount blockedOccupiedAndCount = *core.localOccupiedAndCount;
 
     // Migrate off all threads other than the current one.  Round robin among
     // cores because these are likely long-running threads.
 
     int nextMigrationTarget = 0;
-
+    uint32_t numFailures = 0;
     for (uint8_t i = 0; i < maxThreadsPerCore; i++) {
-        if (i == originalContext->idInCore) {
+        if (core.localThreadContexts[i] == core.loadedContext) {
             // Skip over ourselves
             continue;
         }
         // Choose a victim core that we will pawn our work on.
-        ThreadClass threadClass = core.localThreadContexts[i]->threadClass;
-        CoreList* entry = corePolicy->getRunnableCores(threadClass);
-        nextMigrationTarget = (nextMigrationTarget + 1) % entry->numFilled;
-        int coreId = entry->map[nextMigrationTarget];
+        nextMigrationTarget = (nextMigrationTarget + 1) % outputCores.size();
+        // TODO(hq6): Fix the migration of polling empty context problem.
+        int coreId = outputCores[nextMigrationTarget];
         if ((blockedOccupiedAndCount.occupied >> i) & 1) {
+            bool success = false;
             uint8_t index;
             do {
                 // Each iteration through this loop makes one attempt to
@@ -1443,10 +1312,19 @@ makeExclusiveOnCore(bool forScaleDown) {
                     static_cast<uint8_t>(coreId);
                 core.localThreadContexts[i]->coreId =
                     static_cast<uint8_t>(core.kernelThreadId);
-                // Only increment if we succeeded.
+                // Reset the failure count once we successfully place a thread.
+                numFailures = 0;
             } else {
                 // Try again if we failed to find a slot to pawn our work onto.
                 i--;
+                numFailures++;
+                if (numFailures > outputCores.size()) {
+                    ARACHNE_LOG(ERROR,
+                                "Number of failures %u exceeds number of "
+                                "available cores %u.",
+                                numFailures, outputCores.size());
+                    abort();
+                }
             }
         }
     }
@@ -1457,6 +1335,10 @@ makeExclusiveOnCore(bool forScaleDown) {
         if (blockedOccupiedAndCount.occupied & (1L << i))
             count++;
     if (count != 1) {
+        ARACHNE_LOG(ERROR,
+                    "Failed to migrate threads off core; number of threads "
+                    "remaining on core %d\n",
+                    count);
         abort();
     }
 
@@ -1465,8 +1347,6 @@ makeExclusiveOnCore(bool forScaleDown) {
     // completions cannot occur because we are running, so we can just directly
     // assign.
     *core.localOccupiedAndCount = blockedOccupiedAndCount;
-
-    return true;
 }
 
 /**

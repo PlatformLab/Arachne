@@ -24,7 +24,7 @@
 #include "CoreArbiter/CoreArbiterServer.h"
 #include "CoreArbiter/Logger.h"
 #include "CoreArbiter/MockSyscall.h"
-#include "CorePolicy.h"
+#include "DefaultCoreManager.h"
 
 namespace Arachne {
 
@@ -36,7 +36,6 @@ extern bool useCoreArbiter;
 
 extern std::atomic<uint32_t> numActiveCores;
 extern volatile uint32_t minNumCores;
-extern int* virtualCoreTable;
 
 extern std::string coreArbiterSocketPath;
 extern CoreArbiterClient* coreArbiter;
@@ -366,25 +365,30 @@ TEST_F(ArachneTest, createThread_maxThreadsExceeded) {
 }
 
 TEST_F(ArachneTest, createThread_pickLeastLoaded) {
+    DefaultCoreManager* coreManager =
+        reinterpret_cast<DefaultCoreManager*>(getCoreManagerForTest());
     mockRandomValues.push_back(0);
     mockRandomValues.push_back(0);
     mockRandomValues.push_back(1);
     createThread(clearFlag);
-    EXPECT_EQ(1U, Arachne::occupiedAndCount[1]->load().numOccupied);
-    EXPECT_EQ(1U, Arachne::occupiedAndCount[1]->load().occupied);
+    int core0 = coreManager->getCores(0)[0];
+    int core1 = coreManager->getCores(0)[1];
+    EXPECT_EQ(1U, Arachne::occupiedAndCount[core1]->load().numOccupied);
+    EXPECT_EQ(1U, Arachne::occupiedAndCount[core1]->load().occupied);
     threadCreationIndicator = 1;
 
-    limitedTimeWait(
-        []() -> bool { return occupiedAndCount[1]->load().numOccupied == 0; });
+    limitedTimeWait([core1]() -> bool {
+        return occupiedAndCount[core1]->load().numOccupied == 0;
+    });
+    *occupiedAndCount[core1] = {0b1011, 3};
 
     mockRandomValues.push_back(0);
     mockRandomValues.push_back(1);
-    *occupiedAndCount[1] = {0b1011, 3};
     createThread(clearFlag);
-    EXPECT_EQ(1U, Arachne::occupiedAndCount[0]->load().numOccupied);
-    EXPECT_EQ(1U, Arachne::occupiedAndCount[0]->load().occupied);
+    EXPECT_EQ(1U, Arachne::occupiedAndCount[core0]->load().numOccupied);
+    EXPECT_EQ(1U, Arachne::occupiedAndCount[core0]->load().occupied);
     threadCreationIndicator = 1;
-    *occupiedAndCount[1] = {0, 0};
+    *occupiedAndCount[core1] = {0, 0};
 }
 
 TEST_F(ArachneTest, alignedAlloc) {
@@ -572,8 +576,7 @@ static Arachne::ThreadId joineeId;
 
 void
 joinee() {
-    EXPECT_LE(
-        1U, Arachne::occupiedAndCount[virtualCoreTable[0]]->load().numOccupied);
+    EXPECT_LE(1U, Arachne::occupiedAndCount[0]->load().numOccupied);
 }
 
 void
@@ -836,145 +839,56 @@ doNothing() {}
 extern volatile bool coreChangeActive;
 
 bool
-canThreadBeCreatedOnCore(ThreadClass threadClass, CorePolicy* corePolicy,
+canThreadBeCreatedOnCore(int threadClass, CoreManager* coreManager,
                          int coreId) {
-    CoreList* entry = corePolicy->getRunnableCores(threadClass);
-    for (uint32_t i = 0; i < entry->numFilled; i++) {
-        if (entry->map[i] == coreId)
+    CoreListView entry = coreManager->getCores(threadClass);
+    for (uint32_t i = 0; i < entry.size(); i++) {
+        if (entry[i] == coreId)
             return true;
     }
     return false;
 }
 
-TEST_F(ArachneTest, incrementCoreCount) {
-    void incrementCoreCount();
-    shutDown();
-    waitForTermination();
-    maxNumCores = 4;
-    CorePolicy* corePolicy = new CorePolicy();
-    Arachne::setCorePolicy(corePolicy);
-    Arachne::init();
-    // Articially wake up all threads for testing purposes
-    std::vector<uint32_t> coreRequest({3, 0, 0, 0, 0, 0, 0, 0});
-    coreArbiter->setRequestedCores(coreRequest);
-    limitedTimeWait([]() -> bool { return numActiveCores == 3; });
-    char* str;
-    size_t size;
-    FILE* newStream = open_memstream(&str, &size);
-    setErrorStream(newStream);
-    EXPECT_FALSE(canThreadBeCreatedOnCore(corePolicy->defaultClass, corePolicy,
-                                          virtualCoreTable[3]));
-    incrementCoreCount();
-    limitedTimeWait([]() -> bool { return numActiveCores > 3; });
-    EXPECT_TRUE(canThreadBeCreatedOnCore(corePolicy->defaultClass, corePolicy,
-                                         virtualCoreTable[3]));
-    fflush(newStream);
-    EXPECT_EQ("Attempting to increase number of cores 3 --> 4\n",
-              std::string(str));
-    free(str);
-}
-
-TEST_F(ArachneTest, decrementCoreCount) {
-    void decrementCoreCount();
-    limitedTimeWait([]() -> bool { return numActiveCores == 3; }, 500000);
-    char* str;
-    size_t size;
-    FILE* newStream = open_memstream(&str, &size);
-    setErrorStream(newStream);
-    CorePolicy* corePolicy = getCorePolicyForTest();
-    EXPECT_TRUE(canThreadBeCreatedOnCore(corePolicy->defaultClass, corePolicy,
-                                         virtualCoreTable[2]));
-    decrementCoreCount();
-    limitedTimeWait(
-        []() -> bool { return numActiveCores < 3 && !coreChangeActive; });
-    EXPECT_FALSE(canThreadBeCreatedOnCore(corePolicy->defaultClass, corePolicy,
-                                          virtualCoreTable[2]));
-    decrementCoreCount();
-    limitedTimeWait(
-        []() -> bool { return numActiveCores < 2 && !coreChangeActive; });
-    EXPECT_FALSE(canThreadBeCreatedOnCore(corePolicy->defaultClass, corePolicy,
-                                          virtualCoreTable[1]));
-    fflush(newStream);
-    EXPECT_EQ(
-        "Attempting to decrease number of cores 3 --> 2\n"
-        "Attempting to decrease number of cores 2 --> 1\n",
-        std::string(str));
-    free(str);
-}
-
-// This thread goes through three stages
-// Stage 0: Non-Exclusive
-// Stage 1: Exclusive
-// Stage 2: Non-Exclusive Again
-std::atomic<int> stage;
+// This thread sits on a core exclusively and exits when shouldExit is set.
+std::atomic<int> shouldExit(0);
 void
 exclusiveThread() {
-    while (stage != 1)
+    while (!shouldExit.load())
         ;
-    makeExclusiveOnCore();
-    while (stage != 2)
-        ;
-    makeSharedOnCore();
-    while (stage != 3)
-        ;
-}
-void
-yieldForever() {
-    while (true)
-        yield();
 }
 // Since the functions are paired, this also serves as the test for
 // makeSharedOnCore.
-TEST_F(ArachneTest, makeExclusiveOnCore) {
-    createThreadOnCore(virtualCoreTable[0], exclusiveThread);
-    limitedTimeWait([]() -> bool {
-        return Arachne::occupiedAndCount[0]->load().numOccupied == 1;
+TEST_F(ArachneTest, createExclusiveThread) {
+    DefaultCoreManager* coreManager =
+        reinterpret_cast<DefaultCoreManager*>(getCoreManagerForTest());
+    createThreadWithClass(DefaultCoreManager::EXCLUSIVE, exclusiveThread);
+    limitedTimeWait([&coreManager]() -> bool {
+        return Arachne::occupiedAndCount[coreManager->exclusiveCores[0]]
+                   ->load()
+                   .numOccupied == 56;
     });
-    // Check that thread creations are possible.
-    EXPECT_NE(Arachne::NullThread,
-              Arachne::createThreadOnCore(virtualCoreTable[0], yieldForever));
-    stage = 1;
-    // Check that other threads have been moved off or finished, and that
-    // thread creations fail.
-    limitedTimeWait(
-        []() -> bool {
-            return Arachne::occupiedAndCount[0]->load().occupied == 1;
-        },
-        10000);
-    EXPECT_EQ(Arachne::NullThread,
-              Arachne::createThreadOnCore(virtualCoreTable[2], doNothing));
-    // That eternally yielding thread must have moved somewhere.
-    EXPECT_EQ(EXCLUSIVE, Arachne::occupiedAndCount[0]->load().numOccupied);
-    EXPECT_EQ(1, Arachne::occupiedAndCount[1]->load().numOccupied);
-    EXPECT_EQ(0, Arachne::occupiedAndCount[2]->load().numOccupied);
-    stage = 2;
-    limitedTimeWait(
-        []() -> bool {
-            return Arachne::occupiedAndCount[0]->load().numOccupied == 1;
-        },
-        10000);
-    // Verify that thread creations are once again allowed.
-    EXPECT_NE(Arachne::NullThread,
-              Arachne::createThreadOnCore(virtualCoreTable[0], doNothing));
-    stage = 3;
+
+    // Check that the core is no longer available in the default scheduling
+    // class.
+    EXPECT_FALSE(canThreadBeCreatedOnCore(0, coreManager,
+                                          coreManager->exclusiveCores[0]));
+    shouldExit.store(1);
 }
 
 // Since idleCore and unidleCore are paired, they are tested together.
 TEST_F(ArachneTest, idleAndUnidle) {
-    idleCore(virtualCoreTable[0]);
-    idleCore(virtualCoreTable[2]);
-    limitedTimeWait(
-        []() -> bool { return Arachne::isIdledArray[virtualCoreTable[2]]; });
-    EXPECT_TRUE(Arachne::isIdledArray[virtualCoreTable[0]]);
-    EXPECT_FALSE(Arachne::isIdledArray[virtualCoreTable[1]]);
-    EXPECT_TRUE(Arachne::isIdledArray[virtualCoreTable[2]]);
-    unidleCore(virtualCoreTable[0]);
-    unidleCore(virtualCoreTable[2]);
-    limitedTimeWait(
-        []() -> bool { return !Arachne::isIdledArray[virtualCoreTable[2]]; });
-    EXPECT_FALSE(Arachne::isIdledArray[virtualCoreTable[0]]);
-    EXPECT_FALSE(Arachne::isIdledArray[virtualCoreTable[1]]);
-    EXPECT_FALSE(Arachne::isIdledArray[virtualCoreTable[2]]);
+    idleCore(0);
+    idleCore(2);
+    limitedTimeWait([]() -> bool { return Arachne::isIdledArray[2]; });
+    EXPECT_TRUE(Arachne::isIdledArray[0]);
+    EXPECT_FALSE(Arachne::isIdledArray[1]);
+    EXPECT_TRUE(Arachne::isIdledArray[2]);
+    unidleCore(0);
+    unidleCore(2);
+    limitedTimeWait([]() -> bool { return !Arachne::isIdledArray[2]; });
+    EXPECT_FALSE(Arachne::isIdledArray[0]);
+    EXPECT_FALSE(Arachne::isIdledArray[1]);
+    EXPECT_FALSE(Arachne::isIdledArray[2]);
 }
 
 }  // namespace Arachne
