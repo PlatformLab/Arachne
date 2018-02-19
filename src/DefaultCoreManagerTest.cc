@@ -25,7 +25,7 @@
 #include "CoreArbiter/CoreArbiterServer.h"
 #include "CoreArbiter/Logger.h"
 #include "CoreArbiter/MockSyscall.h"
-#include "CorePolicy.h"
+#include "DefaultCoreManager.h"
 
 namespace Arachne {
 
@@ -80,7 +80,7 @@ struct Environment : public ::testing::Environment {
     (useCoreArbiter) ? ::testing::AddGlobalTestEnvironment(new Environment)
                      : NULL;
 
-struct ArachneTest : public ::testing::Test {
+struct DefaultCoreManagerTest : public ::testing::Test {
     virtual void SetUp() {
         Arachne::minNumCores = 1;
         Arachne::maxNumCores = 3;
@@ -118,73 +118,42 @@ limitedTimeWait(std::function<bool()> condition, int numIterations) {
     ASSERT_TRUE(condition());
 }
 
-TEST_F(ArachneTest, CorePolicy_constructor) {
-    CorePolicy* corePolicy = new CorePolicy();
+TEST_F(DefaultCoreManagerTest, DefaultCoreManager_constructor) {
+    DefaultCoreManager coreManager(1, 4);
     for (unsigned i = 0; i < std::thread::hardware_concurrency(); i++) {
-        EXPECT_EQ(
-            corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[i],
-            0);
+        EXPECT_EQ(coreManager.sharedCores.capacity, 4U);
+        EXPECT_EQ(coreManager.exclusiveCores.capacity, 4U);
+        EXPECT_EQ(coreManager.sharedCores.size(), 0U);
     }
-    delete corePolicy;
+    coreManager.coreAvailable(1);
+    EXPECT_EQ(coreManager.sharedCores.size(), 1U);
 }
 
-TEST_F(ArachneTest, CorePolicy_addCore) {
-    CorePolicy* corePolicy = new CorePolicy();
-    corePolicy->addCore(5);
-    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[0],
-              5);
-    corePolicy->addCore(4);
-    corePolicy->addCore(7);
-    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[0],
-              5);
-    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[1],
-              4);
-    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[2],
-              7);
-    EXPECT_EQ(
-        corePolicy->threadClassCoreMap[corePolicy->defaultClass]->numFilled,
-        3U);
-    delete corePolicy;
+TEST_F(DefaultCoreManagerTest, DefaultCoreManager_coreAvailable) {
+    DefaultCoreManager coreManager(1, 4);
+    coreManager.coreAvailable(1);
+    EXPECT_EQ(coreManager.sharedCores.size(), 1U);
+    coreManager.coreAvailable(3);
+    EXPECT_EQ(coreManager.sharedCores.size(), 2U);
 }
 
-TEST_F(ArachneTest, CorePolicy_removeCore) {
-    CorePolicy* corePolicy = new CorePolicy();
-    corePolicy->addCore(5);
-    corePolicy->addCore(4);
-    corePolicy->addCore(7);
-    corePolicy->removeCore(5);
-    EXPECT_EQ(
-        corePolicy->threadClassCoreMap[corePolicy->defaultClass]->numFilled,
-        2U);
-    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[0],
-              7);
-    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[1],
-              4);
-    corePolicy->removeCore(4);
-    EXPECT_EQ(
-        corePolicy->threadClassCoreMap[corePolicy->defaultClass]->numFilled,
-        1U);
-    EXPECT_EQ(corePolicy->threadClassCoreMap[corePolicy->defaultClass]->map[0],
-              7);
-    corePolicy->removeCore(7);
-    EXPECT_EQ(
-        corePolicy->threadClassCoreMap[corePolicy->defaultClass]->numFilled,
-        0U);
-    delete corePolicy;
+TEST_F(DefaultCoreManagerTest, DefaultCoreManager_getCoresDefault) {
+    DefaultCoreManager coreManager(1, 4);
+    CoreListView entry = coreManager.getCores(DefaultCoreManager::DEFAULT);
+    EXPECT_EQ(entry.size(), 0U);
+    coreManager.coreAvailable(5);
+    EXPECT_EQ(entry.size(), 1U);
+    coreManager.coreAvailable(7);
+    EXPECT_EQ(entry.size(), 2U);
 }
 
-TEST_F(ArachneTest, CorePolicy_getRunnableCores) {
-    CorePolicy* corePolicy = new CorePolicy();
-    CoreList* entry = corePolicy->getRunnableCores(corePolicy->defaultClass);
-    corePolicy->addCore(5);
-    EXPECT_EQ(entry->map[0], 5);
-    corePolicy->addCore(4);
-    corePolicy->addCore(7);
-    EXPECT_EQ(entry->map[0], 5);
-    EXPECT_EQ(entry->map[1], 4);
-    EXPECT_EQ(entry->map[2], 7);
-    EXPECT_EQ(entry->numFilled, 3U);
-    delete corePolicy;
+TEST_F(DefaultCoreManagerTest, DefaultCoreManager_getCoresExclusive) {
+    DefaultCoreManager* coreManager =
+        reinterpret_cast<DefaultCoreManager*>(Arachne::getCoreManagerForTest());
+    CoreListView entry = coreManager->getCores(DefaultCoreManager::EXCLUSIVE);
+    EXPECT_EQ(entry.size(), 1U);
+    entry = coreManager->getCores(DefaultCoreManager::EXCLUSIVE);
+    EXPECT_EQ(entry.size(), 1U);
 }
 
 }  // namespace Arachne

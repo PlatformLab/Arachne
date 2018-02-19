@@ -28,7 +28,7 @@
 #include <vector>
 
 #include "Common.h"
-#include "CorePolicy.h"
+#include "CoreManager.h"
 #include "Logger.h"
 #include "PerfStats.h"
 #include "PerfUtils/Cycles.h"
@@ -76,9 +76,7 @@ extern std::function<void()> initCore;
 
 extern std::vector<ThreadContext**> allThreadContexts;
 
-extern int* virtualCoreTable;
-
-extern CorePolicy* corePolicy;
+extern CoreManager* coreManager;
 
 extern std::vector<bool> isIdledArray;
 
@@ -142,11 +140,11 @@ void sleep(uint64_t ns);
 void idleCore(int coreId);
 void unidleCore(int coreId);
 
-bool makeExclusiveOnCore(bool forScaleDown = false);
+bool removeAllThreadsFromCore(int coreId, CoreList* outputCores);
 void makeSharedOnCore();
 
-void setCorePolicy(CorePolicy* arachneCorePolicy);
-CorePolicy* getCorePolicyForTest();
+void setCoreManager(CoreManager* arachneCoreManager);
+CoreManager* getCoreManagerForTest();
 
 /**
  * Block the current thread until another thread invokes join() with the
@@ -317,7 +315,8 @@ struct ThreadInvocation : public ThreadInvocationEnabler {
 
     /// Construct a threadInvocation from the type that is returned by
     /// std::bind.
-    explicit ThreadInvocation(F mainFunction) : mainFunction(mainFunction) {
+    explicit ThreadInvocation(F&& mainFunction)
+        : mainFunction(std::move(mainFunction)) {
         static_assert(
             sizeof(ThreadInvocation<F>) <= CACHE_LINE_SIZE - 8,
             "Arachne requires the function and arguments for a thread to "
@@ -360,7 +359,7 @@ struct ThreadContext {
     uint8_t coreId;
 
     /// Thread class of this thread, used for thread migration.
-    ThreadClass threadClass = 0;
+    int threadClass = 0;
 
     /// Unique identifier for this thread among those on the same core.
     /// Used to index into various core-specific arrays.
@@ -442,9 +441,6 @@ const uint8_t EXCLUSIVE = maxThreadsPerCore * 2 + 1;
 void schedulerMainLoop();
 void swapcontext(void** saved, void** target);
 void threadMain();
-
-void incrementCoreCount();
-void decrementCoreCount();
 
 /// This structure tracks the live threads on a single core.
 struct MaskAndCount {
@@ -568,7 +564,7 @@ createThreadOnCore(uint32_t coreId, _Callable&& __f, _Args&&... __args) {
 
     // Copy the thread invocation into the byte array.
     new (&threadContext->threadInvocation.data)
-        Arachne::ThreadInvocation<decltype(task)>(task);
+        Arachne::ThreadInvocation<decltype(task)>(std::move(task));
 
     // Read the generation number *before* waking up the thread, to avoid a
     // race where the thread finishes executing so fast that we read the next
@@ -598,6 +594,48 @@ createThreadOnCore(uint32_t coreId, _Callable&& __f, _Args&&... __args) {
 ////////////////////////////////////////////////////////////////////////////////
 
 /**
+ * Spawn a new thread with the given threadClass, function and arguments.
+ *
+ * \param threadClass
+ *     The class of the thread being created; its meaning is determined by the
+ *     currently running CoreManager.
+ * \param __f
+ *     The main function for the new thread.
+ * \param __args
+ *     The arguments for __f. The total size of the arguments cannot exceed 48
+ *     bytes, and arguments are taken by value, so any reference must be
+ *     wrapped with std::ref.
+ * \return
+ *     The return value is an identifier for the newly created thread. If
+ *     there are insufficient resources for creating a new thread, then
+ *     NullThread will be returned.
+ *
+ * \ingroup api
+ */
+template <typename _Callable, typename... _Args>
+ThreadId
+createThreadWithClass(int threadClass, _Callable&& __f, _Args&&... __args) {
+    // Find a kernel thread to enqueue to by picking two at random and choosing
+    // the one with the fewest Arachne threads.
+    uint32_t kId;
+    CoreListView entry = coreManager->getCores(threadClass);
+    uint32_t index1 = static_cast<uint32_t>(random()) % entry.size();
+    uint32_t index2 = static_cast<uint32_t>(random()) % entry.size();
+    while (index2 == index1 && entry.size() > 1)
+        index2 = static_cast<uint32_t>(random()) % entry.size();
+
+    int choice1 = entry[index1];
+    int choice2 = entry[index2];
+
+    if (occupiedAndCount[choice1]->load().numOccupied <
+        occupiedAndCount[choice2]->load().numOccupied)
+        kId = choice1;
+    else
+        kId = choice2;
+    return createThreadOnCore(kId, __f, __args...);
+}
+
+/**
  * Spawn a new thread with a function and arguments.
  *
  * \param __f
@@ -616,24 +654,7 @@ createThreadOnCore(uint32_t coreId, _Callable&& __f, _Args&&... __args) {
 template <typename _Callable, typename... _Args>
 ThreadId
 createThread(_Callable&& __f, _Args&&... __args) {
-    // Find a kernel thread to enqueue to by picking two at random and choosing
-    // the one with the fewest Arachne threads.
-    uint32_t kId;
-    CoreList* entry = corePolicy->getRunnableCores(0);
-    uint32_t index1 = static_cast<uint32_t>(random()) % entry->numFilled;
-    uint32_t index2 = static_cast<uint32_t>(random()) % entry->numFilled;
-    while (index2 == index1 && entry->numFilled > 1)
-        index2 = static_cast<uint32_t>(random()) % entry->numFilled;
-
-    int choice1 = entry->map[index1];
-    int choice2 = entry->map[index2];
-
-    if (occupiedAndCount[choice1]->load().numOccupied <
-        occupiedAndCount[choice2]->load().numOccupied)
-        kId = choice1;
-    else
-        kId = choice2;
-    return createThreadOnCore(kId, __f, __args...);
+    return createThreadWithClass(0, __f, __args...);
 }
 
 /**

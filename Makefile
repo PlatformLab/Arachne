@@ -31,7 +31,7 @@ CHECK_TARGET=$$(find $(SRC_DIR) $(WRAPPER_DIR) '(' -name '*.h' -or -name '*.cc' 
 endif
 
 # Conversion to fully qualified names
-OBJECT_NAMES := Arachne.o Logger.o PerfStats.o CorePolicy.o arachne_wrapper.o
+OBJECT_NAMES := Arachne.o Logger.o PerfStats.o DefaultCoreManager.o arachne_wrapper.o
 
 OBJECTS = $(patsubst %,$(OBJECT_DIR)/%,$(OBJECT_NAMES))
 HEADERS= $(shell find $(SRC_DIR) $(WRAPPER_DIR) -name '*.h')
@@ -80,9 +80,9 @@ CTEST_LIBS=-Lobj/ -lArachne
 INCLUDE+=-I${GTEST_DIR}/include
 COREARBITER_BIN=$(COREARBITER)/bin/coreArbiterServer
 
-test: $(OBJECT_DIR)/ArachneTest $(OBJECT_DIR)/CorePolicyTest $(OBJECT_DIR)/arachne_wrapper_test
+test: $(OBJECT_DIR)/ArachneTest $(OBJECT_DIR)/DefaultCoreManagerTest $(OBJECT_DIR)/arachne_wrapper_test
 	$(OBJECT_DIR)/ArachneTest
-	$(OBJECT_DIR)/CorePolicyTest
+	$(OBJECT_DIR)/DefaultCoreManagerTest
 	$(OBJECT_DIR)/arachne_wrapper_test
 
 ctest: $(OBJECT_DIR)/arachne_wrapper_ctest
@@ -97,7 +97,7 @@ $(OBJECT_DIR)/arachne_wrapper_test: $(OBJECT_DIR)/arachne_wrapper_test.o $(OBJEC
 $(OBJECT_DIR)/ArachneTest: $(OBJECT_DIR)/ArachneTest.o $(OBJECT_DIR)/libgtest.a $(OBJECT_DIR)/libArachne.a
 	$(CXX) $(INCLUDE) $(CXXFLAGS) $< $(GTEST_DIR)/src/gtest_main.cc $(TEST_LIBS) $(LIBS)  -o $@
 
-$(OBJECT_DIR)/CorePolicyTest: $(OBJECT_DIR)/CorePolicyTest.o $(OBJECT_DIR)/libgtest.a $(OBJECT_DIR)/libArachne.a
+$(OBJECT_DIR)/DefaultCoreManagerTest: $(OBJECT_DIR)/DefaultCoreManagerTest.o $(OBJECT_DIR)/libgtest.a $(OBJECT_DIR)/libArachne.a
 	$(CXX) $(INCLUDE) $(CXXFLAGS) $< $(GTEST_DIR)/src/gtest_main.cc $(TEST_LIBS) $(LIBS)  -o $@
 
 $(OBJECT_DIR)/libgtest.a:
