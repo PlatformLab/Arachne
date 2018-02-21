@@ -21,14 +21,22 @@
 
 namespace Arachne {
 /*
- * An unordered list of cores.
+ * An unordered list of cores. This class's thread-safety is dependent on the
+ * thread-safety of torn reads.
  */
 struct CoreList {
-    explicit CoreList(int capacity)
-        : capacity(static_cast<uint16_t>(capacity)) {
+    /**
+     * Each instance allocates all the memory it will use at the time of
+     * construction.
+     */
+    explicit CoreList(int capacity, bool mustFree = false)
+        : capacity(static_cast<uint16_t>(capacity)), mustFree(mustFree) {
         cores = new int[capacity];
         numFilled = 0;
     }
+    /**
+     * Free memory iff this core has not already been mvoed.
+     */
     ~CoreList() {
         if (cores != NULL)
             delete cores;
@@ -57,76 +65,33 @@ struct CoreList {
                 (numFilled - index - 1) * sizeof(int));
         numFilled--;
     }
+
+    /**
+     * Users of CoreList outside of CoreManager implementations MUST call this
+     * function after they are done with the CoreList.
+     */
+    void free() {
+        if (mustFree)
+            delete this;
+    }
     int& operator[](std::size_t index) { return cores[index]; }
+    int& get(std::size_t index) { return cores[index]; }
 
     /* The number of cores in the list */
     uint16_t numFilled;
+
+    /* The maximum number of cores in the list */
     uint16_t capacity;
 
     /*
      * An array containing IDs for cores in this list.
      */
     int* cores;
-};
 
-/*
- * An object which can be used as a CoreList by the Arachne runtime. It
- * exists to facilitate memory management, allowing CoreManagers to return
- * either a pointer to a CoreList or a CoreList.
- */
-struct CoreListView {
-    explicit CoreListView(int capacity)
-        : isPointer(false), coreList(capacity) {}
-    explicit CoreListView(CoreList* list)
-        : isPointer(true), coreListPointer(list) {}
-    ~CoreListView() {}
-
-    // Both copy and move operators are defined because Arachne's use of
-    // std::bind requires at least one copy.
-    // If Arachne ever removes its dependency on std::bind, it's possible that
-    // the copy assignment and constructor operators can be removed.
-    CoreListView(CoreListView&& other) { *this = std::move(other); }
-    CoreListView(const CoreListView& other) { *this = other; }
-    CoreListView& operator=(CoreListView&& other) {
-        isPointer = other.isPointer;
-        if (isPointer) {
-            coreListPointer = other.coreListPointer;
-        } else {
-            coreList = std::move(other.coreList);
-        }
-        return *this;
-    }
-    CoreListView& operator=(const CoreListView& other) {
-        isPointer = other.isPointer;
-        if (isPointer) {
-            coreListPointer = other.coreListPointer;
-        } else {
-            coreList = other.coreList;
-        }
-        return *this;
-    }
-
-    uint32_t size() {
-        return isPointer ? coreListPointer->size() : coreList.size();
-    }
-    int& operator[](std::size_t index) {
-        return isPointer ? (*coreListPointer)[index] : coreList[index];
-    }
-    void add(int coreId) {
-        if (isPointer)
-            coreListPointer->add(coreId);
-        else
-            coreList.add(coreId);
-    }
-
-    bool isPointer;
     /*
-     * An array containing IDs for cores in this list.
+     * This variable indicates whether this CoreList should be deleted by free.
      */
-    union {
-        CoreList* coreListPointer;
-        CoreList coreList;
-    };
+    bool mustFree;
 };
 
 /**
@@ -152,7 +117,7 @@ class CoreManager {
      * Invoked by Arachne::createThread to get cores available for a particular
      * threadClass.
      */
-    virtual CoreListView getCores(int threadClass) = 0;
+    virtual CoreList* getCores(int threadClass) = 0;
 
     virtual ~CoreManager() {}
 };

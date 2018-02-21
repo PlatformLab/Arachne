@@ -49,7 +49,7 @@ class DefaultCoreManager : public CoreManager {
      * Invoked by Arachne to get cores available for scheduling a particular
      * threadClass.
      */
-    virtual CoreListView getCores(int threadClass);
+    virtual CoreList* getCores(int threadClass);
 
     /**
      * After this function returns, no load estimations that have already begun

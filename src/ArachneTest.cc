@@ -371,8 +371,8 @@ TEST_F(ArachneTest, createThread_pickLeastLoaded) {
     mockRandomValues.push_back(0);
     mockRandomValues.push_back(1);
     createThread(clearFlag);
-    int core0 = coreManager->getCores(0)[0];
-    int core1 = coreManager->getCores(0)[1];
+    int core0 = coreManager->getCores(0)->get(0);
+    int core1 = coreManager->getCores(0)->get(1);
     EXPECT_EQ(1U, Arachne::occupiedAndCount[core1]->load().numOccupied);
     EXPECT_EQ(1U, Arachne::occupiedAndCount[core1]->load().occupied);
     threadCreationIndicator = 1;
@@ -841,11 +841,14 @@ extern volatile bool coreChangeActive;
 bool
 canThreadBeCreatedOnCore(int threadClass, CoreManager* coreManager,
                          int coreId) {
-    CoreListView entry = coreManager->getCores(threadClass);
-    for (uint32_t i = 0; i < entry.size(); i++) {
-        if (entry[i] == coreId)
+    CoreList* coreList = coreManager->getCores(threadClass);
+    for (uint32_t i = 0; i < coreList->size(); i++) {
+        if (coreList->get(i) == coreId) {
+            coreList->free();
             return true;
+        }
     }
+    coreList->free();
     return false;
 }
 
