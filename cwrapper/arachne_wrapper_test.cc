@@ -40,6 +40,7 @@ extern std::atomic<uint32_t> numActiveCores;
 extern volatile uint32_t minNumCores;
 extern int* virtualCoreTable;
 
+extern std::string coreArbiterSocketPath;
 extern CoreArbiterClient* coreArbiter;
 
 static void limitedTimeWait(std::function<bool()> condition,
@@ -85,6 +86,7 @@ struct ArachneTest : public ::testing::Test {
         Arachne::minNumCores = 1;
         Arachne::maxNumCores = 3;
         Arachne::disableLoadEstimation = true;
+        Arachne::coreArbiterSocketPath = TEST_SOCKET;
         ::arachne_init(NULL, NULL);
         // Artificially wake up all threads for testing purposes
         std::vector<uint32_t> coreRequest({3, 0, 0, 0, 0, 0, 0, 0});
