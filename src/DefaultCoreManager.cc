@@ -19,7 +19,7 @@
 
 namespace Arachne {
 
-void removeThreadsFromCore(CoreListView outputCores);
+void removeThreadsFromCore(CoreList* outputCores);
 
 DefaultCoreManager::DefaultCoreManager(int minNumCores, int maxNumCores)
     : minNumCores(minNumCores),
@@ -51,20 +51,20 @@ DefaultCoreManager::coreUnavailable() {
  * Invoked by Arachne::createThread to get cores available for scheduling of
  * short-lived tasks. Returns NULL if an invalid threadClass is passed in.
  */
-CoreListView
+CoreList*
 DefaultCoreManager::getCores(int threadClass) {
     switch (threadClass) {
         case DEFAULT:
-            return CoreListView(&sharedCores);
+            return &sharedCores;
         case EXCLUSIVE:
             int coreId = getExclusiveCore();
             if (coreId < 0)
                 break;
-            CoreListView retVal(1);
-            retVal.add(coreId);
+            CoreList* retVal = new CoreList(1, /*mustFree=*/true);
+            retVal->add(coreId);
             return retVal;
     }
-    return CoreListView(0);
+    return new CoreList(0, /*mustFree=*/true);
 }
 
 /**
@@ -98,7 +98,7 @@ DefaultCoreManager::getExclusiveCore() {
     sharedCores.remove(0);
 
     ThreadId migrationThread = createThreadOnCore(
-        newExclusiveCore, removeThreadsFromCore, CoreListView(&sharedCores));
+        newExclusiveCore, removeThreadsFromCore, &sharedCores);
     // The current thread is a non-Arachne thread.
     if (core.kernelThreadId == -1) {
         // Polling for completion is a short-term hack until we figure out a

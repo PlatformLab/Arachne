@@ -618,21 +618,23 @@ createThreadWithClass(int threadClass, _Callable&& __f, _Args&&... __args) {
     // Find a kernel thread to enqueue to by picking two at random and choosing
     // the one with the fewest Arachne threads.
     uint32_t kId;
-    CoreListView entry = coreManager->getCores(threadClass);
-    uint32_t index1 = static_cast<uint32_t>(random()) % entry.size();
-    uint32_t index2 = static_cast<uint32_t>(random()) % entry.size();
-    while (index2 == index1 && entry.size() > 1)
-        index2 = static_cast<uint32_t>(random()) % entry.size();
+    CoreList* coreList = coreManager->getCores(threadClass);
+    uint32_t index1 = static_cast<uint32_t>(random()) % coreList->size();
+    uint32_t index2 = static_cast<uint32_t>(random()) % coreList->size();
+    while (index2 == index1 && coreList->size() > 1)
+        index2 = static_cast<uint32_t>(random()) % coreList->size();
 
-    int choice1 = entry[index1];
-    int choice2 = entry[index2];
+    int choice1 = coreList->get(index1);
+    int choice2 = coreList->get(index2);
 
     if (occupiedAndCount[choice1]->load().numOccupied <
         occupiedAndCount[choice2]->load().numOccupied)
         kId = choice1;
     else
         kId = choice2;
-    return createThreadOnCore(kId, __f, __args...);
+    auto threadId = createThreadOnCore(kId, __f, __args...);
+    coreList->free();
+    return threadId;
 }
 
 /**

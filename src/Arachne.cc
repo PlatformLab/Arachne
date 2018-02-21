@@ -1239,7 +1239,7 @@ preventCreationsToCore(int coreId) {
  * include the current core.
  */
 void
-removeThreadsFromCore(CoreListView outputCores) {
+removeThreadsFromCore(CoreList* outputCores) {
     preventCreationsToCore(core.kernelThreadId);
 
     std::lock_guard<SleepLock> _(coreExclusionMutex);
@@ -1258,9 +1258,9 @@ removeThreadsFromCore(CoreListView outputCores) {
             continue;
         }
         // Choose a victim core that we will pawn our work on.
-        nextMigrationTarget = (nextMigrationTarget + 1) % outputCores.size();
+        nextMigrationTarget = (nextMigrationTarget + 1) % outputCores->size();
         // TODO(hq6): Fix the migration of polling empty context problem.
-        int coreId = outputCores[nextMigrationTarget];
+        int coreId = outputCores->get(nextMigrationTarget);
         if ((blockedOccupiedAndCount.occupied >> i) & 1) {
             bool success = false;
             uint8_t index;
@@ -1318,16 +1318,18 @@ removeThreadsFromCore(CoreListView outputCores) {
                 // Try again if we failed to find a slot to pawn our work onto.
                 i--;
                 numFailures++;
-                if (numFailures > outputCores.size()) {
+                if (numFailures > outputCores->size()) {
                     ARACHNE_LOG(ERROR,
                                 "Number of failures %u exceeds number of "
                                 "available cores %u.",
-                                numFailures, outputCores.size());
+                                numFailures, outputCores->size());
                     abort();
                 }
             }
         }
     }
+
+    outputCores->free();
 
     // Sanity checking that we are the only thread left on this core.
     int count = 0;

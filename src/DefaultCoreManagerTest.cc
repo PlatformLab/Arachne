@@ -139,21 +139,23 @@ TEST_F(DefaultCoreManagerTest, DefaultCoreManager_coreAvailable) {
 
 TEST_F(DefaultCoreManagerTest, DefaultCoreManager_getCoresDefault) {
     DefaultCoreManager coreManager(1, 4);
-    CoreListView entry = coreManager.getCores(DefaultCoreManager::DEFAULT);
-    EXPECT_EQ(entry.size(), 0U);
+    CoreList* coreList = coreManager.getCores(DefaultCoreManager::DEFAULT);
+    EXPECT_EQ(coreList->size(), 0U);
     coreManager.coreAvailable(5);
-    EXPECT_EQ(entry.size(), 1U);
+    EXPECT_EQ(coreList->size(), 1U);
     coreManager.coreAvailable(7);
-    EXPECT_EQ(entry.size(), 2U);
+    EXPECT_EQ(coreList->size(), 2U);
+    coreList->free();
 }
 
 TEST_F(DefaultCoreManagerTest, DefaultCoreManager_getCoresExclusive) {
     DefaultCoreManager* coreManager =
         reinterpret_cast<DefaultCoreManager*>(Arachne::getCoreManagerForTest());
-    CoreListView entry = coreManager->getCores(DefaultCoreManager::EXCLUSIVE);
-    EXPECT_EQ(entry.size(), 1U);
-    entry = coreManager->getCores(DefaultCoreManager::EXCLUSIVE);
-    EXPECT_EQ(entry.size(), 1U);
+    CoreList* coreList = coreManager->getCores(DefaultCoreManager::EXCLUSIVE);
+    EXPECT_EQ(coreList->size(), 1U);
+    coreList = coreManager->getCores(DefaultCoreManager::EXCLUSIVE);
+    EXPECT_EQ(coreList->size(), 1U);
+    coreList->free();
 }
 
 }  // namespace Arachne
