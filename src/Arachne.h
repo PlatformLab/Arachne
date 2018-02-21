@@ -37,8 +37,11 @@
 namespace Arachne {
 
 // Current location of CoreArbiter testsocket and testmem
-#define TEST_SOCKET "/tmp/CoreArbiter/testsocket"
-#define TEST_MEM "/tmp/CoreArbiter/testmem"
+#define TEST_SOCKET "/tmp/CoreArbiter_ArachneTest/testsocket"
+#define TEST_MEM "/tmp/CoreArbiter_ArachneTest/testmem"
+
+// The standard path where the real CoreArbiterServer will run from.
+#define PROD_SOCKET "/tmp/CoreArbiter/testsocket"
 
 // A macro to disallow the copy constructor and operator= functions
 #ifndef DISALLOW_COPY_AND_ASSIGN

@@ -180,6 +180,7 @@ thread_local uint8_t DispatchTimeKeeper::numThreadsRan;
  */
 bool useCoreArbiter = true;
 
+std::string coreArbiterSocketPath = PROD_SOCKET;
 CoreArbiterClient* coreArbiter = NULL;
 
 /*
@@ -740,7 +741,8 @@ parseOptions(int* argcp, const char** argv) {
                             {"maxNumCores", 'm', true},
                             {"stackSize", 's', true},
                             {"enableArbiter", 'a', true},
-                            {"disableLoadEstimation", 'd', false}};
+                            {"disableLoadEstimation", 'd', false},
+                            {"coreArbiterSocketPath", 'p', true}};
     const int UNRECOGNIZED = ~0;
 
     int i = 1;
@@ -793,6 +795,8 @@ parseOptions(int* argcp, const char** argv) {
             case 'a':
                 useCoreArbiter = (0 != atoi(optionArgument));
                 break;
+            case 'p':
+                coreArbiterSocketPath = optionArgument;
             case UNRECOGNIZED:
                 i++;
         }
@@ -920,8 +924,9 @@ init(int* argcp, const char** argv) {
 
     parseOptions(argcp, argv);
 
-    coreArbiter = (useCoreArbiter) ? CoreArbiterClient::getInstance(TEST_SOCKET)
-                                   : ArbiterClientShim::getInstance();
+    coreArbiter = (useCoreArbiter)
+                      ? CoreArbiterClient::getInstance(coreArbiterSocketPath)
+                      : ArbiterClientShim::getInstance();
 
     if (corePolicy == NULL) {
         corePolicy = new CorePolicy();
