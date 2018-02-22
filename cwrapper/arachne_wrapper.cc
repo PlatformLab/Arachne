@@ -61,6 +61,23 @@ arachne_wait_termination() {
 }
 
 /**
+ * This function is the wrapper for Arachne::createThreadWithClass.
+ */
+int
+arachne_thread_create_with_class(arachne_thread_id* id, void* (*func)(void*),
+                                 void* arg, int thread_class) {
+    Arachne::ThreadId tid =
+        Arachne::createThreadWithClass(thread_class, func, arg);
+    if (tid == Arachne::NullThread) {
+        return -1;
+    }
+
+    id->context = reinterpret_cast<arachne_thread_context*>(tid.context);
+    id->generation = tid.generation;
+    return 0;
+}
+
+/**
  * This function is the wrapper for Arachne::createThread.
  * We have changed the interface due to no template support in C.
  *
@@ -77,14 +94,7 @@ arachne_wait_termination() {
  */
 int
 arachne_thread_create(arachne_thread_id* id, void* (*func)(void*), void* arg) {
-    Arachne::ThreadId tid = Arachne::createThread(func, arg);
-    if (tid == Arachne::NullThread) {
-        return -1;
-    }
-
-    id->context = reinterpret_cast<arachne_thread_context*>(tid.context);
-    id->generation = tid.generation;
-    return 0;
+    return arachne_thread_create_with_class(id, func, arg, 0);
 }
 
 /**
@@ -106,14 +116,6 @@ arachne_thread_join(arachne_thread_id* id) {
 void
 arachne_thread_yield() {
     Arachne::yield();
-}
-
-/**
- * This function is the wrapper for Arachne::makeExclusiveOnCore.
- */
-bool
-arachne_thread_exclusive_core(bool scale_down) {
-    return Arachne::makeExclusiveOnCore(scale_down);
 }
 
 #ifdef __cplusplus
