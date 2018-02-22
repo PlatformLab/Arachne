@@ -67,7 +67,7 @@ DefaultCoreManager::getCores(int threadClass) {
             retVal->add(coreId);
             return retVal;
     }
-    return new CoreList(0, /*mustFree=*/true);
+    return NULL;
 }
 
 /**
