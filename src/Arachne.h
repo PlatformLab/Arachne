@@ -619,6 +619,8 @@ createThreadWithClass(int threadClass, _Callable&& __f, _Args&&... __args) {
     // the one with the fewest Arachne threads.
     uint32_t kId;
     CoreList* coreList = coreManager->getCores(threadClass);
+    if (coreList == NULL)
+        return Arachne::NullThread;
     uint32_t index1 = static_cast<uint32_t>(random()) % coreList->size();
     uint32_t index2 = static_cast<uint32_t>(random()) % coreList->size();
     while (index2 == index1 && coreList->size() > 1)
