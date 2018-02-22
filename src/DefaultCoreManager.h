@@ -32,29 +32,9 @@ namespace Arachne {
 class DefaultCoreManager : public CoreManager {
   public:
     DefaultCoreManager(int minNumCores, int maxNumCores);
-    /**
-     * Add the given core to the pool of threads for general scheduling.
-     */
     virtual void coreAvailable(int myCoreId);
-
-    /**
-     * Prevent further creations on and remove all threads from the most
-     * recently acquired core, and schedule releaseCore() on it. Log an error
-     * and abort the process if loss of a core results in no cores available
-     * for general scheduling.
-     */
     virtual void coreUnavailable();
-
-    /**
-     * Invoked by Arachne to get cores available for scheduling a particular
-     * threadClass.
-     */
     virtual CoreList* getCores(int threadClass);
-
-    /**
-     * After this function returns, no load estimations that have already begun
-     * will complete, but no future load estimations will occur.
-     */
     void disableLoadEstimation();
 
     /**
@@ -63,9 +43,6 @@ class DefaultCoreManager : public CoreManager {
     enum ThreadClass { DEFAULT = 0, EXCLUSIVE = 1 };
 
   private:
-    /**
-     * Find or allocate a core for exclusive use by a thread.
-     */
     int getExclusiveCore();
     /**
      * The minimum number of cores that the application needs to run

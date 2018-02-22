@@ -29,6 +29,9 @@ DefaultCoreManager::DefaultCoreManager(int minNumCores, int maxNumCores)
       sharedCores(maxNumCores),
       exclusiveCores(maxNumCores) {}
 
+/**
+ * Add the given core to the pool of threads for general scheduling.
+ */
 void
 DefaultCoreManager::coreAvailable(int myCoreId) {
     Lock guard(lock);
@@ -68,14 +71,17 @@ DefaultCoreManager::getCores(int threadClass) {
 }
 
 /**
- * After this function returns, no load estimations will happen in the
- * future.
+ * After this function returns, no load estimations that have already begun
+ * will complete, but no future load estimations will occur.
  */
 void
 DefaultCoreManager::disableLoadEstimation() {
     // TODO(hq6): Implement this function
 }
 
+/**
+ * Find or allocate a core for exclusive use by a thread.
+ */
 int
 DefaultCoreManager::getExclusiveCore() {
     Lock guard(lock);
