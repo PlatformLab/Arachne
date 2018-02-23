@@ -187,6 +187,9 @@ CoreArbiterClient* coreArbiter = NULL;
 
 CoreManager* coreManager = NULL;
 
+void releaseCore(CoreList* outputCores);
+void descheduleCore();
+
 /**
  * Allocate a block of memory aligned at the beginning of a cache line.
  *
@@ -289,8 +292,10 @@ threadMain() {
             // Cleanup is completed, so we can carry on with the next core
             // release if needed.
             coreReleaseRequestCount--;
-            if (coreReleaseRequestCount)
-                coreManager->coreUnavailable();
+            if (coreReleaseRequestCount) {
+                coreChangeActive = true;
+                descheduleCore();
+            }
         }
         PerfStats::threadStats.numCoreDecrements++;
     }
@@ -713,6 +718,7 @@ waitForTermination() {
     publicPriorityMasks.clear();
     PerfUtils::Util::serialize();
     coreArbiter->reset();
+    delete coreManager;
     coreManager = NULL;
     initialized = false;
 }
@@ -1166,6 +1172,71 @@ setErrorStream(FILE* stream) {
     errorStream = stream;
 }
 
+/*
+ * If the Core Arbiter asks the Arachne runtime to yield a core, this function
+ * shall begin the process of descheduling a core.
+ *
+ * The caller must hold the coreChangeMutex when making this call.
+ */
+void
+descheduleCore() {
+    // Create a thread on the target core to handle the actual core release,
+    // since we are currently borrowing an arbitrary context and should not
+    // hold it for too long.
+    // If this creation fails, it would implies that we are overloaded and
+    // should not ramp down.
+    int coreId = coreManager->coreUnavailable();
+    CoreList* outputCores = coreManager->getMigrationTargets();
+    if (createThreadOnCore(coreId, releaseCore, outputCores) == NullThread) {
+        coreManager->coreAvailable(coreId);
+        coreChangeActive = false;
+        ARACHNE_LOG(WARNING, "Release core thread creation failed to %d!\n",
+                    coreId);
+    }
+    outputCores->free();
+}
+
+/**
+ * This function can be called from any thread to increase the number of cores
+ * used by Arachne.
+ */
+void
+incrementCoreCount() {
+    std::lock_guard<SpinLock> _(coreChangeMutex);
+    if (coreChangeActive)
+        return;
+    if (numActiveCores >= maxNumCores)
+        return;
+
+    coreChangeActive = true;
+    ARACHNE_LOG(NOTICE, "Attempting to increase number of cores %u --> %u\n",
+                numActiveCores.load(), numActiveCores + 1);
+    std::vector<uint32_t> coreRequest(
+        {numActiveCores + 1, 0, 0, 0, 0, 0, 0, 0});
+    coreArbiter->setRequestedCores(coreRequest);
+}
+
+/**
+ * This function can be called from any thread to attempt to decrease the
+ * number of cores used by Arachne. It may return before a core is actually
+ * released, and there is no guarantee that a core will be released.
+ */
+void
+decrementCoreCount() {
+    std::lock_guard<SpinLock> _(coreChangeMutex);
+    if (coreChangeActive)
+        return;
+    if (numActiveCores <= minNumCores)
+        return;
+
+    coreChangeActive = true;
+    ARACHNE_LOG(NOTICE, "Attempting to decrease number of cores %u --> %u\n",
+                numActiveCores.load(), numActiveCores - 1);
+    std::vector<uint32_t> coreRequest(
+        {numActiveCores - 1, 0, 0, 0, 0, 0, 0, 0});
+    coreArbiter->setRequestedCores(coreRequest);
+}
+
 /**
  * Detect requests for cores from the core arbiter.
  */
@@ -1181,8 +1252,13 @@ checkForArbiterRequest() {
 
     // Deschedule a core iff we are the first thread to read that a
     // core release is needed.
-    if (coreReleaseRequestCount == 1)
-        coreManager->coreUnavailable();
+    if (coreReleaseRequestCount == 1) {
+        // We must prevent future core changes here because we may have been
+        // asked to release core without first asking the arbiter to reduce our
+        // core count.
+        coreChangeActive = true;
+        descheduleCore();
+    }
 }
 
 /**
@@ -1349,6 +1425,19 @@ removeThreadsFromCore(CoreList* outputCores) {
     // completions cannot occur because we are running, so we can just directly
     // assign.
     *core.localOccupiedAndCount = blockedOccupiedAndCount;
+}
+
+/**
+ * This function runs on a core immediately before it is deallocated, and is
+ * responsible for waiting out and then migrating running threads other than
+ * itself. By ensuring that the core is busy running this thread, we ensure
+ * that all other threads' contexts on this core are saved.
+ */
+void
+releaseCore(CoreList* outputCores) {
+    // Remove all other threads from this core.
+    removeThreadsFromCore(outputCores);
+    core.threadShouldYield = true;
 }
 
 /**

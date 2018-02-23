@@ -20,6 +20,7 @@
 namespace Arachne {
 
 void removeThreadsFromCore(CoreList* outputCores);
+void releaseCore(CoreList* outputCores);
 
 DefaultCoreManager::DefaultCoreManager(int minNumCores, int maxNumCores)
     : minNumCores(minNumCores),
@@ -39,15 +40,14 @@ DefaultCoreManager::coreAvailable(int myCoreId) {
 }
 
 /**
- * Prevent further creations on and remove all threads from the most
- * recently acquired core, and schedule releaseCore() on it. Log an error
- * and abort the process if loss of a core results in no cores available
- * for general scheduling.
+ * Record the loss of a core and return its coreId.
  */
-void
+int
 DefaultCoreManager::coreUnavailable() {
     Lock guard(lock);
-    // TODO(hq6): Implement this function
+    int freeCoreId = sharedCores[sharedCores.size() - 1];
+    sharedCores.remove(sharedCores.size() - 1);
+    return freeCoreId;
 }
 
 /**
@@ -68,6 +68,15 @@ DefaultCoreManager::getCores(int threadClass) {
             return retVal;
     }
     return NULL;
+}
+
+/**
+ * Provide a set of cores for Arachne to migrate threads to when cleaning up a
+ * core for return to the CoreArbiter.
+ */
+CoreList*
+DefaultCoreManager::getMigrationTargets() {
+    return &sharedCores;
 }
 
 /**

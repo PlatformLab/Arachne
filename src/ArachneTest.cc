@@ -33,6 +33,7 @@ using CoreArbiter::CoreArbiterServer;
 using CoreArbiter::MockSyscall;
 
 extern bool useCoreArbiter;
+extern volatile bool coreChangeActive;
 
 extern std::atomic<uint32_t> numActiveCores;
 extern volatile uint32_t minNumCores;
@@ -125,6 +126,20 @@ static Arachne::SpinLock mutex;
 static Arachne::ConditionVariable cv;
 static volatile int numWaitedOn;
 static volatile int flag;
+
+bool
+canThreadBeCreatedOnCore(int threadClass, CoreManager* coreManager,
+                         int coreId) {
+    CoreList* coreList = coreManager->getCores(threadClass);
+    for (uint32_t i = 0; i < coreList->size(); i++) {
+        if (coreList->get(i) == coreId) {
+            coreList->free();
+            return true;
+        }
+    }
+    coreList->free();
+    return false;
+}
 
 // Helper function for SpinLock tests
 template <typename L>
@@ -834,23 +849,61 @@ TEST_F(ArachneTest, setErrorStream) {
     free(str);
 }
 
+TEST_F(ArachneTest, incrementCoreCount) {
+    void incrementCoreCount();
+    shutDown();
+    waitForTermination();
+    maxNumCores = 4;
+    Arachne::init();
+    DefaultCoreManager* coreManager =
+        reinterpret_cast<DefaultCoreManager*>(getCoreManagerForTest());
+    // Articially wake up one less than maximum threads.
+    std::vector<uint32_t> coreRequest({3, 0, 0, 0, 0, 0, 0, 0});
+    coreArbiter->setRequestedCores(coreRequest);
+    limitedTimeWait([]() -> bool { return numActiveCores == 3; });
+    char* str;
+    size_t size;
+    FILE* newStream = open_memstream(&str, &size);
+    setErrorStream(newStream);
+    EXPECT_EQ(coreManager->sharedCores.size(), 3U);
+    incrementCoreCount();
+    limitedTimeWait([]() -> bool { return numActiveCores > 3; });
+    EXPECT_TRUE(
+        canThreadBeCreatedOnCore(0, coreManager, coreManager->sharedCores[3]));
+    fflush(newStream);
+    EXPECT_EQ("Attempting to increase number of cores 3 --> 4\n",
+              std::string(str));
+    free(str);
+}
+//
+TEST_F(ArachneTest, decrementCoreCount) {
+    void decrementCoreCount();
+    char* str;
+    size_t size;
+    FILE* newStream = open_memstream(&str, &size);
+    setErrorStream(newStream);
+    DefaultCoreManager* coreManager =
+        reinterpret_cast<DefaultCoreManager*>(getCoreManagerForTest());
+    EXPECT_TRUE(
+        canThreadBeCreatedOnCore(0, coreManager, coreManager->sharedCores[2]));
+    decrementCoreCount();
+    limitedTimeWait(
+        []() -> bool { return numActiveCores < 3 && !coreChangeActive; });
+    EXPECT_EQ(coreManager->sharedCores.size(), 2U);
+    decrementCoreCount();
+    limitedTimeWait(
+        []() -> bool { return numActiveCores < 2 && !coreChangeActive; });
+    EXPECT_EQ(coreManager->sharedCores.size(), 1U);
+    fflush(newStream);
+    EXPECT_EQ(
+        "Attempting to decrease number of cores 3 --> 2\n"
+        "Attempting to decrease number of cores 2 --> 1\n",
+        std::string(str));
+    free(str);
+}
+
 void
 doNothing() {}
-extern volatile bool coreChangeActive;
-
-bool
-canThreadBeCreatedOnCore(int threadClass, CoreManager* coreManager,
-                         int coreId) {
-    CoreList* coreList = coreManager->getCores(threadClass);
-    for (uint32_t i = 0; i < coreList->size(); i++) {
-        if (coreList->get(i) == coreId) {
-            coreList->free();
-            return true;
-        }
-    }
-    coreList->free();
-    return false;
-}
 
 // This thread sits on a core exclusively and exits when shouldExit is set.
 std::atomic<int> shouldExit(0);

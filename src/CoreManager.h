@@ -114,17 +114,22 @@ class CoreManager {
     virtual void coreAvailable(int myCoreId) = 0;
 
     /**
-     * Invoked by Arachne when any core detects a core release request from
-     * the Core Arbiter. It is responsible for eventually scheduling
-     * releaseCore() onto the core most recently given by the CoreArbiter.
+     * Invoked by Arachne to get a CoreId when any core detects a core release
+     * request from the Core Arbiter.
      */
-    virtual void coreUnavailable() = 0;
+    virtual int coreUnavailable() = 0;
 
     /**
      * Invoked by Arachne::createThread to get cores available for a particular
      * threadClass.
      */
     virtual CoreList* getCores(int threadClass) = 0;
+
+    /**
+     * Invoked by Arachne::descheduleCore to get a list of cores to migrate to
+     * when clearing out a core.
+     */
+    virtual CoreList* getMigrationTargets() = 0;
 
     virtual ~CoreManager() {}
 };
