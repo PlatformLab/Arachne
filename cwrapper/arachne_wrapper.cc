@@ -116,6 +116,13 @@ arachne_thread_exclusive_core(bool scale_down) {
     return Arachne::makeExclusiveOnCore(scale_down);
 }
 
+/**
+ * This function is used to get thread local variable Arachne::core.kernelThreadId
+ */
+int arachne_thread_getid() {
+    return Arachne::core.kernelThreadId;
+}
+
 #ifdef __cplusplus
 }
 #endif
