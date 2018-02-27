@@ -21,14 +21,19 @@ namespace Arachne {
 
 void removeThreadsFromCore(CoreList* outputCores);
 void releaseCore(CoreList* outputCores);
+void decrementCoreCount();
+void incrementCoreCount();
+extern std::vector<uint64_t*> lastTotalCollectionTime;
 
 DefaultCoreManager::DefaultCoreManager(int minNumCores, int maxNumCores)
     : minNumCores(minNumCores),
       maxNumCores(maxNumCores),
-      loadEstimator(),
+      loadEstimator(maxNumCores),
       lock(false),
       sharedCores(maxNumCores),
-      exclusiveCores(maxNumCores) {}
+      exclusiveCores(maxNumCores),
+      coreAdjustmentShouldRun(true),
+      coreAdjustmentThreadStarted(false) {}
 
 /**
  * Add the given core to the pool of threads for general scheduling.
@@ -37,6 +42,14 @@ void
 DefaultCoreManager::coreAvailable(int myCoreId) {
     Lock guard(lock);
     sharedCores.add(myCoreId);
+    if (!coreAdjustmentThreadStarted && coreAdjustmentShouldRun) {
+        if (Arachne::createThread(&DefaultCoreManager::adjustCores, this) ==
+            Arachne::NullThread) {
+            ARACHNE_LOG(ERROR, "Failed to create thread to adjustCores!");
+            exit(1);
+        }
+        coreAdjustmentThreadStarted = true;
+    }
 }
 
 /**
@@ -84,12 +97,12 @@ DefaultCoreManager::getMigrationTargets() {
 }
 
 /**
- * After this function returns, no load estimations that have already begun
+ * After this function returns, load estimations that have already begun
  * will complete, but no future load estimations will occur.
  */
 void
 DefaultCoreManager::disableLoadEstimation() {
-    // TODO(hq6): Implement this function
+    coreAdjustmentShouldRun.store(false);
 }
 
 /**
@@ -135,4 +148,49 @@ DefaultCoreManager::getExclusiveCore() {
     return newExclusiveCore;
 }
 
+/**
+ * This is the main function for a thread which periodically evaluates load and
+ * determines whether to adjust cores between threadClasses, and/or increase or
+ * decrease the total number of cores used by Arachne.
+ */
+void
+DefaultCoreManager::adjustCores() {
+    while (coreAdjustmentShouldRun.load()) {
+        Arachne::sleep(measurementPeriod);
+        Lock guard(lock);
+        int estimate = loadEstimator.estimate(sharedCores.size());
+        if (estimate == 0)
+            continue;
+        if (estimate == -1 && sharedCores.size() > 1) {
+            decrementCoreCount();
+            continue;
+        }
+        // Estimator believes we need more cores
+        // First, see if any exclusive cores are available for turning back to
+        // shared. Note that this transition might race with an exclusive thread
+        // creation that just received an exclusive core, but such a race is
+        // safe as long as it results only in the failure of the exclusive
+        // thread creation.
+        for (uint32_t i = 0; i < exclusiveCores.size(); i++) {
+            int coreId = exclusiveCores[i];
+            MaskAndCount slotMap = *occupiedAndCount[coreId];
+            if (slotMap.numOccupied == maxThreadsPerCore - 1) {
+                // Attempt to reclaim this core with a CAS. Only move back to
+                // sharedCores if we succeed.
+                MaskAndCount oldSlotMap = slotMap;
+                slotMap.numOccupied = maxThreadsPerCore;
+                if (occupiedAndCount[coreId]->compare_exchange_strong(
+                        oldSlotMap, slotMap)) {
+                    exclusiveCores.remove(i);
+                    *lastTotalCollectionTime[coreId] = 0;
+                    *occupiedAndCount[coreId] = {0, 0};
+                    sharedCores.add(coreId);
+                    continue;
+                }
+            }
+        }
+        // Then try to incrementCoreCount the traditional way.
+        incrementCoreCount();
+    }
+}
 }  // namespace Arachne

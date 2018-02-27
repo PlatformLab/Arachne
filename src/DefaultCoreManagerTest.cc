@@ -137,6 +137,26 @@ TEST_F(DefaultCoreManagerTest, DefaultCoreManager_coreAvailable) {
     EXPECT_EQ(coreManager.sharedCores.size(), 2U);
 }
 
+TEST_F(DefaultCoreManagerTest, DefaultCoreManager_coreEstimation) {
+    DefaultCoreManager coreManager(4, 4);
+    EXPECT_FALSE(coreManager.coreAdjustmentThreadStarted);
+    coreManager.coreAvailable(1);
+    EXPECT_TRUE(coreManager.coreAdjustmentThreadStarted);
+    // Figure out which core the estimator was scheduled onto
+    int coreId = 0;
+    for (int i = 0; i < 3; i++)
+        if (Arachne::occupiedAndCount[1]->load().numOccupied == 1) {
+            coreId = i;
+            break;
+        }
+    EXPECT_TRUE(coreManager.coreAdjustmentShouldRun.load());
+    coreManager.disableLoadEstimation();
+    EXPECT_FALSE(coreManager.coreAdjustmentShouldRun.load());
+    limitedTimeWait([coreId]() -> bool {
+        return Arachne::occupiedAndCount[coreId]->load().numOccupied == 0;
+    });
+}
+
 TEST_F(DefaultCoreManagerTest, DefaultCoreManager_getCoresDefault) {
     DefaultCoreManager coreManager(1, 4);
     CoreList* coreList = coreManager.getCores(DefaultCoreManager::DEFAULT);
