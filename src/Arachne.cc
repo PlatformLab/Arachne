@@ -134,6 +134,12 @@ std::vector<ThreadContext**> allThreadContexts;
 std::vector<std::atomic<MaskAndCount>*> occupiedAndCount;
 
 /**
+ * Track the addresses of each kernel thread's
+ * Dispatch::lastTotalCollectionTime.
+ */
+std::vector<uint64_t*> lastTotalCollectionTime;
+
+/**
  * Setting a jth bit in the ith element of this vector indicates that the
  * priority of the thread living at index j on core i is temporarily raised.
  */
@@ -223,6 +229,11 @@ threadMain() {
     // This is currently assigned and never changes. It will switch to physical
     // core ID after we have built the infrastructure for it.
     core.kernelThreadId = nextKernelThreadId.fetch_add(1);
+
+    // Register the address of our DispatchTimeKeeper::lastTotalCollectionTime
+    // with a global index.
+    lastTotalCollectionTime[core.kernelThreadId] =
+        &DispatchTimeKeeper::lastTotalCollectionTime;
     for (;;) {
         coreArbiter->blockUntilCoreAvailable();
         // Prevent the use of abandoned ThreadContext which occurred as a
@@ -941,11 +952,15 @@ init(int* argcp, const char** argv) {
 
     if (coreManager == NULL) {
         coreManager = new DefaultCoreManager(minNumCores, maxNumCores);
+        if (disableLoadEstimation)
+            reinterpret_cast<DefaultCoreManager*>(coreManager)
+                ->disableLoadEstimation();
     }
 
     std::vector<uint32_t> coreRequest({minNumCores, 0, 0, 0, 0, 0, 0, 0});
     coreArbiter->setRequestedCores(coreRequest);
     coreReleaseRequestCount = 0;
+    lastTotalCollectionTime.resize(maxNumCores);
 
     // We assume that maxNumCores will not be exceeded in the lifetime of this
     // application.
@@ -1445,37 +1460,6 @@ releaseCore(CoreList* outputCores) {
     // Remove all other threads from this core.
     removeThreadsFromCore(outputCores);
     core.threadShouldYield = true;
-}
-
-/**
- * This function reverses the effect of makeExclusiveOnCore(), allowing other
- * threads to once again be scheduled onto the core hosting this thread.
- *
- * If makeExclusiveOnCore has never been invoked from the current thread, then
- * this function is a no-op.
- */
-void
-makeSharedOnCore() {
-    std::lock_guard<SleepLock> _(coreExclusionMutex);
-    // If not exclusive, this is a no-op.
-    if (core.localOccupiedAndCount->load().numOccupied < maxThreadsPerCore)
-        return;
-    // Assume already exclusive
-    MaskAndCount original = *core.localOccupiedAndCount;
-    MaskAndCount shared = original;
-    shared.numOccupied = 1;
-    bool success =
-        core.localOccupiedAndCount->compare_exchange_strong(original, shared);
-    if (!success) {
-        // If this scenario happens, it means there is a bug since nobody
-        // should be able to create threads on an exclusive core.
-        ARACHNE_LOG(ERROR, "Error making core shared again! Aborting...\n");
-        abort();
-    }
-
-    // The time that this core spent in exclusive mode should not be counted
-    // towards utilization of shared cores.
-    DispatchTimeKeeper::lastTotalCollectionTime = 0;
 }
 
 /*

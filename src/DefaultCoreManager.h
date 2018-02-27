@@ -45,6 +45,7 @@ class DefaultCoreManager : public CoreManager {
 
   private:
     int getExclusiveCore();
+    void adjustCores();
     /**
      * The minimum number of cores that the application needs to run
      * effectively.
@@ -75,6 +76,24 @@ class DefaultCoreManager : public CoreManager {
      * Cores that are currently hosting exclusive threads.
      */
     CoreList exclusiveCores;
+
+    /**
+     * The core adjustment thread will run as long as this flag is set.
+     */
+    std::atomic<bool> coreAdjustmentShouldRun;
+
+    /**
+     * The following flag indicates whether the core adjustment thread has
+     * already been started.  It should only be read and written with the mutex
+     * held.
+     */
+    bool coreAdjustmentThreadStarted;
+
+    /*
+     * The period in ns over which we measure before deciding to increase or
+     * reduce the number of cores we use.
+     */
+    uint64_t measurementPeriod = 50 * 1000 * 1000;
 };
 }  // namespace Arachne
 #endif  // DEFAULTCOREMANAGER_H_
