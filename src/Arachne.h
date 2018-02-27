@@ -397,10 +397,6 @@ struct ThreadContext {
     explicit ThreadContext(uint8_t coreId, uint8_t idInCore);
 };
 
-// Largest number of Arachne threads that can be simultaneously created on each
-// core.
-const int maxThreadsPerCore = 56;
-
 /**
  * This is the number of bytes needed on the stack to store the callee-saved
  * registers that are defined by the current processor and operating system's

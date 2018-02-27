@@ -25,7 +25,6 @@
 #include "CoreArbiter/CoreArbiterServer.h"
 #include "CoreArbiter/Logger.h"
 #include "CoreArbiter/MockSyscall.h"
-#include "CorePolicy.h"
 #include "arachne_wrapper.h"
 
 namespace Arachne {
