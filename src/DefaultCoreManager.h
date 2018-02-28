@@ -37,6 +37,7 @@ class DefaultCoreManager : public CoreManager {
     virtual CoreList* getCores(int threadClass);
     virtual CoreList* getMigrationTargets();
     void disableLoadEstimation();
+    CoreLoadEstimator* getEstimator();
 
     /**
      * Limit the thread classes that the default core manager supports.

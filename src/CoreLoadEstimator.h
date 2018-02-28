@@ -32,15 +32,23 @@ class CoreLoadEstimator {
     explicit CoreLoadEstimator(int maxNumCores);
     ~CoreLoadEstimator();
     int estimate(int currentNumCores);
-    void reset();
+    void setLoadFactorThreshold(double loadFactorThreshold);
+    void setMaxUtilization(double maxUtilization);
 
   private:
-    /*
-     * We will attempt to increase the number of cores if the idle core
-     * fraction (computed as idlePercentage * numSharedCores) is less than this
-     * number.
+    /**
+     * Strategy used by the coreLoadEstimator to estimate load.
      */
-    double maxIdleCoreFraction = 0.1;
+    enum EstimationStrategy {
+        LOAD_FACTOR = 1,
+        UTILIZATION = 2
+    } estimationStrategy = LOAD_FACTOR;
+
+    typedef std::lock_guard<SpinLock> Lock;
+    /**
+     * Protect the parameters below from concurrent modifications and use.
+     */
+    SpinLock lock;
 
     /*
      * We will attempt to increase the number of cores if the load factor
@@ -49,9 +57,14 @@ class CoreLoadEstimator {
     double loadFactorThreshold = 1.0;
 
     /*
+     * We will attempt to increase the number of cores if the utilization
+     * increases above this level.
+     */
+    double maxUtilization = 0.8;
+
+    /*
      * utilizationThresholds[i] is the active core fraction at the time the
-     * number of cores was ramped up from i to i + 1.  Allocated in
-     * bootstrapLoadEstimator.
+     * number of cores was ramped up from i to i + 1.
      */
     double* utilizationThresholds = NULL;
 
