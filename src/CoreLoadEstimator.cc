@@ -17,7 +17,8 @@
 namespace Arachne {
 
 CoreLoadEstimator::CoreLoadEstimator(int maxNumCores)
-    : utilizationThresholds(new double[maxNumCores]),
+    : lock(false),
+      utilizationThresholds(new double[maxNumCores]),
       maxNumCores(maxNumCores) {}
 CoreLoadEstimator::~CoreLoadEstimator() { delete[] utilizationThresholds; }
 
@@ -27,6 +28,7 @@ CoreLoadEstimator::~CoreLoadEstimator() { delete[] utilizationThresholds; }
  */
 int
 CoreLoadEstimator::estimate(int curActiveCores) {
+    Lock guard(lock);
     // Use collectionTime as a proxy to tell whether PerfStats have been
     // previously recorded.
     if (previousStats.collectionTime == 0) {
@@ -52,34 +54,67 @@ CoreLoadEstimator::estimate(int curActiveCores) {
         currentStats.weightedLoadedCycles - previousStats.weightedLoadedCycles;
     double averageLoadFactor = static_cast<double>(weightedLoadedCycles) /
                                static_cast<double>(totalCycles);
-    if (curActiveCores < maxNumCores &&
-        averageLoadFactor > loadFactorThreshold) {
-        // Record our current totalUtilizedCores, so we will only ramp down
-        // if utilization would drop below this level.
-        utilizationThresholds[curActiveCores] = totalUtilizedCores;
-        return 1;
-    }
+    previousStats = currentStats;
 
-    // We should not ramp down if we have high occupancy of slots.
-    double averageNumSlotsUsed =
-        static_cast<double>(currentStats.numThreadsCreated -
-                            currentStats.numThreadsFinished) /
-        curActiveCores / Arachne::maxThreadsPerCore;
+    if (estimationStrategy == LOAD_FACTOR) {
+        if (curActiveCores < maxNumCores &&
+            averageLoadFactor > loadFactorThreshold) {
+            // Record our current totalUtilizedCores, so we will only ramp down
+            // if utilization would drop below this level.
+            utilizationThresholds[curActiveCores] = totalUtilizedCores;
+            return 1;
+        }
 
-    // Scale down if the idle time after scale down is greater than the
-    // time at which we scaled up, plus a hysteresis threshold.
-    if (totalUtilizedCores < utilizationThresholds[curActiveCores - 1] -
-                                 idleCoreFractionHysteresis &&
-        averageNumSlotsUsed < slotOccupancyThreshold) {
-        return -1;
+        // We should not ramp down if we have high occupancy of slots.
+        double averageNumSlotsUsed =
+            static_cast<double>(currentStats.numThreadsCreated -
+                                currentStats.numThreadsFinished) /
+            curActiveCores / Arachne::maxThreadsPerCore;
+
+        // Scale down if the idle time after scale down is greater than the
+        // time at which we scaled up, plus a hysteresis threshold.
+        if (totalUtilizedCores < utilizationThresholds[curActiveCores - 1] -
+                                     idleCoreFractionHysteresis &&
+            averageNumSlotsUsed < slotOccupancyThreshold) {
+            return -1;
+        }
+        return 0;
+    } else if (estimationStrategy == UTILIZATION) {
+        if (totalUtilizedCores > maxUtilization * curActiveCores) {
+            return 1;
+        }
+        if (totalUtilizedCores < maxUtilization * (curActiveCores - 1) -
+                                     idleCoreFractionHysteresis) {
+            return -1;
+        }
+        return 0;
     }
+    // We have an unknown estimation strategy, so we do nothing.
+    ARACHNE_LOG(ERROR,
+                "CoreLoadEstimator has an invalid estimationStrategy; cowardly "
+                "refusing to recommend change.");
     return 0;
 }
 
 /**
- * Clear any historical load metrics; the next call to `estimate` will
- * return 0.
+ * Invoking this function will set the load factor threshold and also
+ * change the load estimation strategy to use load factor.
  */
 void
-CoreLoadEstimator::reset() {}
+CoreLoadEstimator::setLoadFactorThreshold(double loadFactorThreshold) {
+    Lock guard(lock);
+    this->loadFactorThreshold = loadFactorThreshold;
+    this->estimationStrategy = LOAD_FACTOR;
+}
+
+/**
+ * Invoking this function will set the max utilization threshold and also
+ * change the load estimation strategy to use utilization.
+ */
+void
+CoreLoadEstimator::setMaxUtilization(double maxUtilization) {
+    Lock guard(lock);
+    this->maxUtilization = maxUtilization;
+    this->estimationStrategy = UTILIZATION;
+}
 }  // namespace Arachne

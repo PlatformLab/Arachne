@@ -105,6 +105,11 @@ DefaultCoreManager::disableLoadEstimation() {
     coreAdjustmentShouldRun.store(false);
 }
 
+CoreLoadEstimator*
+DefaultCoreManager::getEstimator() {
+    return &loadEstimator;
+}
+
 /**
  * Find or allocate a core for exclusive use by a thread.
  */
