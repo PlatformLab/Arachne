@@ -134,6 +134,12 @@ std::vector<ThreadContext**> allThreadContexts;
 std::vector<std::atomic<MaskAndCount>*> occupiedAndCount;
 
 /**
+ * This is a per-core bitmask that represents which contexts are pinned to the
+ * core and cannot be targeted during migration.
+ */
+std::vector<std::atomic<uint64_t>*> pinnedContexts;
+
+/**
  * Track the addresses of each kernel thread's
  * Dispatch::lastTotalCollectionTime.
  */
@@ -243,6 +249,7 @@ threadMain() {
         {
             std::lock_guard<SpinLock> _(coreChangeMutex);
             core.localOccupiedAndCount = occupiedAndCount[core.kernelThreadId];
+            core.localPinnedContexts = pinnedContexts[core.kernelThreadId];
             core.localThreadContexts = allThreadContexts[core.kernelThreadId];
 
             DispatchTimeKeeper::lastTotalCollectionTime = 0;
@@ -406,6 +413,9 @@ schedulerMainLoop() {
         // generation number might assume that the occupied bit for this
         // context is already cleared.
         core.loadedContext->generation++;
+
+        // Pin the current context before clearing the occupied bit.
+        *core.localPinnedContexts = 1 << core.loadedContext->idInCore;
 
         // The code below clears the occupied flag for the current
         // ThreadContext.
@@ -722,10 +732,12 @@ waitForTermination() {
         }
         delete[] allThreadContexts[i];
         free(occupiedAndCount[i]);
+        free(pinnedContexts[i]);
         free(publicPriorityMasks[i]);
     }
     allThreadContexts.clear();
     occupiedAndCount.clear();
+    pinnedContexts.clear();
     publicPriorityMasks.clear();
     PerfUtils::Util::serialize();
     coreArbiter->reset();
@@ -969,6 +981,12 @@ init(int* argcp, const char** argv) {
             reinterpret_cast<std::atomic<Arachne::MaskAndCount>*>(
                 alignedAlloc(sizeof(MaskAndCount))));
         memset(occupiedAndCount.back(), 0, sizeof(std::atomic<MaskAndCount>));
+
+        pinnedContexts.push_back(reinterpret_cast<std::atomic<uint64_t>*>(
+            alignedAlloc(sizeof(uint64_t))));
+        // Initialized to pin context 0.
+        pinnedContexts.back()->store(1U);
+
         publicPriorityMasks.push_back(reinterpret_cast<std::atomic<uint64_t>*>(
             alignedAlloc(sizeof(std::atomic<uint64_t>))));
         memset(publicPriorityMasks.back(), 0, sizeof(std::atomic<uint64_t>));
@@ -1357,7 +1375,6 @@ removeThreadsFromCore(CoreList* outputCores) {
         }
         // Choose a victim core that we will pawn our work on.
         nextMigrationTarget = (nextMigrationTarget + 1) % outputCores->size();
-        // TODO(hq6): Fix the migration of polling empty context problem.
         int coreId = outputCores->get(nextMigrationTarget);
         if ((blockedOccupiedAndCount.occupied >> i) & 1) {
             bool success = false;
@@ -1380,7 +1397,8 @@ removeThreadsFromCore(CoreList* outputCores) {
                 // Search for a non-occupied slot and attempt to reserve the
                 // slot
                 index = 0;
-                while ((slotMap.occupied & (1L << index)) &&
+                while (((slotMap.occupied | *pinnedContexts[coreId]) &
+                        (1L << index)) &&
                        index < maxThreadsPerCore)
                     index++;
 
