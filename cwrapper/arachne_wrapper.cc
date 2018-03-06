@@ -62,6 +62,11 @@ arachne_wait_termination() {
 
 /**
  * This function is the wrapper for Arachne::createThreadWithClass.
+ * Under Arachne's default core manager, the following thread classes are
+ * available.
+ *
+ *    Class 0: Normal thread creation
+ *    Class 1: Exclusive thread creation
  */
 int
 arachne_thread_create_with_class(arachne_thread_id* id, void* (*func)(void*),
