@@ -39,22 +39,29 @@ struct CoreList {
      */
     ~CoreList() {
         if (cores != NULL)
-            delete cores;
+            delete[] cores;
     }
     CoreList& operator=(CoreList&& other) {
         numFilled = other.numFilled;
         capacity = other.capacity;
+        mustFree = other.mustFree;
         cores = other.cores;
         other.cores = NULL;
+        other.capacity = 0;
+        other.numFilled = 0;
+        other.mustFree = false;
         return *this;
     }
+    CoreList(CoreList& other) { *this = other; }
     CoreList& operator=(const CoreList& other) {
         numFilled = other.numFilled;
         capacity = other.capacity;
+        mustFree = other.mustFree;
         cores = new int[capacity];
         memcpy(cores, other.cores, numFilled * sizeof(cores[0]));
         return *this;
     }
+    CoreList(CoreList&& other) { *this = std::move(other); }
     uint32_t size() { return numFilled; }
     void add(int coreId) {
         this->cores[numFilled] = coreId;
