@@ -67,6 +67,12 @@ struct Core {
     std::atomic<MaskAndCount>* localOccupiedAndCount;
 
     /**
+     * A bit is set to prevent migration; this should be set before the
+     * occupied flag is cleared.
+     */
+    std::atomic<uint64_t>* localPinnedContexts;
+
+    /**
      * This represents each core's local copy of the high-priority mask. Each
      * call to dispatch() will first examine this bitmask. It will clear the
      * first set bit and switch to that context. If there are no set bits, it
