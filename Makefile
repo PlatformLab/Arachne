@@ -75,15 +75,17 @@ check:
 ################################################################################
 # Test Targets
 GTEST_DIR=../googletest/googletest
+GMOCK_DIR=../googletest/googlemock
 TEST_LIBS=-Lobj/ -lArachne $(OBJECT_DIR)/libgtest.a
 CTEST_LIBS=-Lobj/ -lArachne
-INCLUDE+=-I${GTEST_DIR}/include
+INCLUDE+=-I${GTEST_DIR}/include -I${GMOCK_DIR}/include
 COREARBITER_BIN=$(COREARBITER)/bin/coreArbiterServer
 
-test: $(OBJECT_DIR)/ArachneTest $(OBJECT_DIR)/DefaultCoreManagerTest $(OBJECT_DIR)/arachne_wrapper_test
+test: $(OBJECT_DIR)/ArachneTest $(OBJECT_DIR)/CoreManagerTest $(OBJECT_DIR)/DefaultCoreManagerTest $(OBJECT_DIR)/arachne_wrapper_test
 	$(OBJECT_DIR)/ArachneTest
 	$(OBJECT_DIR)/DefaultCoreManagerTest
 	$(OBJECT_DIR)/arachne_wrapper_test
+	$(OBJECT_DIR)/CoreManagerTest
 
 ctest: $(OBJECT_DIR)/arachne_wrapper_ctest
 	$(OBJECT_DIR)/arachne_wrapper_ctest
@@ -98,6 +100,9 @@ $(OBJECT_DIR)/ArachneTest: $(OBJECT_DIR)/ArachneTest.o $(OBJECT_DIR)/libgtest.a 
 	$(CXX) $(INCLUDE) $(CXXFLAGS) $< $(GTEST_DIR)/src/gtest_main.cc $(TEST_LIBS) $(LIBS)  -o $@
 
 $(OBJECT_DIR)/DefaultCoreManagerTest: $(OBJECT_DIR)/DefaultCoreManagerTest.o $(OBJECT_DIR)/libgtest.a $(OBJECT_DIR)/libArachne.a
+	$(CXX) $(INCLUDE) $(CXXFLAGS) $< $(GTEST_DIR)/src/gtest_main.cc $(TEST_LIBS) $(LIBS)  -o $@
+
+$(OBJECT_DIR)/CoreManagerTest: $(OBJECT_DIR)/CoreManagerTest.o $(OBJECT_DIR)/libgtest.a
 	$(CXX) $(INCLUDE) $(CXXFLAGS) $< $(GTEST_DIR)/src/gtest_main.cc $(TEST_LIBS) $(LIBS)  -o $@
 
 $(OBJECT_DIR)/libgtest.a:
