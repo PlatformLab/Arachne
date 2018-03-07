@@ -40,11 +40,15 @@ DefaultCoreManager::coreAvailable(int myCoreId) {
 }
 
 /**
- * Record the loss of a core and return its coreId.
+ * Record the loss of a core and return its coreId. Returns -1 if there are no
+ * cores available for descheduling.
  */
 int
 DefaultCoreManager::coreUnavailable() {
     Lock guard(lock);
+    if (sharedCores.size() == 0) {
+        return -1;
+    }
     int freeCoreId = sharedCores[sharedCores.size() - 1];
     sharedCores.remove(sharedCores.size() - 1);
     return freeCoreId;
