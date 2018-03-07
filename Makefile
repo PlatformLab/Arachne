@@ -102,7 +102,7 @@ $(OBJECT_DIR)/ArachneTest: $(OBJECT_DIR)/ArachneTest.o $(OBJECT_DIR)/libgtest.a 
 $(OBJECT_DIR)/DefaultCoreManagerTest: $(OBJECT_DIR)/DefaultCoreManagerTest.o $(OBJECT_DIR)/libgtest.a $(OBJECT_DIR)/libArachne.a
 	$(CXX) $(INCLUDE) $(CXXFLAGS) $< $(GTEST_DIR)/src/gtest_main.cc $(TEST_LIBS) $(LIBS)  -o $@
 
-$(OBJECT_DIR)/CoreManagerTest: $(OBJECT_DIR)/CoreManagerTest.o $(OBJECT_DIR)/libgtest.a
+$(OBJECT_DIR)/CoreManagerTest: $(OBJECT_DIR)/CoreManagerTest.o $(OBJECT_DIR)/libgtest.a $(OBJECT_DIR)/libArachne.a
 	$(CXX) $(INCLUDE) $(CXXFLAGS) $< $(GTEST_DIR)/src/gtest_main.cc $(TEST_LIBS) $(LIBS)  -o $@
 
 $(OBJECT_DIR)/libgtest.a:
