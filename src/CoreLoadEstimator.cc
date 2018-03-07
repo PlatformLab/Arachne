@@ -66,16 +66,16 @@ CoreLoadEstimator::estimate(int curActiveCores) {
         }
 
         // We should not ramp down if we have high occupancy of slots.
-        double averageNumSlotsUsed =
+        double averageSlotUtilization =
             static_cast<double>(currentStats.numThreadsCreated -
                                 currentStats.numThreadsFinished) /
-            curActiveCores / Arachne::maxThreadsPerCore;
+            (curActiveCores * Arachne::maxThreadsPerCore);
 
         // Scale down if the idle time after scale down is greater than the
         // time at which we scaled up, plus a hysteresis threshold.
         if (totalUtilizedCores < utilizationThresholds[curActiveCores - 1] -
                                      idleCoreFractionHysteresis &&
-            averageNumSlotsUsed < slotOccupancyThreshold) {
+            averageSlotUtilization < slotOccupancyThreshold) {
             return -1;
         }
         return 0;
