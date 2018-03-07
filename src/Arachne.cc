@@ -1186,6 +1186,13 @@ descheduleCore() {
     // If this creation fails, it would implies that we are overloaded and
     // should not ramp down.
     int coreId = coreManager->coreUnavailable();
+    if (coreId == -1) {
+        coreChangeActive = false;
+        ARACHNE_LOG(
+            WARNING,
+            "Descheduling core failed due to lack of available cores!\n");
+        return;
+    }
     CoreList* outputCores = coreManager->getMigrationTargets();
     if (createThreadOnCore(coreId, releaseCore, outputCores) == NullThread) {
         coreManager->coreAvailable(coreId);
