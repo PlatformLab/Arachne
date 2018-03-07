@@ -31,7 +31,7 @@ CHECK_TARGET=$$(find $(SRC_DIR) $(WRAPPER_DIR) '(' -name '*.h' -or -name '*.cc' 
 endif
 
 # Conversion to fully qualified names
-OBJECT_NAMES := Arachne.o Logger.o PerfStats.o DefaultCoreManager.o arachne_wrapper.o
+OBJECT_NAMES := Arachne.o Logger.o PerfStats.o DefaultCoreManager.o CoreLoadEstimator.o arachne_wrapper.o
 
 OBJECTS = $(patsubst %,$(OBJECT_DIR)/%,$(OBJECT_NAMES))
 HEADERS= $(shell find $(SRC_DIR) $(WRAPPER_DIR) -name '*.h')

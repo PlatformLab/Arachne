@@ -16,10 +16,18 @@
 #ifndef ARACHNE_COMMON_H
 #define ARACHNE_COMMON_H
 
+#include <stdint.h>
+#include <stdlib.h>
+#include <atomic>
+
 namespace Arachne {
 
 #define CACHE_LINE_SIZE 64
 #define PAGE_SIZE 4096
+
+// Largest number of Arachne threads that can be simultaneously created on each
+// core.
+const int maxThreadsPerCore = 56;
 
 struct ThreadContext;
 struct MaskAndCount;
