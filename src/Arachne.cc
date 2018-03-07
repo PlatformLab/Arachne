@@ -23,6 +23,7 @@
 
 #include "Arachne.h"
 #include "CoreArbiter/ArbiterClientShim.h"
+#include "CoreArbiter/Semaphore.h"
 
 namespace Arachne {
 
@@ -159,15 +160,12 @@ std::vector<std::atomic<uint64_t>*> publicPriorityMasks;
 std::atomic<uint8_t> newestThreadOccupiedContext[512];
 
 /* Which cores are idled? */
-std::vector<bool> isIdledArray;
+std::atomic<bool>* isIdledArray;
 
 /* An array of condition variables cores can use to idle. */
-std::vector<std::condition_variable*> cvArray;
+std::vector<::Semaphore*> coreIdleSemaphores;
 
-/* Protects isIdledArray so cores do not get idled multiple times */
-SpinLock coreIdlerLock("coreIdlerLock", false);
-
-void idleCorePrivate(int coreId);
+void idleCorePrivate();
 
 /**
  * All core-specific state that is not associated with other classes.
@@ -735,6 +733,7 @@ waitForTermination() {
         free(pinnedContexts[i]);
         free(publicPriorityMasks[i]);
     }
+    delete[] isIdledArray;
     allThreadContexts.clear();
     occupiedAndCount.clear();
     pinnedContexts.clear();
@@ -976,6 +975,7 @@ init(int* argcp, const char** argv) {
 
     // We assume that maxNumCores will not be exceeded in the lifetime of this
     // application.
+    isIdledArray = new std::atomic<bool>[maxNumCores];
     for (unsigned int i = 0; i < maxNumCores; i++) {
         occupiedAndCount.push_back(
             reinterpret_cast<std::atomic<Arachne::MaskAndCount>*>(
@@ -998,8 +998,8 @@ init(int* argcp, const char** argv) {
             new (contexts[k]) ThreadContext(static_cast<uint8_t>(i), k);
         }
         allThreadContexts.push_back(contexts);
-        cvArray.push_back(new std::condition_variable);
-        isIdledArray.push_back(false);
+        coreIdleSemaphores.push_back(new ::Semaphore);
+        isIdledArray[i].store(false);
     }
 
     // Allocate space to store all the original kernel pointers
@@ -1489,10 +1489,9 @@ releaseCore(CoreList* outputCores) {
  */
 void
 idleCore(int coreId) {
-    std::lock_guard<SpinLock> _(coreIdlerLock);
     if (!isIdledArray[coreId]) {
         isIdledArray[coreId] = true;
-        if (createThreadOnCore(coreId, idleCorePrivate, coreId) == NullThread) {
+        if (createThreadOnCore(coreId, idleCorePrivate) == NullThread) {
             ARACHNE_LOG(ERROR, "Error creating idleCorePrivate thread\n");
         }
     }
@@ -1505,12 +1504,9 @@ idleCore(int coreId) {
  *     The coreId of the core that will idle
  */
 void
-idleCorePrivate(int coreId) {
-    std::mutex cvMutex;
-    std::unique_lock<std::mutex> lk(cvMutex);
-    std::condition_variable* cv = cvArray[coreId];
-    cv->wait(lk);
-    isIdledArray[coreId] = false;
+idleCorePrivate() {
+    coreIdleSemaphores[core.kernelThreadId]->wait();
+    isIdledArray[core.kernelThreadId] = false;
 }
 
 /*
@@ -1521,9 +1517,7 @@ idleCorePrivate(int coreId) {
  */
 void
 unidleCore(int coreId) {
-    std::lock_guard<SpinLock> _(coreIdlerLock);
-    std::condition_variable* cv = cvArray[coreId];
-    cv->notify_one();
+    coreIdleSemaphores[coreId]->notify();
 }
 
 }  // namespace Arachne

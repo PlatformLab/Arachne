@@ -76,7 +76,7 @@ struct Environment : public ::testing::Environment {
     }
 };
 
-::testing::Environment* const testEnvironment =
+__attribute__((unused))::testing::Environment* const testEnvironment =
     (useCoreArbiter) ? ::testing::AddGlobalTestEnvironment(new Environment)
                      : NULL;
 

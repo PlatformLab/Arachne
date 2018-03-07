@@ -78,7 +78,7 @@ extern std::vector<ThreadContext**> allThreadContexts;
 
 extern CoreManager* coreManager;
 
-extern std::vector<bool> isIdledArray;
+extern std::atomic<bool>* isIdledArray;
 
 /*
  * Testing-specific flag to make sure the core load estimator does not
