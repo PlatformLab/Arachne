@@ -18,6 +18,7 @@
 
 #include <string.h>
 #include <atomic>
+#include "Logger.h"
 
 namespace Arachne {
 /*
@@ -64,10 +65,22 @@ struct CoreList {
     CoreList(CoreList&& other) { *this = std::move(other); }
     uint32_t size() { return numFilled; }
     void add(int coreId) {
+        if (numFilled >= capacity) {
+            ARACHNE_LOG(WARNING,
+                        "Failed to add core %d; numFilled = %u, capacity = %u",
+                        coreId, numFilled, capacity);
+            return;
+        }
         this->cores[numFilled] = coreId;
         this->numFilled++;
     }
     void remove(int index) {
+        if (index >= numFilled) {
+            ARACHNE_LOG(WARNING,
+                        "Failed to remove core; index = %d, numFilled = %u",
+                        index, numFilled);
+            return;
+        }
         memmove(cores + index, cores + index + 1,
                 (numFilled - index - 1) * sizeof(int));
         numFilled--;
