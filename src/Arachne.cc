@@ -1374,9 +1374,15 @@ removeThreadsFromCore(CoreList* outputCores) {
             continue;
         }
         // Choose a victim core that we will pawn our work on.
-        nextMigrationTarget = (nextMigrationTarget + 1) % outputCores->size();
-        int coreId = outputCores->get(nextMigrationTarget);
         if ((blockedOccupiedAndCount.occupied >> i) & 1) {
+            if (outputCores->size() == 0) {
+                ARACHNE_LOG(ERROR, "No available cores to migrate threads to.");
+                exit(1);
+            }
+            nextMigrationTarget =
+                (nextMigrationTarget + 1) % outputCores->size();
+            int coreId = outputCores->get(nextMigrationTarget);
+
             bool success = false;
             uint8_t index;
             do {
