@@ -77,6 +77,11 @@ class CoreLoadEstimator {
     double idleCoreFractionHysteresis = 0.2;
 
     /*
+     * Core utilizations below this threshold are considered effectively 0.
+     */
+    double zeroCoreUtilizationThreshold = 1e-6;
+
+    /*
      * Do not ramp down if the percentage of occupied threadContext slots is
      * above this threshold.
      */
