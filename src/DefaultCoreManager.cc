@@ -25,14 +25,15 @@ void decrementCoreCount();
 void incrementCoreCount();
 extern std::vector<uint64_t*> lastTotalCollectionTime;
 
-DefaultCoreManager::DefaultCoreManager(int minNumCores, int maxNumCores)
+DefaultCoreManager::DefaultCoreManager(int minNumCores, int maxNumCores,
+                                       bool estimateLoad)
     : minNumCores(minNumCores),
       maxNumCores(maxNumCores),
       loadEstimator(maxNumCores),
       lock(false),
       sharedCores(maxNumCores),
       exclusiveCores(maxNumCores),
-      coreAdjustmentShouldRun(true),
+      coreAdjustmentShouldRun(estimateLoad),
       coreAdjustmentThreadStarted(false) {}
 
 /**

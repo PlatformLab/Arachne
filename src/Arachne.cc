@@ -974,10 +974,8 @@ init(int* argcp, const char** argv) {
     }
 
     if (coreManager == NULL) {
-        coreManager = new DefaultCoreManager(minNumCores, maxNumCores);
-        if (disableLoadEstimation)
-            reinterpret_cast<DefaultCoreManager*>(coreManager)
-                ->disableLoadEstimation();
+        coreManager = new DefaultCoreManager(minNumCores, maxNumCores,
+                                             !disableLoadEstimation);
     }
 
     std::vector<uint32_t> coreRequest({minNumCores, 0, 0, 0, 0, 0, 0, 0});
