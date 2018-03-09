@@ -167,8 +167,9 @@ DefaultCoreManager::adjustCores() {
         int estimate = loadEstimator.estimate(sharedCores.size());
         if (estimate == 0)
             continue;
-        if (estimate == -1 && sharedCores.size() > 1) {
-            decrementCoreCount();
+        if (estimate == -1) {
+            if (sharedCores.size() > 1)
+                decrementCoreCount();
             continue;
         }
         // Estimator believes we need more cores
@@ -181,8 +182,8 @@ DefaultCoreManager::adjustCores() {
             int coreId = exclusiveCores[i];
             MaskAndCount slotMap = *occupiedAndCount[coreId];
             if (slotMap.numOccupied == maxThreadsPerCore - 1) {
-                // Attempt to reclaim this core with a CAS. Only move back to
-                // sharedCores if we succeed.
+                // Attempt to reclaim this core with a CAS. Only move back
+                // to sharedCores if we succeed.
                 MaskAndCount oldSlotMap = slotMap;
                 slotMap.numOccupied = maxThreadsPerCore;
                 if (occupiedAndCount[coreId]->compare_exchange_strong(

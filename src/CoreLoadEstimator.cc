@@ -73,9 +73,11 @@ CoreLoadEstimator::estimate(int curActiveCores) {
 
         // Scale down if the idle time after scale down is greater than the
         // time at which we scaled up, plus a hysteresis threshold.
-        if (totalUtilizedCores < utilizationThresholds[curActiveCores - 1] -
-                                     idleCoreFractionHysteresis &&
-            averageSlotUtilization < slotOccupancyThreshold) {
+        double localThreshold = utilizationThresholds[curActiveCores - 1] -
+                                idleCoreFractionHysteresis;
+        localThreshold = std::max(zeroCoreUtilizationThreshold, localThreshold);
+        if ((totalUtilizedCores < localThreshold) &&
+            (averageSlotUtilization < slotOccupancyThreshold)) {
             return -1;
         }
         return 0;
