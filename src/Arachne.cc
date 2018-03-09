@@ -955,11 +955,23 @@ init(int* argcp, const char** argv) {
                       ? CoreArbiterClient::getInstance(coreArbiterSocketPath)
                       : ArbiterClientShim::getInstance();
 
+    // CoreArbiter reserves 1 core to run non-Arachne threads.
+    volatile uint32_t hardwareCoresAvailable =
+        std::thread::hardware_concurrency() - 1;
     if (minNumCores == 0)
         minNumCores = 1;
     if (maxNumCores == 0)
-        maxNumCores = std::thread::hardware_concurrency();
+        maxNumCores = hardwareCoresAvailable;
+
+    minNumCores = std::min(minNumCores, hardwareCoresAvailable);
     maxNumCores = std::max(minNumCores, maxNumCores);
+
+    if (maxNumCores > hardwareCoresAvailable) {
+        ARACHNE_LOG(WARNING,
+                    "maxNumCores %d is greater than the number of available "
+                    "hardware cores %d.",
+                    maxNumCores, hardwareCoresAvailable);
+    }
 
     if (coreManager == NULL) {
         coreManager = new DefaultCoreManager(minNumCores, maxNumCores);
