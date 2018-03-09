@@ -119,7 +119,7 @@ limitedTimeWait(std::function<bool()> condition, int numIterations) {
 }
 
 TEST_F(DefaultCoreManagerTest, DefaultCoreManager_constructor) {
-    DefaultCoreManager coreManager(1, 4);
+    DefaultCoreManager coreManager(1, 4, /*estimateLoad=*/false);
     for (unsigned i = 0; i < std::thread::hardware_concurrency(); i++) {
         EXPECT_EQ(coreManager.sharedCores.capacity, 4U);
         EXPECT_EQ(coreManager.exclusiveCores.capacity, 4U);
@@ -130,35 +130,15 @@ TEST_F(DefaultCoreManagerTest, DefaultCoreManager_constructor) {
 }
 
 TEST_F(DefaultCoreManagerTest, DefaultCoreManager_coreAvailable) {
-    DefaultCoreManager coreManager(1, 4);
+    DefaultCoreManager coreManager(1, 4, /*estimateLoad=*/false);
     coreManager.coreAvailable(1);
     EXPECT_EQ(coreManager.sharedCores.size(), 1U);
     coreManager.coreAvailable(3);
     EXPECT_EQ(coreManager.sharedCores.size(), 2U);
 }
 
-TEST_F(DefaultCoreManagerTest, DefaultCoreManager_coreEstimation) {
-    DefaultCoreManager coreManager(4, 4);
-    EXPECT_FALSE(coreManager.coreAdjustmentThreadStarted);
-    coreManager.coreAvailable(1);
-    EXPECT_TRUE(coreManager.coreAdjustmentThreadStarted);
-    // Figure out which core the estimator was scheduled onto
-    int coreId = 0;
-    for (int i = 0; i < 3; i++)
-        if (Arachne::occupiedAndCount[1]->load().numOccupied == 1) {
-            coreId = i;
-            break;
-        }
-    EXPECT_TRUE(coreManager.coreAdjustmentShouldRun.load());
-    coreManager.disableLoadEstimation();
-    EXPECT_FALSE(coreManager.coreAdjustmentShouldRun.load());
-    limitedTimeWait([coreId]() -> bool {
-        return Arachne::occupiedAndCount[coreId]->load().numOccupied == 0;
-    });
-}
-
 TEST_F(DefaultCoreManagerTest, DefaultCoreManager_getCoresDefault) {
-    DefaultCoreManager coreManager(1, 4);
+    DefaultCoreManager coreManager(1, 4, /*estimateLoad=*/false);
     CoreList* coreList = coreManager.getCores(DefaultCoreManager::DEFAULT);
     EXPECT_EQ(coreList->size(), 0U);
     coreManager.coreAvailable(5);
