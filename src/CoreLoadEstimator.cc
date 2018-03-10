@@ -43,8 +43,8 @@ CoreLoadEstimator::estimate(int curActiveCores) {
     uint64_t idleCycles = currentStats.idleCycles - previousStats.idleCycles;
     uint64_t totalCycles = currentStats.totalCycles - previousStats.totalCycles;
     uint64_t utilizedCycles = totalCycles - idleCycles;
-    uint64_t totalMeasurementCycles = Cycles::fromNanoseconds(
-        currentStats.collectionTime - previousStats.collectionTime);
+    uint64_t totalMeasurementCycles =
+        currentStats.collectionTime - previousStats.collectionTime;
     double totalUtilizedCores = static_cast<double>(utilizedCycles) /
                                 static_cast<double>(totalMeasurementCycles);
 
