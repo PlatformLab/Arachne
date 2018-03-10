@@ -16,8 +16,11 @@
 #include "DefaultCoreManager.h"
 #include <atomic>
 #include "Arachne.h"
+#include "PerfUtils/TimeTrace.h"
 
 namespace Arachne {
+
+using PerfUtils::TimeTrace;
 
 void removeThreadsFromCore(CoreList* outputCores);
 void releaseCore(CoreList* outputCores);
@@ -162,7 +165,9 @@ DefaultCoreManager::getExclusiveCore() {
 void
 DefaultCoreManager::adjustCores() {
     while (coreAdjustmentShouldRun.load()) {
+        TimeTrace::record("Core manager about to sleep");
         Arachne::sleep(measurementPeriod);
+        TimeTrace::record("Core manager starts adjusting cores");
         Lock guard(lock);
         int estimate = loadEstimator.estimate(sharedCores.size());
         if (estimate == 0)
