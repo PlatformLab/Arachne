@@ -65,7 +65,13 @@ Logger::logBacktrace(LogLevel level) {
         char syscom[256];
         snprintf(syscom, sizeof(syscom), "addr2line %p -e %.*s", retAddrs[i], p,
                  symbols[i]);
-        system(syscom);
+        int ret;
+        ret = system(syscom);
+        if (ret == -1) {
+            log(level,
+                "Child process could not be created, or its status could not "
+                "be retrieved\n");
+        }
     }
     free(symbols);
 }
