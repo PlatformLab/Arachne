@@ -17,6 +17,7 @@
 #include <stdio.h>
 
 #include "Arachne.h"
+#include "DefaultCoreManager.h"
 #include "CoreArbiter/CoreArbiterClient.h"
 #include "arachne_wrapper.h"
 
@@ -137,6 +138,18 @@ arachne_thread_yield() {
 int
 arachne_thread_getid() {
     return Arachne::core.kernelThreadId;
+}
+
+/**
+ * This function is used to set the maximum utilization threshold and switch
+ * to use utilization only to do core load estimation.
+ */
+void
+arachne_set_maxutil(double maxutil) {
+    reinterpret_cast<Arachne::DefaultCoreManager*>(
+        Arachne::getCoreManagerForTest())
+        ->getEstimator()
+        ->setMaxUtilization(maxutil);
 }
 
 #ifdef __cplusplus
