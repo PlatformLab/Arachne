@@ -14,6 +14,7 @@
  */
 
 #include "Logger.h"
+#include <execinfo.h>
 #include "Arachne.h"
 
 namespace Arachne {
@@ -34,6 +35,39 @@ Logger::log(LogLevel level, const char* fmt, ...) {
     vfprintf(errorStream, fmt, args);
     fflush(errorStream);
     va_end(args);
+}
+
+void
+Logger::logBacktrace(LogLevel level) {
+    // No lock needed: doesn't access Logger object.
+    const int maxFrames = 128;
+    void* retAddrs[maxFrames];
+    int frames = backtrace(retAddrs, maxFrames);
+    char** symbols = backtrace_symbols(retAddrs, frames);
+    if (symbols == NULL) {
+        // If the malloc failed we might be able to get the backtrace out
+        // to stderr still.
+        backtrace_symbols_fd(retAddrs, frames, 2);
+        return;
+    }
+    log(level, "Backtrace (Not Optimization-Resistant):\n");
+    for (int i = 1; i < frames; ++i)
+        log(level, "%s\n", symbols[i]);
+
+    log(level, "Pretty Backtrace (Not Optimization-Resistant):\n");
+    for (int i = 1; i < frames; ++i) {
+        // Find the first occurence of '(' or ' ' in message[i] and assume
+        // everything before that is the file name.
+        int p = 0;
+        while (symbols[i][p] != '(' && symbols[i][p] != ' ' &&
+               symbols[i][p] != 0)
+            ++p;
+        char syscom[256];
+        snprintf(syscom, sizeof(syscom), "addr2line %p -e %.*s", retAddrs[i], p,
+                 symbols[i]);
+        system(syscom);
+    }
+    free(symbols);
 }
 
 }  // namespace Arachne

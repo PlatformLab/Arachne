@@ -182,6 +182,9 @@ thread_local uint64_t DispatchTimeKeeper::dispatchStartCycles;
 thread_local uint64_t DispatchTimeKeeper::lastDispatchIterationStart;
 thread_local uint8_t DispatchTimeKeeper::numThreadsRan;
 
+// Allocate storage for nested dispatch detection.
+thread_local bool NestedDispatchDetector::dispatchRunning;
+
 /**
  * This variable defines whether Arachne should use the core arbiter.
  * It is (will be) parsed in from the command line.
@@ -368,6 +371,13 @@ void __attribute__((noinline)) swapcontext(void** saved, void** target) {
  */
 void
 schedulerMainLoop() {
+    // Swapping to a brand new context for the first time after some other
+    // context has entered dispatch() will cause the NestedDispatchDetector to
+    // fire. This check prevents it from firing, but anyone seeking to modify
+    // dispatch() should ensure that it still behaves correctly when dispatch
+    // is invoked from the top in new contexts while old contexts are swapped
+    // out in the middle of dispatch().
+    NestedDispatchDetector::clearDispatchFlag();
     while (true) {
         // Check for whether this thread should exit, for the purposes of
         // ramping down.
@@ -498,6 +508,7 @@ getThreadId() {
  */
 void
 dispatch() {
+    NestedDispatchDetector detector;
     DispatchTimeKeeper dispatchTimeTracker;
     Core& core = Arachne::core;
     // Cache the original context so that we can survive across migrations to
@@ -561,10 +572,18 @@ dispatch() {
                 }
                 void** saved = &core.loadedContext->sp;
                 core.loadedContext = targetContext;
+
+                // Flush the idle cycle counter before a context switch because
+                // switching to a fresh (previously unused) context will cause
+                // dispatch to be called from the top again before this
+                // invocation returns. This is problematic because it resets
+                // dispatchStartCycles (used for computing idle cycles) but not
+                // lastTotalCollectionTime (used for computing total cycles).
+                dispatchTimeTracker.flush();
                 swapcontext(&core.loadedContext->sp, saved);
                 originalContext->wakeupTimeInCycles = BLOCKED;
                 DispatchTimeKeeper::numThreadsRan++;
-                core.highestOccupiedContext = std::max(
+                Arachne::core.highestOccupiedContext = std::max(
                     core.highestOccupiedContext, core.loadedContext->idInCore);
                 return;
             }
@@ -616,9 +635,10 @@ dispatch() {
             dispatchTimeTracker.flush();
 
             // Check for termination
-            if (shutdown)
+            if (shutdown) {
                 swapcontext(&kernelThreadStacks[core.kernelThreadId],
                             &core.loadedContext->sp);
+            }
 
             PerfStats::threadStats.weightedLoadedCycles +=
                 DispatchTimeKeeper::numThreadsRan *
@@ -645,6 +665,14 @@ dispatch() {
             }
             void** saved = &core.loadedContext->sp;
             core.loadedContext = currentContext;
+
+            // Flush the idle cycle counter before a context switch because
+            // switching to a fresh (previously unused) context will cause
+            // dispatch to be called from the top again before this
+            // invocation returns. This is problematic because it resets
+            // dispatchStartCycles (used for computing idle cycles) but not
+            // lastTotalCollectionTime (used for computing total cycles).
+            dispatchTimeTracker.flush();
             swapcontext(&core.loadedContext->sp, saved);
             // After the old context is swapped out above, this line executes
             // in the new context.

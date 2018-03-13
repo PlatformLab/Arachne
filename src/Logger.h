@@ -21,6 +21,7 @@
 #include <mutex>
 
 #define ARACHNE_LOG Logger::log
+#define ARACHNE_BACKTRACE Logger::logBacktrace
 
 namespace Arachne {
 
@@ -47,6 +48,8 @@ class Logger {
      */
     static void log(LogLevel level, const char* fmt, ...)
         __attribute__((format(printf, 2, 3)));
+
+    static void logBacktrace(LogLevel level);
 
   private:
     // The minimum severity level to print.

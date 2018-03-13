@@ -25,6 +25,17 @@ namespace Arachne {
 #define CACHE_LINE_SIZE 64
 #define PAGE_SIZE 4096
 
+// The following macros issue hints to the compiler that a particular branch is
+// more likely than another.
+#ifdef __GNUC__
+// Note that the double negation here is used for coercion to the boolean type.
+#define likely(x) __builtin_expect(!!(x), 1)
+#define unlikely(x) __builtin_expect(!!(x), 0)
+#else
+#define likely(x) (x)
+#define unlikely(x) (x)
+#endif
+
 // Largest number of Arachne threads that can be simultaneously created on each
 // core.
 const int maxThreadsPerCore = 56;
