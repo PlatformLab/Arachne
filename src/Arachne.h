@@ -766,6 +766,41 @@ struct DispatchTimeKeeper {
     }
 };
 
+/**
+ * This class maintains a per-core bit which indicates whether the
+ * core is currently inside the main dispatch loop, and aborts the application
+ * with a backtrace if there is a second call to dispatch() from within
+ * dispatch().
+ */
+class NestedDispatchDetector {
+  public:
+    NestedDispatchDetector() {
+        if (unlikely(dispatchRunning)) {
+            ARACHNE_LOG(ERROR, "Nested invocation to dispatch thread!");
+            // Abort with a backtrace
+            ARACHNE_BACKTRACE(ERROR);
+            abort();
+        }
+
+        dispatchRunning = true;
+    }
+
+    ~NestedDispatchDetector() {
+        // It is correct for a different Arachne thread to have cleared the
+        // flag already.
+        dispatchRunning = false;
+    }
+
+    static void clearDispatchFlag() { dispatchRunning = false; }
+
+  private:
+    /**
+     * This per-core flag is set when entering the dispatch loop and cleared
+     * when exiting it.
+     */
+    static thread_local bool dispatchRunning;
+};
+
 }  // namespace Arachne
 
 // Force instantiation for debugging with operator[]

@@ -947,4 +947,12 @@ TEST_F(ArachneTest, idleAndUnidle) {
     EXPECT_FALSE(Arachne::isIdledArray[2]);
 }
 
+TEST_F(ArachneTest, nestedDispatchDetector) {
+    {
+        NestedDispatchDetector detector1;
+        EXPECT_TRUE(NestedDispatchDetector::dispatchRunning);
+    }
+    EXPECT_FALSE(NestedDispatchDetector::dispatchRunning);
+}
+
 }  // namespace Arachne
