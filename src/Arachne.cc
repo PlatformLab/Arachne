@@ -152,13 +152,6 @@ std::vector<uint64_t*> lastTotalCollectionTime;
  */
 std::vector<std::atomic<uint64_t>*> publicPriorityMasks;
 
-/**
- * Elements of this vector are set when a new thread is created to guarantee
- * that the highestOccupiedIndex on their core is set high enough for them to
- * run.
- */
-std::atomic<uint8_t> newestThreadOccupiedContext[512];
-
 /* Which cores are idled? */
 std::atomic<bool>* isIdledArray;
 
@@ -258,7 +251,6 @@ threadMain() {
             // structure.
             *core.localOccupiedAndCount = {0, 0};
             *publicPriorityMasks[core.kernelThreadId] = 0;
-            newestThreadOccupiedContext[core.kernelThreadId] = 0;
             core.privatePriorityMask = 0;
             coreManager->coreAvailable(core.kernelThreadId);
 
@@ -594,41 +586,20 @@ dispatch() {
 
     for (;; currentIndex++) {
         // This block should execute when a core has iterated over exactly one
-        // full cycle over the available ThreadContext's, because the value of
-        // currentIndex will be saved in core.nextCandidateIndex across calls to
-        // dispatch().
-        while (currentIndex == core.highestOccupiedContext + 1) {
-            checkForArbiterRequest();
-            // Check if we need to decrement core.highestOccupiedContext
-            if (core.highestOccupiedContext < maxThreadsPerCore - 1) {
-                uint8_t newestThreadContextIndex =
-                    newestThreadOccupiedContext[core.kernelThreadId];
-                if (newestThreadContextIndex > core.highestOccupiedContext) {
-                    core.highestOccupiedContext = newestThreadContextIndex;
-                    newestThreadOccupiedContext[core.kernelThreadId]
-                        .compare_exchange_strong(newestThreadContextIndex, 0);
-                    break;
-                }
-                uint64_t currentWakeupCycles =
-                    core.localThreadContexts[currentIndex]->wakeupTimeInCycles;
-                uint64_t previousWakeupCycles =
-                    core.localThreadContexts[currentIndex - 1]
-                        ->wakeupTimeInCycles;
-                if (currentWakeupCycles != UNOCCUPIED) {
-                    core.highestOccupiedContext++;
-                    // If we find something to run at the highest indexed
-                    // context, then we should continue the current loop,
-                    // skipping the code below which resets the loop state.
-                    break;
-                } else if (core.highestOccupiedContext > 0 &&
-                           previousWakeupCycles == UNOCCUPIED) {
-                    core.highestOccupiedContext--;
-                }
-            }
-
-            // We have reached the end of the threads, so we should go back to
-            // the beginning.
+        // full cycle over the available ThreadContext's.
+        if (currentIndex >= core.highestOccupiedContext + 1) {
             currentIndex = 0;
+            checkForArbiterRequest();
+            // Reset highestOccupiedContext based on value of occupied flag.
+            uint64_t occupied = core.localOccupiedAndCount->load().occupied;
+            // The result of __builtin_clzll is undefined if occupied is 0.
+            // The function __builtin_clzll returns the number leading 0-bits,
+            // so subtract the return value of 63 to get a zero-based bit index
+            core.highestOccupiedContext =
+                occupied == 0
+                    ? 0
+                    : static_cast<uint8_t>(63 - __builtin_clzll(occupied));
+
             dispatchIterationStartCycles = Cycles::rdtsc();
 
             // Flush counters to keep times up to date
@@ -648,15 +619,12 @@ dispatch() {
             DispatchTimeKeeper::numThreadsRan = 0;
             DispatchTimeKeeper::lastDispatchIterationStart =
                 dispatchIterationStartCycles;
-            break;
         }
 
         ThreadContext* currentContext = core.localThreadContexts[currentIndex];
         if (dispatchIterationStartCycles >=
             currentContext->wakeupTimeInCycles) {
             core.nextCandidateIndex = static_cast<uint8_t>(currentIndex + 1);
-            if (core.nextCandidateIndex == maxThreadsPerCore)
-                core.nextCandidateIndex = 0;
 
             if (currentContext == core.loadedContext) {
                 core.loadedContext->wakeupTimeInCycles = BLOCKED;

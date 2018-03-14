@@ -453,8 +453,6 @@ extern std::vector<std::atomic<MaskAndCount>*> occupiedAndCount;
 
 extern std::vector<std::atomic<uint64_t>*> publicPriorityMasks;
 
-extern std::atomic<uint8_t> newestThreadOccupiedContext[512];
-
 #ifdef TEST
 static std::deque<uint64_t> mockRandomValues;
 #endif
@@ -568,15 +566,6 @@ createThreadOnCore(uint32_t coreId, _Callable&& __f, _Args&&... __args) {
     uint32_t generation = allThreadContexts[coreId][index]->generation;
     threadContext->threadClass = 0;
     threadContext->wakeupTimeInCycles = 0;
-
-    // Ensure the highestOccupiedContext is high enough for the new thread to
-    // run.
-    do {
-        uint8_t oldNewestContext = newestThreadOccupiedContext[coreId];
-        uint8_t newestContext = std::max(oldNewestContext, (uint8_t)index);
-        success = newestThreadOccupiedContext[coreId].compare_exchange_strong(
-            oldNewestContext, newestContext);
-    } while (!success);
 
     PerfStats::threadStats.numThreadsCreated++;
     if (failureCount)
