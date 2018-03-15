@@ -425,8 +425,9 @@ schedulerMainLoop() {
         // of the outer loop, since the occupied flags for such creations would
         // get wiped out by this code.
         bool success;
+        MaskAndCount slotMap;
         do {
-            MaskAndCount slotMap = *core.localOccupiedAndCount;
+            slotMap = *core.localOccupiedAndCount;
             MaskAndCount oldSlotMap = slotMap;
             if (slotMap.numOccupied == 0)
                 abort();
@@ -438,6 +439,17 @@ schedulerMainLoop() {
             success = core.localOccupiedAndCount->compare_exchange_strong(
                 oldSlotMap, slotMap);
         } while (!success);
+
+        // Reset highestOccupiedContext based on value of occupied flag, which
+        // we just CASed in.
+        uint64_t occupied = slotMap.occupied;
+        // The result of __builtin_clzll is undefined if occupied is 0.
+        // The function __builtin_clzll returns the number leading 0-bits,
+        // so subtract the return value of 63 to get a zero-based bit index
+        core.highestOccupiedContext =
+            occupied == 0
+                ? 0
+                : static_cast<uint8_t>(63 - __builtin_clzll(occupied));
 
         // Newborn threads should not have elevated priority, even if the
         // predecessors had leftover priority
@@ -585,23 +597,30 @@ dispatch() {
     uint8_t currentIndex = core.nextCandidateIndex;
 
     for (;; currentIndex++) {
-        // This block should execute when a core has iterated over exactly one
-        // full cycle over the available ThreadContext's.
-        if (currentIndex >= core.highestOccupiedContext + 1) {
+        // Ensure that we do not go out of bounds.
+        if (currentIndex == maxThreadsPerCore) {
             currentIndex = 0;
+        }
+
+        // At this point, it is guaranteed that it is safe to read the context
+        // information.
+        ThreadContext* currentContext = core.localThreadContexts[currentIndex];
+        if (currentIndex == core.highestOccupiedContext + 1) {
+            // Check whether we need to increment core.highestOccupiedContext or
+            // reset currentIndex.
+            if (currentContext->wakeupTimeInCycles != UNOCCUPIED) {
+                core.highestOccupiedContext++;
+            } else {
+                currentIndex = 0;
+                // Reload the currentContext since we have reset currentIndex.
+                currentContext = core.localThreadContexts[currentIndex];
+            }
+        }
+        if (currentIndex == 0) {
+            // Update stats and check for arbiter preemption; done once per
+            // cycle over all contexts on this core.
             checkForArbiterRequest();
-            // Reset highestOccupiedContext based on value of occupied flag.
-            uint64_t occupied = core.localOccupiedAndCount->load().occupied;
-            // The result of __builtin_clzll is undefined if occupied is 0.
-            // The function __builtin_clzll returns the number leading 0-bits,
-            // so subtract the return value of 63 to get a zero-based bit index
-            core.highestOccupiedContext =
-                occupied == 0
-                    ? 0
-                    : static_cast<uint8_t>(63 - __builtin_clzll(occupied));
-
             dispatchIterationStartCycles = Cycles::rdtsc();
-
             // Flush counters to keep times up to date
             dispatchTimeTracker.flush();
 
@@ -621,7 +640,7 @@ dispatch() {
                 dispatchIterationStartCycles;
         }
 
-        ThreadContext* currentContext = core.localThreadContexts[currentIndex];
+        // Decide whether we can run the current thread.
         if (dispatchIterationStartCycles >=
             currentContext->wakeupTimeInCycles) {
             core.nextCandidateIndex = static_cast<uint8_t>(currentIndex + 1);
