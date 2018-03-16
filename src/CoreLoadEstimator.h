@@ -79,7 +79,7 @@ class CoreLoadEstimator {
     /*
      * Core utilizations below this threshold are considered effectively 0.
      */
-    double zeroCoreUtilizationThreshold = 1e-6;
+    double zeroCoreUtilizationThreshold = 1e-3;
 
     /*
      * Do not ramp down if the percentage of occupied threadContext slots is
