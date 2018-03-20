@@ -106,11 +106,24 @@ CoreLoadEstimator::estimate(int curActiveCores) {
         }
         return 0;
     } else if (estimationStrategy == UTILIZATION) {
+        ARACHNE_LOG(DEBUG,
+                    "curActiveCores = %d, totalUtilizedCores = %lf, "
+                    "maxUtilization = %lf\n",
+                    curActiveCores, totalUtilizedCores, maxUtilization);
+
         if (totalUtilizedCores > maxUtilization * curActiveCores) {
+            ARACHNE_LOG(NOTICE,
+                        "Recommending increase core count: curActiveCores = "
+                        "%d, totalUtilizedCores = %lf, maxUtilization = %lf\n",
+                        curActiveCores, totalUtilizedCores, maxUtilization);
             return 1;
         }
         if (totalUtilizedCores < maxUtilization * (curActiveCores - 1) -
                                      idleCoreFractionHysteresis) {
+            ARACHNE_LOG(NOTICE,
+                        "Recommending decrease core count: curActiveCores = "
+                        "%d, totalUtilizedCores = %lf, maxUtilization = %lf\n",
+                        curActiveCores, totalUtilizedCores, maxUtilization);
             return -1;
         }
         return 0;
