@@ -152,6 +152,18 @@ arachne_set_maxutil(double maxutil) {
         ->setMaxUtilization(maxutil);
 }
 
+/**
+ * This function is used to set the load factor threshold and switch to use load
+ * factor to do core load estimation
+ */
+void
+arachne_set_loadfactor(double loadfactor) {
+    reinterpret_cast<Arachne::DefaultCoreManager*>(
+        Arachne::getCoreManagerForTest())
+        ->getEstimator()
+        ->setLoadFactorThreshold(loadfactor);
+}
+
 #ifdef __cplusplus
 }
 #endif
