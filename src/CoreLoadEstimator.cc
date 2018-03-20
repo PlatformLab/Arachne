@@ -57,14 +57,6 @@ CoreLoadEstimator::estimate(int curActiveCores) {
     previousStats = currentStats;
 
     if (estimationStrategy == LOAD_FACTOR) {
-        if (curActiveCores < maxNumCores &&
-            averageLoadFactor > loadFactorThreshold) {
-            // Record our current totalUtilizedCores, so we will only ramp down
-            // if utilization would drop below this level.
-            utilizationThresholds[curActiveCores] = totalUtilizedCores;
-            return 1;
-        }
-
         // We should not ramp down if we have high occupancy of slots.
         double averageSlotUtilization =
             static_cast<double>(currentStats.numThreadsCreated -
@@ -75,9 +67,41 @@ CoreLoadEstimator::estimate(int curActiveCores) {
         // time at which we scaled up, plus a hysteresis threshold.
         double localThreshold = utilizationThresholds[curActiveCores - 1] -
                                 idleCoreFractionHysteresis;
+
+        ARACHNE_LOG(DEBUG,
+                    "curActiveCores = %d, totalUtilizedCores = %lf, "
+                    "localThreshold = %lf, averageloadFactor = %lf, "
+                    "loadFactorThreshold = %lf, averageSlotUtilization = %lf\n",
+                    curActiveCores, totalUtilizedCores, localThreshold,
+                    averageLoadFactor, loadFactorThreshold,
+                    averageSlotUtilization);
+
+        if (curActiveCores < maxNumCores &&
+            averageLoadFactor > loadFactorThreshold) {
+            // Record our current totalUtilizedCores, so we will only ramp down
+            // if utilization would drop below this level.
+            utilizationThresholds[curActiveCores] = totalUtilizedCores;
+            ARACHNE_LOG(NOTICE,
+                        "Recommending increase core count: curActiveCores = "
+                        "%d, totalUtilizedCores = %lf, localThreshold = %lf, "
+                        "averageloadFactor = %lf, loadFactorThreshold = %lf, "
+                        "averageSlotUtilization = %lf\n",
+                        curActiveCores, totalUtilizedCores, localThreshold,
+                        averageLoadFactor, loadFactorThreshold,
+                        averageSlotUtilization);
+            return 1;
+        }
         localThreshold = std::max(zeroCoreUtilizationThreshold, localThreshold);
         if ((totalUtilizedCores < localThreshold) &&
             (averageSlotUtilization < slotOccupancyThreshold)) {
+            ARACHNE_LOG(NOTICE,
+                        "Recommending decrease core count: curActiveCores = "
+                        "%d, totalUtilizedCores = %lf, localThreshold = %lf, "
+                        "averageloadFactor = %lf, loadFactorThreshold = %lf, "
+                        "averageSlotUtilization = %lf\n",
+                        curActiveCores, totalUtilizedCores, localThreshold,
+                        averageLoadFactor, loadFactorThreshold,
+                        averageSlotUtilization);
             return -1;
         }
         return 0;
