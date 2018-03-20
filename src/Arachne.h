@@ -71,7 +71,6 @@ extern int stackSize;
 extern FILE* errorStream;
 void dispatch();
 
-// Used for user per-core data structure initialization.
 extern std::function<void()> initCore;
 
 extern std::vector<ThreadContext**> allThreadContexts;
