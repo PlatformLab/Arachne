@@ -187,7 +187,7 @@ thread_local bool NestedDispatchDetector::dispatchRunning;
  */
 bool useCoreArbiter = true;
 
-std::string coreArbiterSocketPath = PROD_SOCKET;
+std::string coreArbiterSocketPath;
 CoreArbiterClient* coreArbiter = NULL;
 
 /*
@@ -969,9 +969,13 @@ init(int* argcp, const char** argv) {
 
     parseOptions(argcp, argv);
 
-    coreArbiter = (useCoreArbiter)
-                      ? CoreArbiterClient::getInstance(coreArbiterSocketPath)
-                      : ArbiterClientShim::getInstance();
+    if (!useCoreArbiter) {
+        coreArbiter = ArbiterClientShim::getInstance();
+    } else if (coreArbiterSocketPath.empty()) {
+        coreArbiter = CoreArbiterClient::getInstance();
+    } else {
+        coreArbiter = CoreArbiterClient::getInstance(coreArbiterSocketPath);
+    }
 
     // CoreArbiter reserves 1 core to run non-Arachne threads.
     volatile uint32_t hardwareCoresAvailable =

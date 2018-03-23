@@ -42,9 +42,6 @@
  */
 namespace Arachne {
 
-// The standard path where the real CoreArbiterServer will run from.
-#define PROD_SOCKET "/tmp/CoreArbiter/testsocket"
-
 // A macro to disallow the copy constructor and operator= functions
 #ifndef DISALLOW_COPY_AND_ASSIGN
 #define DISALLOW_COPY_AND_ASSIGN(TypeName) \
