@@ -42,10 +42,6 @@
  */
 namespace Arachne {
 
-// Current location of CoreArbiter testsocket and testmem
-#define TEST_SOCKET "/tmp/CoreArbiter_ArachneTest/testsocket"
-#define TEST_MEM "/tmp/CoreArbiter_ArachneTest/testmem"
-
 // The standard path where the real CoreArbiterServer will run from.
 #define PROD_SOCKET "/tmp/CoreArbiter/testsocket"
 

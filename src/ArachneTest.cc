@@ -28,6 +28,12 @@
 
 namespace Arachne {
 
+// These macros are here because Arachne uses the CoreArbiter in its own unit
+// tests, and these parameters are used for starting the CoreArbiter
+// specifically for Arachne testing.
+#define ARBITER_SOCKET "/tmp/CoreArbiter_ArachneTest/testsocket"
+#define ARBITER_MEM "/tmp/CoreArbiter_ArachneTest/testmem"
+
 using CoreArbiter::CoreArbiterClient;
 using CoreArbiter::CoreArbiterServer;
 using CoreArbiter::MockSyscall;
@@ -59,8 +65,8 @@ struct Environment : public ::testing::Environment {
         CoreArbiterServer::testingSkipCpusetAllocation = true;
 
         CoreArbiterServer::sys = sys;
-        coreArbiterServer = new CoreArbiterServer(std::string(TEST_SOCKET),
-                                                  std::string(TEST_MEM),
+        coreArbiterServer = new CoreArbiterServer(std::string(ARBITER_SOCKET),
+                                                  std::string(ARBITER_MEM),
                                                   {1, 2, 3, 4, 5, 6, 7}, false);
         coreArbiterServerThread =
             new std::thread([=] { coreArbiterServer->startArbitration(); });
@@ -84,7 +90,7 @@ struct ArachneTest : public ::testing::Test {
         Arachne::minNumCores = 1;
         Arachne::maxNumCores = 3;
         Arachne::disableLoadEstimation = true;
-        Arachne::coreArbiterSocketPath = TEST_SOCKET;
+        Arachne::coreArbiterSocketPath = ARBITER_SOCKET;
         Arachne::init();
         // Articially wake up all threads for testing purposes
         std::vector<uint32_t> coreRequest({3, 0, 0, 0, 0, 0, 0, 0});
