@@ -34,6 +34,12 @@
 #include "PerfUtils/Cycles.h"
 #include "PerfUtils/Util.h"
 
+/**
+ * Arachne is a user-level, cooperative thread management system written in
+ * C++, designed to improve core utlization and maximize throughput in server
+ * applications without impacting latency. It performs M:N scheduling over
+ * kernel threads running exclusively on CPU cores.
+ */
 namespace Arachne {
 
 // Current location of CoreArbiter testsocket and testmem
