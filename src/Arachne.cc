@@ -174,10 +174,10 @@ bool disableLoadEstimation;
 // END   Testing-Specific Flags
 
 // Allocate storage for load-tracking pointers.
-thread_local uint64_t DispatchTimeKeeper::lastTotalCollectionTime;
-thread_local uint64_t DispatchTimeKeeper::dispatchStartCycles;
-thread_local uint64_t DispatchTimeKeeper::lastDispatchIterationStart;
-thread_local uint8_t DispatchTimeKeeper::numThreadsRan;
+thread_local uint64_t IdleTimeTracker::lastTotalCollectionTime;
+thread_local uint64_t IdleTimeTracker::dispatchStartCycles;
+thread_local uint64_t IdleTimeTracker::lastDispatchIterationStart;
+thread_local uint8_t IdleTimeTracker::numThreadsRan;
 
 // Allocate storage for nested dispatch detection.
 thread_local bool NestedDispatchDetector::dispatchRunning;
@@ -243,10 +243,10 @@ threadMain() {
     // core ID after we have built the infrastructure for it.
     core.kernelThreadId = nextKernelThreadId.fetch_add(1);
 
-    // Register the address of our DispatchTimeKeeper::lastTotalCollectionTime
+    // Register the address of our IdleTimeTracker::lastTotalCollectionTime
     // with a global index.
     lastTotalCollectionTime[core.kernelThreadId] =
-        &DispatchTimeKeeper::lastTotalCollectionTime;
+        &IdleTimeTracker::lastTotalCollectionTime;
     for (;;) {
         coreArbiter->blockUntilCoreAvailable();
         // Prevent the use of abandoned ThreadContext which occurred as a
@@ -259,7 +259,7 @@ threadMain() {
             core.localPinnedContexts = pinnedContexts[core.kernelThreadId];
             core.localThreadContexts = allThreadContexts[core.kernelThreadId];
 
-            DispatchTimeKeeper::lastTotalCollectionTime = 0;
+            IdleTimeTracker::lastTotalCollectionTime = 0;
             // Clean up state from the previous thread that was using this data
             // structure.
             *core.localOccupiedAndCount = {0, 0};
@@ -290,8 +290,8 @@ threadMain() {
         }
 
         // Correct statistics
-        DispatchTimeKeeper::numThreadsRan = 0;
-        DispatchTimeKeeper::lastDispatchIterationStart = Cycles::rdtsc();
+        IdleTimeTracker::numThreadsRan = 0;
+        IdleTimeTracker::lastDispatchIterationStart = Cycles::rdtsc();
 
         core.loadedContext = core.localThreadContexts[0];
 
@@ -526,7 +526,7 @@ getThreadId() {
 void
 dispatch() {
     NestedDispatchDetector detector;
-    DispatchTimeKeeper dispatchTimeTracker;
+    IdleTimeTracker idleTimeTracker;
     Core& core = Arachne::core;
     // Cache the original context so that we can survive across migrations to
     // other kernel threads, since core.loadedContext is not reloaded correctly
@@ -575,7 +575,7 @@ dispatch() {
                 if (targetContext == core.loadedContext) {
                     core.loadedContext->wakeupTimeInCycles =
                         ThreadContext::BLOCKED;
-                    DispatchTimeKeeper::numThreadsRan++;
+                    IdleTimeTracker::numThreadsRan++;
 
                     // It is necessary to update core.highestOccupiedContext
                     // here because two simultaneous returns from these
@@ -597,10 +597,10 @@ dispatch() {
                 // invocation returns. This is problematic because it resets
                 // dispatchStartCycles (used for computing idle cycles) but not
                 // lastTotalCollectionTime (used for computing total cycles).
-                dispatchTimeTracker.flush();
+                idleTimeTracker.flush();
                 swapcontext(&core.loadedContext->sp, saved);
                 originalContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
-                DispatchTimeKeeper::numThreadsRan++;
+                IdleTimeTracker::numThreadsRan++;
                 Arachne::core.highestOccupiedContext = std::max(
                     core.highestOccupiedContext, core.loadedContext->idInCore);
                 return;
@@ -637,7 +637,7 @@ dispatch() {
             checkForArbiterRequest();
             dispatchIterationStartCycles = Cycles::rdtsc();
             // Flush counters to keep times up to date
-            dispatchTimeTracker.flush();
+            idleTimeTracker.flush();
 
             // Check for termination
             if (shutdown) {
@@ -646,12 +646,12 @@ dispatch() {
             }
 
             PerfStats::threadStats.weightedLoadedCycles +=
-                DispatchTimeKeeper::numThreadsRan *
+                IdleTimeTracker::numThreadsRan *
                 (dispatchIterationStartCycles -
-                 DispatchTimeKeeper::lastDispatchIterationStart);
+                 IdleTimeTracker::lastDispatchIterationStart);
 
-            DispatchTimeKeeper::numThreadsRan = 0;
-            DispatchTimeKeeper::lastDispatchIterationStart =
+            IdleTimeTracker::numThreadsRan = 0;
+            IdleTimeTracker::lastDispatchIterationStart =
                 dispatchIterationStartCycles;
         }
 
@@ -662,7 +662,7 @@ dispatch() {
 
             if (currentContext == core.loadedContext) {
                 core.loadedContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
-                DispatchTimeKeeper::numThreadsRan++;
+                IdleTimeTracker::numThreadsRan++;
                 return;
             }
             void** saved = &core.loadedContext->sp;
@@ -674,12 +674,12 @@ dispatch() {
             // invocation returns. This is problematic because it resets
             // dispatchStartCycles (used for computing idle cycles) but not
             // lastTotalCollectionTime (used for computing total cycles).
-            dispatchTimeTracker.flush();
+            idleTimeTracker.flush();
             swapcontext(&core.loadedContext->sp, saved);
             // After the old context is swapped out above, this line executes
             // in the new context.
             originalContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
-            DispatchTimeKeeper::numThreadsRan++;
+            IdleTimeTracker::numThreadsRan++;
             return;
         }
     }

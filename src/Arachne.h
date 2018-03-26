@@ -659,7 +659,7 @@ ConditionVariable::waitFor(LockType& lock, uint64_t ns) {
  * This class updates idleCycles and totalCycles in PerfStats to keep track of
  * idle and total time.
  */
-struct DispatchTimeKeeper {
+struct IdleTimeTracker {
     /**
      * Cycle counter of the last time we accumulated the total running time in
      * cycles. This variable should be updated each time we update
@@ -685,7 +685,7 @@ struct DispatchTimeKeeper {
      */
     static thread_local uint8_t numThreadsRan;
 
-    DispatchTimeKeeper() {
+    IdleTimeTracker() {
         dispatchStartCycles = Cycles::rdtsc();
         // Initialize here instead of in threadMain, since this is the first
         // opportunity.to actually accumulate either idle cycles or do real
@@ -707,7 +707,7 @@ struct DispatchTimeKeeper {
         dispatchStartCycles = currentTime;
     }
 
-    ~DispatchTimeKeeper() {
+    ~IdleTimeTracker() {
         uint64_t currentTime = Cycles::rdtsc();
         PerfStats::threadStats.totalCycles +=
             currentTime - lastTotalCollectionTime;
