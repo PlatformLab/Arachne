@@ -1412,8 +1412,8 @@ descheduleCore() {
 }
 
 /**
- * This function can be called from any thread to increase the number of cores
- * used by Arachne.
+ * This function can be called from CoreManagers to increase the number of
+ * cores used by Arachne.
  */
 void
 incrementCoreCount() {
@@ -1462,8 +1462,13 @@ checkForArbiterRequest() {
     std::lock_guard<SpinLock> _(coreChangeMutex);
     coreReleaseRequestCount++;
 
-    if (coreReleaseRequestCount >= numActiveCores)
-        abort();
+    if (coreReleaseRequestCount >= numActiveCores) {
+        ARACHNE_LOG(ERROR,
+                    "Core Arbiter requested %u cores back, but Arachne only "
+                    "has %u cores.",
+                    coreReleaseRequestCount, numActiveCores.load());
+        coreReleaseRequestCount = numActiveCores;
+    }
 
     // Deschedule a core iff we are the first thread to read that a
     // core release is needed.
