@@ -387,7 +387,7 @@ TEST_F(ArachneTest, createThread_maxThreadsExceeded) {
 
 TEST_F(ArachneTest, createThread_pickLeastLoaded) {
     DefaultCoreManager* coreManager =
-        reinterpret_cast<DefaultCoreManager*>(getCoreManagerForTest());
+        reinterpret_cast<DefaultCoreManager*>(getCoreManager());
     mockRandomValues.push_back(0);
     mockRandomValues.push_back(0);
     mockRandomValues.push_back(1);
@@ -864,7 +864,7 @@ TEST_F(ArachneTest, incrementCoreCount) {
     maxNumCores = 4;
     Arachne::init();
     DefaultCoreManager* coreManager =
-        reinterpret_cast<DefaultCoreManager*>(getCoreManagerForTest());
+        reinterpret_cast<DefaultCoreManager*>(getCoreManager());
     // Articially wake up one less than maximum threads.
     std::vector<uint32_t> coreRequest({3, 0, 0, 0, 0, 0, 0, 0});
     coreArbiter->setRequestedCores(coreRequest);
@@ -891,7 +891,7 @@ TEST_F(ArachneTest, decrementCoreCount) {
     FILE* newStream = open_memstream(&str, &size);
     setErrorStream(newStream);
     DefaultCoreManager* coreManager =
-        reinterpret_cast<DefaultCoreManager*>(getCoreManagerForTest());
+        reinterpret_cast<DefaultCoreManager*>(getCoreManager());
     EXPECT_TRUE(
         canThreadBeCreatedOnCore(0, coreManager, coreManager->sharedCores[2]));
     decrementCoreCount();
@@ -924,7 +924,7 @@ exclusiveThread() {
 // makeSharedOnCore.
 TEST_F(ArachneTest, createExclusiveThread) {
     DefaultCoreManager* coreManager =
-        reinterpret_cast<DefaultCoreManager*>(getCoreManagerForTest());
+        reinterpret_cast<DefaultCoreManager*>(getCoreManager());
     createThreadWithClass(DefaultCoreManager::EXCLUSIVE, exclusiveThread);
     limitedTimeWait([&coreManager]() -> bool {
         return Arachne::occupiedAndCount[coreManager->exclusiveCores[0]]

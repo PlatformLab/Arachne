@@ -156,7 +156,7 @@ TEST_F(DefaultCoreManagerTest, DefaultCoreManager_getCoresDefault) {
 
 TEST_F(DefaultCoreManagerTest, DefaultCoreManager_getCoresExclusive) {
     DefaultCoreManager* coreManager =
-        reinterpret_cast<DefaultCoreManager*>(Arachne::getCoreManagerForTest());
+        reinterpret_cast<DefaultCoreManager*>(Arachne::getCoreManager());
     CoreList* coreList = coreManager->getCores(DefaultCoreManager::EXCLUSIVE);
     EXPECT_EQ(coreList->size(), 1U);
     coreList = coreManager->getCores(DefaultCoreManager::EXCLUSIVE);

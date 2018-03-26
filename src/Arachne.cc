@@ -964,7 +964,7 @@ setCoreManager(CoreManager* arachneCoreManager) {
  * testing.
  */
 CoreManager*
-getCoreManagerForTest() {
+getCoreManager() {
     return coreManager;
 }
 

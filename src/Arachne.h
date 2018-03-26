@@ -140,7 +140,7 @@ bool removeAllThreadsFromCore(int coreId, CoreList* outputCores);
 void makeSharedOnCore();
 
 void setCoreManager(CoreManager* arachneCoreManager);
-CoreManager* getCoreManagerForTest();
+CoreManager* getCoreManager();
 
 void block();
 void signal(ThreadId id);

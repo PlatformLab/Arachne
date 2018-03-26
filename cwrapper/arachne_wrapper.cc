@@ -146,8 +146,7 @@ arachne_thread_getid() {
  */
 void
 arachne_set_maxutil(double maxutil) {
-    reinterpret_cast<Arachne::DefaultCoreManager*>(
-        Arachne::getCoreManagerForTest())
+    reinterpret_cast<Arachne::DefaultCoreManager*>(Arachne::getCoreManager())
         ->getEstimator()
         ->setMaxUtilization(maxutil);
 }

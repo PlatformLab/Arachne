@@ -35,7 +35,6 @@ namespace Arachne {
 #define ARBITER_SOCKET "/tmp/CoreArbiter_ArachneTest/testsocket"
 #define ARBITER_MEM "/tmp/CoreArbiter_ArachneTest/testmem"
 
-
 using CoreArbiter::CoreArbiterClient;
 using CoreArbiter::CoreArbiterServer;
 using CoreArbiter::MockSyscall;
