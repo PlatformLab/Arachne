@@ -558,7 +558,7 @@ createThreadOnCore(uint32_t coreId, _Callable&& __f, _Args&&... __args) {
 template <typename _Callable, typename... _Args>
 ThreadId
 createThreadWithClass(int threadClass, _Callable&& __f, _Args&&... __args) {
-    // Find a kernel thread to enqueue to by picking two at random and choosing
+    // Find a core to enqueue to by picking two at random and choosing
     // the one with the fewest Arachne threads.
     uint32_t kId;
     CoreList* coreList = coreManager->getCores(threadClass);
@@ -646,18 +646,18 @@ ConditionVariable::wait(LockType& lock) {
 template <typename LockType>
 void
 ConditionVariable::waitFor(LockType& lock, uint64_t ns) {
-    blockedThreads.push_back(
-        ThreadId(core.loadedContext, core.loadedContext->generation));
     core.loadedContext->wakeupTimeInCycles =
         Cycles::rdtsc() + Cycles::fromNanoseconds(ns);
+    blockedThreads.push_back(
+        ThreadId(core.loadedContext, core.loadedContext->generation));
     lock.unlock();
     dispatch();
     lock.lock();
 }
 
 /**
- * This class keeps a per-core record of recent idle time and recent total
- * time in Cycles.
+ * This class updates idleCycles and totalCycles in PerfStats to keep track of
+ * idle and total time.
  */
 struct DispatchTimeKeeper {
     /**
