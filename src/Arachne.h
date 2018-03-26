@@ -518,6 +518,10 @@ createThreadOnCore(uint32_t coreId, _Callable&& __f, _Args&&... __args) {
     // Read the generation number *before* waking up the thread, to avoid a
     // race where the thread finishes executing so fast that we read the next
     // generation number instead of the current one.
+    // It's not clear why reading from allThreadContexts[coreId][index] is
+    // faster than reading it from threadContext, but it seems to save ~10 ns
+    // in the microbenchmark. One speculation is that we can get better ILP by
+    // not using the same variable for both.
     uint32_t generation = allThreadContexts[coreId][index]->generation;
     threadContext->wakeupTimeInCycles = 0;
 
