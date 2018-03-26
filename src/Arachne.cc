@@ -1302,6 +1302,62 @@ Semaphore::try_wait() {
     return false;
 }
 
+// Constructor
+IdleTimeTracker::IdleTimeTracker() {
+    dispatchStartCycles = Cycles::rdtsc();
+    // Initialize here instead of in threadMain, since this is the first
+    // opportunity to actually accumulate either idle cycles or do real
+    // work.
+    if (!lastTotalCollectionTime)
+        lastTotalCollectionTime = dispatchStartCycles;
+}
+
+// Invoke this method to insert the current counts for idle time and total
+// time into PerfStats.
+// This method is used in dispatch() in place of destruction followed by
+// construction to avoid leaking idle cycles.
+void
+IdleTimeTracker::updatePerfStats() {
+    uint64_t currentTime = Cycles::rdtsc();
+    PerfStats::threadStats.totalCycles += currentTime - lastTotalCollectionTime;
+    PerfStats::threadStats.idleCycles += currentTime - dispatchStartCycles;
+    lastTotalCollectionTime = currentTime;
+    dispatchStartCycles = currentTime;
+}
+
+IdleTimeTracker::~IdleTimeTracker() {
+    uint64_t currentTime = Cycles::rdtsc();
+    PerfStats::threadStats.totalCycles += currentTime - lastTotalCollectionTime;
+    PerfStats::threadStats.idleCycles += currentTime - dispatchStartCycles;
+    lastTotalCollectionTime = currentTime;
+}
+
+// Constructor
+NestedDispatchDetector::NestedDispatchDetector() {
+    if (unlikely(dispatchRunning)) {
+        ARACHNE_LOG(ERROR, "Nested invocation to dispatch thread!");
+        // Abort with a backtrace
+        ARACHNE_BACKTRACE(ERROR);
+        abort();
+    }
+
+    dispatchRunning = true;
+}
+
+// Destructor
+NestedDispatchDetector::~NestedDispatchDetector() {
+    // It is correct for a different Arachne thread to have cleared the
+    // flag already.
+    dispatchRunning = false;
+}
+
+// This method is invoked to prevent a false alarm when schedulerMainLoop calls
+// dispatch() the first time.
+void
+NestedDispatchDetector::clearDispatchFlag() {
+    dispatchRunning = false;
+}
+
 /**
  * Change the target of the error stream, allowing redirection to an
  * application's log.

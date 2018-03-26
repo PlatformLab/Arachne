@@ -682,35 +682,9 @@ struct IdleTimeTracker {
      */
     static thread_local uint8_t numThreadsRan;
 
-    IdleTimeTracker() {
-        dispatchStartCycles = Cycles::rdtsc();
-        // Initialize here instead of in threadMain, since this is the first
-        // opportunity.to actually accumulate either idle cycles or do real
-        // work.
-        if (!lastTotalCollectionTime)
-            lastTotalCollectionTime = dispatchStartCycles;
-    }
-
-    // Invoke this method to insert the current counts for idle time and total
-    // time into PerfStats.
-    // This method is used in dispatch() in place of destruction followed by
-    // construction to avoid leaking idle cycles.
-    void updatePerfStats() {
-        uint64_t currentTime = Cycles::rdtsc();
-        PerfStats::threadStats.totalCycles +=
-            currentTime - lastTotalCollectionTime;
-        PerfStats::threadStats.idleCycles += currentTime - dispatchStartCycles;
-        lastTotalCollectionTime = currentTime;
-        dispatchStartCycles = currentTime;
-    }
-
-    ~IdleTimeTracker() {
-        uint64_t currentTime = Cycles::rdtsc();
-        PerfStats::threadStats.totalCycles +=
-            currentTime - lastTotalCollectionTime;
-        PerfStats::threadStats.idleCycles += currentTime - dispatchStartCycles;
-        lastTotalCollectionTime = currentTime;
-    }
+    IdleTimeTracker();
+    void updatePerfStats();
+    ~IdleTimeTracker();
 };
 
 /**
@@ -721,24 +695,9 @@ struct IdleTimeTracker {
  */
 class NestedDispatchDetector {
   public:
-    NestedDispatchDetector() {
-        if (unlikely(dispatchRunning)) {
-            ARACHNE_LOG(ERROR, "Nested invocation to dispatch thread!");
-            // Abort with a backtrace
-            ARACHNE_BACKTRACE(ERROR);
-            abort();
-        }
-
-        dispatchRunning = true;
-    }
-
-    ~NestedDispatchDetector() {
-        // It is correct for a different Arachne thread to have cleared the
-        // flag already.
-        dispatchRunning = false;
-    }
-
-    static void clearDispatchFlag() { dispatchRunning = false; }
+    NestedDispatchDetector();
+    ~NestedDispatchDetector();
+    static void clearDispatchFlag();
 
   private:
     /**
