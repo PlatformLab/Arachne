@@ -943,16 +943,16 @@ TEST_F(ArachneTest, createExclusiveThread) {
 TEST_F(ArachneTest, idleAndUnidle) {
     idleCore(0);
     idleCore(2);
-    limitedTimeWait([]() -> bool { return Arachne::isIdledArray[2]; });
-    EXPECT_TRUE(Arachne::isIdledArray[0]);
-    EXPECT_FALSE(Arachne::isIdledArray[1]);
-    EXPECT_TRUE(Arachne::isIdledArray[2]);
+    limitedTimeWait([]() -> bool { return Arachne::coreIdle[2]; });
+    EXPECT_TRUE(Arachne::coreIdle[0]);
+    EXPECT_FALSE(Arachne::coreIdle[1]);
+    EXPECT_TRUE(Arachne::coreIdle[2]);
     unidleCore(0);
     unidleCore(2);
-    limitedTimeWait([]() -> bool { return !Arachne::isIdledArray[2]; });
-    EXPECT_FALSE(Arachne::isIdledArray[0]);
-    EXPECT_FALSE(Arachne::isIdledArray[1]);
-    EXPECT_FALSE(Arachne::isIdledArray[2]);
+    limitedTimeWait([]() -> bool { return !Arachne::coreIdle[2]; });
+    EXPECT_FALSE(Arachne::coreIdle[0]);
+    EXPECT_FALSE(Arachne::coreIdle[1]);
+    EXPECT_FALSE(Arachne::coreIdle[2]);
 }
 
 TEST_F(ArachneTest, nestedDispatchDetector) {

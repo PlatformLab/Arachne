@@ -74,7 +74,7 @@ extern std::vector<ThreadContext**> allThreadContexts;
 
 extern CoreManager* coreManager;
 
-extern std::atomic<bool>* isIdledArray;
+extern std::atomic<bool>* coreIdle;
 
 /*
  * True means that the Core Load Estimator will not run; used only in unit

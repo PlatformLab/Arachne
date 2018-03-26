@@ -64,7 +64,7 @@ std::function<void()> initCore = nullptr;
 volatile uint32_t minNumCores;
 
 /**
- * This tracks the actual number of unblocked cores in the system.
+ * This tracks the number of cores Arachne currently controls.
  */
 std::atomic<uint32_t> numActiveCores;
 
@@ -74,7 +74,8 @@ std::atomic<uint32_t> numActiveCores;
 static std::atomic<int> nextKernelThreadId(0);
 
 /**
- * Number of outstanding requests to yield cores back to the arbiter.
+ * Number of requests to yield cores back to the arbiter that have not yet been
+ * satisfied.
  */
 uint32_t coreReleaseRequestCount = 0;
 
@@ -140,7 +141,7 @@ std::vector<std::atomic<MaskAndCount>*> occupiedAndCount;
 
 /**
  * This is a per-core bitmask that represents which contexts are pinned to the
- * core and cannot be targeted during migration.
+ * core (such contexts cannot be migrated away from the core).
  */
 std::vector<std::atomic<uint64_t>*> pinnedContexts;
 
@@ -153,16 +154,18 @@ std::vector<uint64_t*> lastTotalCollectionTime;
 /**
  * Setting a jth bit in the ith element of this vector indicates that the
  * priority of the thread living at index j on core i is temporarily raised.
+ * Values pointed to must be in separate cache lines for high performance.
  */
 std::vector<std::atomic<uint64_t>*> publicPriorityMasks;
 
 /* Which cores are idled? */
-std::atomic<bool>* isIdledArray;
+std::atomic<bool>* coreIdle;
 
-/* An array of condition variables cores can use to idle. */
+/**
+ * An array of semaphores cores can park on to idle themselves.
+ * Indices correspond to individual core IDs.
+ */
 std::vector<::Semaphore*> coreIdleSemaphores;
-
-void idleCorePrivate();
 
 /**
  * All core-specific state that is not associated with other classes.
@@ -194,11 +197,13 @@ CoreArbiterClient* coreArbiter = NULL;
 /*
  *  The CoreManager that Arachne will use.
  */
-
 CoreManager* coreManager = NULL;
 
+// Forward declarations
 void releaseCore(CoreList* outputCores);
 void descheduleCore();
+void idleCorePrivate();
+void checkForArbiterRequest();
 
 // The following constants must be defined here because we want them to be
 // scoped inside their respective structures, but gtest macros try to take
@@ -214,6 +219,9 @@ const uint8_t MaskAndCount::EXCLUSIVE = maxThreadsPerCore * 2 + 1;
  *
  * \param size
  *     The amount of memory to allocate.
+ * \param alignment
+ *     The address of the allocated memory will be a multiple of this
+ *     parameter, which must be a power of two and a multiple of sizeof(void *)
  */
 void*
 alignedAlloc(size_t size, size_t alignment) {
@@ -228,11 +236,7 @@ alignedAlloc(size_t size, size_t alignment) {
 }
 
 /**
- * Main function for a kernel thread, which roughly corresponds to a core in the
- * current design of the system.
- *
- * \param kId
- *     The kernel thread ID for the newly created kernel thread.
+ * Main function for a kernel thread, which roughly corresponds to a core.
  */
 void
 threadMain() {
@@ -305,8 +309,11 @@ threadMain() {
             break;
         {
             std::lock_guard<SpinLock> _(coreChangeMutex);
-            ARACHNE_LOG(DEBUG, "Number of cores decreased from %d to %d\n",
-                        numActiveCores + 1, numActiveCores.load());
+            ARACHNE_LOG(DEBUG,
+                        "Number of cores decreased from %d to %d\n; Core %d "
+                        "going offline.",
+                        numActiveCores + 1, numActiveCores.load(),
+                        core.kernelThreadId);
 #if TIME_TRACE
             TimeTrace::record("Core Count %d --> %d", numActiveCores + 1,
                               numActiveCores.load());
@@ -482,6 +489,8 @@ schedulerMainLoop() {
  */
 void
 yield() {
+    // This check makes yield() callable from a non-Arachne thread without
+    // error.
     if (!core.loadedContext)
         return;
     if (core.localOccupiedAndCount->load().numOccupied == 1 && !shutdown &&
@@ -512,6 +521,8 @@ sleep(uint64_t ns) {
  */
 ThreadId
 getThreadId() {
+    // This check enables the caller to determine whether or not they are
+    // running in an Arachne thread.
     return core.loadedContext
                ? ThreadId(core.loadedContext, core.loadedContext->generation)
                : Arachne::NullThread;
@@ -532,7 +543,6 @@ dispatch() {
     // other kernel threads, since core.loadedContext is not reloaded correctly
     // from TLS after switching back to this context.
     ThreadContext* originalContext = core.loadedContext;
-    // Check the stack canary on the current context.
     if (*reinterpret_cast<uint64_t*>(core.loadedContext->stack) !=
         STACK_CANARY) {
         ARACHNE_LOG(ERROR,
@@ -545,7 +555,6 @@ dispatch() {
 
     // Check for core release request once before checking for high priority
     // threads.
-    void checkForArbiterRequest();
     checkForArbiterRequest();
 
     uint64_t dispatchIterationStartCycles = Cycles::rdtsc();
@@ -559,6 +568,8 @@ dispatch() {
                 ~core.privatePriorityMask;
     }
 
+    // Run any high priority threads before searching the entire set of
+    // contexts for runnable threads.
     if (core.privatePriorityMask) {
         // This position is one-indexed with zero meaning that no bits were
         // set.
@@ -772,7 +783,7 @@ waitForTermination() {
         free(pinnedContexts[i]);
         free(publicPriorityMasks[i]);
     }
-    delete[] isIdledArray;
+    delete[] coreIdle;
     allThreadContexts.clear();
     occupiedAndCount.clear();
     pinnedContexts.clear();
@@ -889,7 +900,9 @@ ThreadContext::ThreadContext(uint8_t coreId, uint8_t idInCore)
 }
 
 /**
- * This method initialize all stacks to point at the schedulerMainLoop.
+ * This method initializes a stack so that when the dispatcher context switches
+ * back to this Arachne thread, the thread will resume execution at the
+ * beginning of the schedulerMainLoop method.
  */
 void
 ThreadContext::initializeStack() {
@@ -1028,7 +1041,7 @@ init(int* argcp, const char** argv) {
 
     // We assume that maxNumCores will not be exceeded in the lifetime of this
     // application.
-    isIdledArray = new std::atomic<bool>[maxNumCores];
+    coreIdle = new std::atomic<bool>[maxNumCores];
     for (unsigned int i = 0; i < maxNumCores; i++) {
         occupiedAndCount.push_back(
             reinterpret_cast<std::atomic<Arachne::MaskAndCount>*>(
@@ -1052,7 +1065,7 @@ init(int* argcp, const char** argv) {
         }
         allThreadContexts.push_back(contexts);
         coreIdleSemaphores.push_back(new ::Semaphore);
-        isIdledArray[i].store(false);
+        coreIdle[i].store(false);
     }
 
     // Allocate space to store all the original kernel pointers
@@ -1658,8 +1671,8 @@ releaseCore(CoreList* outputCores) {
  */
 void
 idleCore(int coreId) {
-    if (!isIdledArray[coreId]) {
-        isIdledArray[coreId] = true;
+    if (!coreIdle[coreId]) {
+        coreIdle[coreId] = true;
         if (createThreadOnCore(coreId, idleCorePrivate) == NullThread) {
             ARACHNE_LOG(ERROR, "Error creating idleCorePrivate thread\n");
         }
@@ -1675,7 +1688,7 @@ idleCore(int coreId) {
 void
 idleCorePrivate() {
     coreIdleSemaphores[core.kernelThreadId]->wait();
-    isIdledArray[core.kernelThreadId] = false;
+    coreIdle[core.kernelThreadId] = false;
 }
 
 /*
