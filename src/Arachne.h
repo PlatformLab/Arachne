@@ -51,11 +51,9 @@ namespace Arachne {
 
 using PerfUtils::Cycles;
 
-// Forward declare to break circular dependency between ThreadContext and
-// ConditionVariable
+// Forward declarations
 struct ThreadContext;
 struct Core;
-
 extern thread_local Core core;
 
 // This is used in createThread.
@@ -79,8 +77,8 @@ extern CoreManager* coreManager;
 extern std::atomic<bool>* isIdledArray;
 
 /*
- * Testing-specific flag to make sure the core load estimator does not
- * interfere with unit tests.
+ * True means that the Core Load Estimator will not run; used only in unit
+ * tests.
  */
 extern bool disableLoadEstimation;
 
@@ -102,8 +100,8 @@ extern bool disableLoadEstimation;
 struct ThreadId {
     /// The storage where this thread's state is held.
     ThreadContext* context;
-    /// Differentiates this Arachne thread from others that use the same
-    /// context.
+    /// Differentiates this Arachne thread from previous threads (now defunct)
+    /// that used the same context.
     uint32_t generation;
 
     /// Construct a ThreadId.
@@ -144,14 +142,7 @@ void makeSharedOnCore();
 void setCoreManager(CoreManager* arachneCoreManager);
 CoreManager* getCoreManagerForTest();
 
-/**
- * Block the current thread until another thread invokes join() with the
- * current thread's ThreadId.
- */
-inline void
-block() {
-    dispatch();
-}
+void block();
 void signal(ThreadId id);
 void join(ThreadId id);
 ThreadId getThreadId();
@@ -177,16 +168,15 @@ class SleepLock {
     void unlock();
 
   private:
-    // Ordered collection of threads that are waiting on this condition
-    // variable. Threads are processed from this list in FIFO order when a
-    // notifyOne() is called.
+    // Ordered collection of threads that are waiting on this lock. Threads
+    // are processed from this list in FIFO order when a notifyOne() is called.
     std::deque<ThreadId> blockedThreads;
 
     // A SpinLock to protect the blockedThreads data structure.
     SpinLock blockedThreadsLock;
 
-    // Used to identify the owning context for this lock, and also indicates
-    // whether the lock is held or not.
+    // Used to identify the owning context for this lock. The lock is held iff
+    // owner != NULL.
     ThreadContext* owner;
 };
 
@@ -215,56 +205,20 @@ class ConditionVariable {
 
 /**
  * This class enables a thread to block until a resource is available.
+ * It is safe to use in Arachne runtime code.
  */
 class Semaphore {
+  public:
+    Semaphore();
+    void reset();
+    void notify();
+    void wait();
+    bool try_wait();
+
   private:
     SpinLock countProtector;
     ConditionVariable countWaiter;
     uint64_t count;  // Initialized as locked.
-
-  public:
-    // Constructor initializing a non-yielding SpinLock.
-    Semaphore()
-        : countProtector("countprotector", false), countWaiter(), count(0) {}
-
-    /**
-     * Change this Semaphore to a fully locked state.
-     */
-    void reset() {
-        std::unique_lock<decltype(countProtector)> lock(countProtector);
-        count = 0;
-    }
-
-    /**
-     * Wake up one of the waiters on this Semaphore.
-     */
-    void notify() {
-        std::unique_lock<decltype(countProtector)> lock(countProtector);
-        ++count;
-        countWaiter.notifyOne();
-    }
-
-    /**
-     * Block until another thread notifies.
-     */
-    void wait() {
-        std::unique_lock<decltype(countProtector)> lock(countProtector);
-        while (!count)  // Handle spurious wake-ups.
-            countWaiter.wait(lock);
-        --count;
-    }
-
-    /**
-     * Attempt to acquire the resource if it is available.
-     */
-    bool try_wait() {
-        std::unique_lock<decltype(countProtector)> lock(countProtector);
-        if (count) {
-            --count;
-            return true;
-        }
-        return false;
-    }
 };
 
 /**
@@ -352,17 +306,18 @@ struct ThreadContext {
     ConditionVariable joinCV;
 
     /// Unique identifier for the core that this thread currently lives on.
-    /// This will only change if a ThreadContext is migrated when scaling down
-    /// the number of cores.
+    /// This will only change if a ThreadContext is migrated.
     uint8_t coreId;
 
-    /// Thread class of this thread, used for thread migration.
+    /// Specified by applications to indicate general properties of this thread
+    /// (e.g. latency-sensitive foreground thread vs throughput-sensitive
+    /// background thread); used by CoreManager.
+    // It defaults to 0 for threads created without specifying a class.
     int threadClass = 0;
 
     /// Unique identifier for this thread among those on the same core.
     /// Used to index into various core-specific arrays.
-    /// This will only change if a ThreadContext is migrated when scaling down
-    /// the number of cores.
+    /// This will only change if a ThreadContext is migrated.
     uint8_t idInCore;
 
     /// \var threadInvocation
@@ -374,18 +329,31 @@ struct ThreadContext {
     /// \cond SuppressDoxygen
     struct alignas(CACHE_LINE_SIZE) {
         char data[CACHE_LINE_SIZE - 8];
-        // This variable lives here to share a cache line with the thread
-        // invocation, thereby removing a cache miss for thread creation.
+        /// This variable holds the minimum value of the cycle counter for which
+        /// this thread can run.
+        /// 0 is a signal that this thread should run at the next opportunity.
+        /// ~0 is used as an infinitely large time: a sleeping thread will not
+        /// awaken as long as wakeupTimeInCycles has this value.
+        /// This variable lives here to share a cache line with the thread
+        /// invocation, thereby removing a cache miss for thread creation.
         volatile uint64_t wakeupTimeInCycles;
     }
     /// \endcond
     threadInvocation;
 
-    /// This variable holds the minimum value of the cycle counter for which
-    /// this thread can run.
-    /// 0 is a signal that this thread should run at the next opportunity.
-    /// ~0 is used as an infinitely large time: a sleeping thread will not
-    /// awaken as long as wakeupTimeInCycles has this value.
+    /**
+     * This is the value for wakeupTimeInCycles when a live thread is blocked.
+     */
+    static const uint64_t BLOCKED;
+
+    /**
+     * This is the value for wakeupTimeInCycles when a ThreadContext is not
+     * hosting a thread.
+     */
+    static const uint64_t UNOCCUPIED;
+
+    /// This reference is for convenience and always points at
+    /// threadInvocation->wakeupTimeInCycles.
     volatile uint64_t& wakeupTimeInCycles;
 
     void initializeStack();
@@ -400,37 +368,19 @@ struct ThreadContext {
  * registers that are defined by the current processor and operating system's
  * calling convention.
  */
-const size_t SpaceForSavedRegisters = 48;
+const size_t SPACE_FOR_SAVED_REGISTERS = 48;
 
 /**
  * This value is placed at the lowest allocated address of the stack to detect
  * stack overflows.
  */
-const uint64_t StackCanary = 0xDEADBAAD;
-
-/**
- * This is the value for wakeupTimeInCycles when a live thread is blocked.
- */
-const uint64_t BLOCKED = ~0L;
-
-/**
- * This is the value for wakeupTimeInCycles when a ThreadContext is not
- * hosting a thread.
- */
-const uint64_t UNOCCUPIED = ~0L - 1;
+const uint64_t STACK_CANARY = 0xDEADBAAD;
 
 /**
  * Amount of time in nanoseconds to wait for extant threads to finish before
  * commencing migration.
  */
 const uint64_t COMPLETION_WAIT_TIME = 100000;
-
-/**
- * Initial value of numOccupied for cores that are exclusive to a thread.
- * This value is sufficiently high that when other threads exit and decrement
- * numOccupied, creation will continue to be blocked on the target core.
- */
-const uint8_t EXCLUSIVE = maxThreadsPerCore * 2 + 1;
 
 void schedulerMainLoop();
 void swapcontext(void** saved, void** target);
@@ -445,6 +395,13 @@ struct MaskAndCount {
     uint64_t occupied : 56;
     /// The number of 1 bits in occupied.
     uint8_t numOccupied : 8;
+    /**
+     * Initial value of numOccupied for cores that are exclusive to a thread.
+     * This value is sufficiently high that when other threads exit and
+     * decrement numOccupied, creation will continue to be blocked on the target
+     * core.
+     */
+    static const uint8_t EXCLUSIVE;
 };
 
 extern std::vector<std::atomic<MaskAndCount>*> occupiedAndCount;
@@ -562,7 +519,6 @@ createThreadOnCore(uint32_t coreId, _Callable&& __f, _Args&&... __args) {
     // race where the thread finishes executing so fast that we read the next
     // generation number instead of the current one.
     uint32_t generation = allThreadContexts[coreId][index]->generation;
-    threadContext->threadClass = 0;
     threadContext->wakeupTimeInCycles = 0;
 
     PerfStats::threadStats.numThreadsCreated++;
@@ -618,6 +574,9 @@ createThreadWithClass(int threadClass, _Callable&& __f, _Args&&... __args) {
     else
         kId = choice2;
     auto threadId = createThreadOnCore(kId, __f, __args...);
+    if (threadId != NullThread) {
+        threadId.context->threadClass = threadClass;
+    }
     coreList->free();
     return threadId;
 }

@@ -220,7 +220,7 @@ sleepLockTest() {
     Arachne::sleep(1000);
     limitedTimeWait([]() -> bool { return flag; });
     EXPECT_EQ(1, flag);
-    EXPECT_EQ(Arachne::BLOCKED, tid.context->wakeupTimeInCycles);
+    EXPECT_EQ(Arachne::ThreadContext::BLOCKED, tid.context->wakeupTimeInCycles);
     Arachne::sleep(1000);
     EXPECT_EQ(1, flag);
     EXPECT_EQ(Arachne::core.loadedContext, sleepLock.owner);
@@ -266,7 +266,7 @@ TEST_F(ArachneTest, SleepLock_fairness) {
         ThreadId tid = createThreadOnCore(0, sleepOnLock, i);
         // Wait until this thread is actually running.
         limitedTimeWait([tid]() -> bool {
-            return tid.context->wakeupTimeInCycles == BLOCKED;
+            return tid.context->wakeupTimeInCycles == ThreadContext::BLOCKED;
         });
 
         // Interference on another core should not change the order
@@ -426,7 +426,7 @@ extern std::vector<void*> kernelThreadStacks;
 // Helper method for schedulerMainLoop
 void
 checkSchedulerState() {
-    EXPECT_EQ(BLOCKED, core.loadedContext->wakeupTimeInCycles);
+    EXPECT_EQ(ThreadContext::BLOCKED, core.loadedContext->wakeupTimeInCycles);
     EXPECT_EQ(1U, core.localOccupiedAndCount->load().numOccupied);
     EXPECT_EQ(1U, core.localOccupiedAndCount->load().occupied);
 }
@@ -436,7 +436,8 @@ TEST_F(ArachneTest, schedulerMainLoop) {
     limitedTimeWait(
         []() -> bool { return occupiedAndCount[0]->load().numOccupied == 0; });
 
-    EXPECT_EQ(UNOCCUPIED, allThreadContexts[0][0]->wakeupTimeInCycles);
+    EXPECT_EQ(ThreadContext::UNOCCUPIED,
+              allThreadContexts[0][0]->wakeupTimeInCycles);
     EXPECT_EQ(2U, allThreadContexts[0][0]->generation);
 }
 
@@ -519,7 +520,8 @@ TEST_F(ArachneTest, sleep_wakeupTimeSetAndCleared) {
     flag = 0;
     createThreadOnCore(0, simplesleeper);
     limitedTimeWait([]() -> bool { return flag; });
-    EXPECT_EQ(BLOCKED, Arachne::allThreadContexts[0][0]->wakeupTimeInCycles);
+    EXPECT_EQ(ThreadContext::BLOCKED,
+              Arachne::allThreadContexts[0][0]->wakeupTimeInCycles);
     flag = 0;
 }
 
@@ -549,7 +551,7 @@ TEST_F(ArachneTest, signal) {
     // ThreadContext.
     ThreadContext tempContext(0, 0);
     tempContext.generation = 0;
-    tempContext.wakeupTimeInCycles = BLOCKED;
+    tempContext.wakeupTimeInCycles = ThreadContext::BLOCKED;
     tempContext.coreId = 0;
     tempContext.idInCore = 0;
     Arachne::signal(ThreadId(&tempContext, 0));

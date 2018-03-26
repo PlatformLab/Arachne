@@ -133,7 +133,8 @@ volatile bool shutdown;
 std::vector<ThreadContext**> allThreadContexts;
 
 /**
- * See documentation for MaskAndCount.
+ * Each element points at the occupiedAndCount belonging to the core with the
+ * coreId equal to its index.
  */
 std::vector<std::atomic<MaskAndCount>*> occupiedAndCount;
 
@@ -198,6 +199,15 @@ CoreManager* coreManager = NULL;
 
 void releaseCore(CoreList* outputCores);
 void descheduleCore();
+
+// The following constants must be defined here because we want them to be
+// scoped inside their respective structures, but gtest macros try to take
+// their address, and supplying their values inside the declaration causes an
+// undefined reference error.
+const uint64_t ThreadContext::BLOCKED = ~0L;
+const uint64_t ThreadContext::UNOCCUPIED = ~0L - 1;
+
+const uint8_t MaskAndCount::EXCLUSIVE = maxThreadsPerCore * 2 + 1;
 
 /**
  * Allocate a block of memory aligned at the beginning of a cache line.
@@ -339,7 +349,7 @@ void __attribute__((noinline)) swapcontext(void** saved, void** target) {
     // calls and store the stack pointer's location after saving these
     // registers.
     // NB: The space used by the pushed and
-    // popped registers must equal the value of SpaceForSavedRegisters, which
+    // popped registers must equal the value of SPACE_FOR_SAVED_REGISTERS, which
     // should be updated atomically with this assembly.
     asm("pushq %r12\n\t"
         "pushq %r13\n\t"
@@ -394,7 +404,7 @@ schedulerMainLoop() {
         // The thread has exited.
         // Cancel any wakeups the thread may have scheduled for itself before
         // exiting.
-        core.loadedContext->wakeupTimeInCycles = UNOCCUPIED;
+        core.loadedContext->wakeupTimeInCycles = ThreadContext::UNOCCUPIED;
 
         // The positioning of this lock is rather subtle, and makes the
         // following three operations atomic.
@@ -524,7 +534,7 @@ dispatch() {
     ThreadContext* originalContext = core.loadedContext;
     // Check the stack canary on the current context.
     if (*reinterpret_cast<uint64_t*>(core.loadedContext->stack) !=
-        StackCanary) {
+        STACK_CANARY) {
         ARACHNE_LOG(ERROR,
                     "Stack overflow detected on %p. Canary = %lu."
                     " Aborting...\n",
@@ -563,7 +573,8 @@ dispatch() {
             // Verify wakeup and occupied.
             if (targetContext->wakeupTimeInCycles == 0) {
                 if (targetContext == core.loadedContext) {
-                    core.loadedContext->wakeupTimeInCycles = BLOCKED;
+                    core.loadedContext->wakeupTimeInCycles =
+                        ThreadContext::BLOCKED;
                     DispatchTimeKeeper::numThreadsRan++;
 
                     // It is necessary to update core.highestOccupiedContext
@@ -588,7 +599,7 @@ dispatch() {
                 // lastTotalCollectionTime (used for computing total cycles).
                 dispatchTimeTracker.flush();
                 swapcontext(&core.loadedContext->sp, saved);
-                originalContext->wakeupTimeInCycles = BLOCKED;
+                originalContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
                 DispatchTimeKeeper::numThreadsRan++;
                 Arachne::core.highestOccupiedContext = std::max(
                     core.highestOccupiedContext, core.loadedContext->idInCore);
@@ -611,7 +622,8 @@ dispatch() {
         if (currentIndex == core.highestOccupiedContext + 1) {
             // Check whether we need to increment core.highestOccupiedContext or
             // reset currentIndex.
-            if (currentContext->wakeupTimeInCycles != UNOCCUPIED) {
+            if (currentContext->wakeupTimeInCycles !=
+                ThreadContext::UNOCCUPIED) {
                 core.highestOccupiedContext++;
             } else {
                 currentIndex = 0;
@@ -649,7 +661,7 @@ dispatch() {
             core.nextCandidateIndex = static_cast<uint8_t>(currentIndex + 1);
 
             if (currentContext == core.loadedContext) {
-                core.loadedContext->wakeupTimeInCycles = BLOCKED;
+                core.loadedContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
                 DispatchTimeKeeper::numThreadsRan++;
                 return;
             }
@@ -666,11 +678,20 @@ dispatch() {
             swapcontext(&core.loadedContext->sp, saved);
             // After the old context is swapped out above, this line executes
             // in the new context.
-            originalContext->wakeupTimeInCycles = BLOCKED;
+            originalContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
             DispatchTimeKeeper::numThreadsRan++;
             return;
         }
     }
+}
+
+/**
+ * Block the current thread until another thread invokes join() with the
+ * current thread's ThreadId.
+ */
+void
+block() {
+    dispatch();
 }
 
 /**
@@ -686,7 +707,7 @@ dispatch() {
 void
 signal(ThreadId id) {
     uint64_t oldWakeupTime = id.context->wakeupTimeInCycles;
-    if (oldWakeupTime != UNOCCUPIED) {
+    if (oldWakeupTime != ThreadContext::UNOCCUPIED) {
         // We do the CAS in assembly because we do not want to pay for the
         // extra memory fences for ordinary stores that std::atomic adds.
         uint64_t newValue = 0L;
@@ -859,7 +880,7 @@ ThreadContext::ThreadContext(uint8_t coreId, uint8_t idInCore)
       idInCore(idInCore),
       threadInvocation(),
       wakeupTimeInCycles(threadInvocation.wakeupTimeInCycles) {
-    wakeupTimeInCycles = UNOCCUPIED;
+    wakeupTimeInCycles = ThreadContext::UNOCCUPIED;
     // Allocate memory here so we can error-check the return value of malloc.
     stack = alignedAlloc(stackSize, PAGE_SIZE);
     if (stack == NULL) {
@@ -895,12 +916,12 @@ ThreadContext::initializeStack() {
      * Decrement the stack pointer by the amount of space needed to
      * store the registers in swapcontext.
      */
-    sp = reinterpret_cast<char*>(sp) - SpaceForSavedRegisters;
+    sp = reinterpret_cast<char*>(sp) - SPACE_FOR_SAVED_REGISTERS;
 
     /**
      * Set the stack canary value to detect stack overflows.
      */
-    *reinterpret_cast<uint64_t*>(stack) = StackCanary;
+    *reinterpret_cast<uint64_t*>(stack) = STACK_CANARY;
 }
 
 /**
@@ -1092,7 +1113,8 @@ testInit() {
         core.localThreadContexts[k] = reinterpret_cast<ThreadContext*>(
             alignedAlloc(sizeof(ThreadContext)));
         new (core.localThreadContexts[k]) ThreadContext(~0, k);
-        core.localThreadContexts[k]->wakeupTimeInCycles = BLOCKED;
+        core.localThreadContexts[k]->wakeupTimeInCycles =
+            ThreadContext::BLOCKED;
         // It is important to re-initialize stacks here because some of the
         // contexts may be in the middle of dispatch calls from
         // schedulerMainLoop and switching to them will a spurious return from
@@ -1228,6 +1250,58 @@ ConditionVariable::notifyAll() {
         notifyOne();
 }
 
+// Constructor
+Semaphore::Semaphore()
+    : countProtector("countprotector", false), countWaiter(), count(0) {}
+
+/**
+ * Change this Semaphore to a fully locked state.
+ */
+void
+Semaphore::reset() {
+    std::unique_lock<decltype(countProtector)> lock(countProtector);
+    count = 0;
+}
+
+/**
+ * If there are threads waiting on this semaphore, wake up one of them.
+ * Otherwise, the next thread to wait on this semaphore will immediately
+ * awaken.
+ */
+void
+Semaphore::notify() {
+    std::unique_lock<decltype(countProtector)> lock(countProtector);
+    ++count;
+    countWaiter.notifyOne();
+}
+
+/**
+ * Block until another thread notifies.
+ */
+void
+Semaphore::wait() {
+    std::unique_lock<decltype(countProtector)> lock(countProtector);
+    while (!count)  // Handle spurious wake-ups.
+        countWaiter.wait(lock);
+    --count;
+}
+
+/**
+ * Attempt to acquire the resource if it is available.
+ * \return
+ *     The return value is true iff the resource represented by this
+ *     Semaphor was successfully acquired.
+ */
+bool
+Semaphore::try_wait() {
+    std::unique_lock<decltype(countProtector)> lock(countProtector);
+    if (count) {
+        --count;
+        return true;
+    }
+    return false;
+}
+
 /**
  * Change the target of the error stream, allowing redirection to an
  * application's log.
@@ -1356,7 +1430,7 @@ preventCreationsToCore(int coreId) {
     do {
         targetOccupiedAndCount = *occupiedAndCount[coreId];
         blockedOccupiedAndCount = targetOccupiedAndCount;
-        blockedOccupiedAndCount.numOccupied = EXCLUSIVE;
+        blockedOccupiedAndCount.numOccupied = MaskAndCount::EXCLUSIVE;
         success = occupiedAndCount[coreId]->compare_exchange_strong(
             targetOccupiedAndCount, blockedOccupiedAndCount);
     } while (!success);
@@ -1372,7 +1446,8 @@ preventCreationsToCore(int coreId) {
             // There is no race with completions here because no other thread
             // can be running on this core since we are running.
             if (((targetOccupiedAndCount.occupied >> i) & 1) &&
-                core.localThreadContexts[i]->wakeupTimeInCycles == UNOCCUPIED) {
+                core.localThreadContexts[i]->wakeupTimeInCycles ==
+                    ThreadContext::UNOCCUPIED) {
                 pendingCreation = true;
                 break;
             }
