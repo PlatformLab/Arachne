@@ -597,7 +597,7 @@ dispatch() {
                 // invocation returns. This is problematic because it resets
                 // dispatchStartCycles (used for computing idle cycles) but not
                 // lastTotalCollectionTime (used for computing total cycles).
-                idleTimeTracker.flush();
+                idleTimeTracker.updatePerfStats();
                 swapcontext(&core.loadedContext->sp, saved);
                 originalContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
                 IdleTimeTracker::numThreadsRan++;
@@ -637,7 +637,7 @@ dispatch() {
             checkForArbiterRequest();
             dispatchIterationStartCycles = Cycles::rdtsc();
             // Flush counters to keep times up to date
-            idleTimeTracker.flush();
+            idleTimeTracker.updatePerfStats();
 
             // Check for termination
             if (shutdown) {
@@ -674,7 +674,7 @@ dispatch() {
             // invocation returns. This is problematic because it resets
             // dispatchStartCycles (used for computing idle cycles) but not
             // lastTotalCollectionTime (used for computing total cycles).
-            idleTimeTracker.flush();
+            idleTimeTracker.updatePerfStats();
             swapcontext(&core.loadedContext->sp, saved);
             // After the old context is swapped out above, this line executes
             // in the new context.

@@ -661,10 +661,7 @@ ConditionVariable::waitFor(LockType& lock, uint64_t ns) {
  */
 struct IdleTimeTracker {
     /**
-     * Cycle counter of the last time we accumulated the total running time in
-     * cycles. This variable should be updated each time we update
-     * PerfStats::totalCycles, as well as when a thread gets unblocked,
-     * to avoid counting cycles when we are blocked.
+     * Cycle counter of the last time updatePerfStats() was called.
      */
     static thread_local uint64_t lastTotalCollectionTime;
 
@@ -694,11 +691,11 @@ struct IdleTimeTracker {
             lastTotalCollectionTime = dispatchStartCycles;
     }
 
-    // Invoke this method to flush the current counts for idle time and total
+    // Invoke this method to insert the current counts for idle time and total
     // time into PerfStats.
     // This method is used in dispatch() in place of destruction followed by
     // construction to avoid leaking idle cycles.
-    void flush() {
+    void updatePerfStats() {
         uint64_t currentTime = Cycles::rdtsc();
         PerfStats::threadStats.totalCycles +=
             currentTime - lastTotalCollectionTime;
