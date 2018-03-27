@@ -123,4 +123,4 @@ site: docs
 	git push origin gh-pages
 
 clean:
-	rm -rf $(OBJECT_DIR) $(LIB_DIR)
+	rm -rf $(OBJECT_DIR) $(LIB_DIR) $(INCLUDE_DIR)

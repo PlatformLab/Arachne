@@ -136,7 +136,8 @@ void sleep(uint64_t ns);
 void idleCore(int coreId);
 void unidleCore(int coreId);
 
-bool removeAllThreadsFromCore(int coreId, CoreList* outputCores);
+bool removeAllThreadsFromCore(int coreId,
+                              CoreManager::CoreManager::CoreList outputCores);
 void makeSharedOnCore();
 
 void setCoreManager(CoreManager* arachneCoreManager);
@@ -561,16 +562,17 @@ createThreadWithClass(int threadClass, _Callable&& __f, _Args&&... __args) {
     // Find a core to enqueue to by picking two at random and choosing
     // the one with the fewest Arachne threads.
     uint32_t kId;
-    CoreList* coreList = coreManager->getCores(threadClass);
-    if ((coreList == NULL) || (coreList->size() == 0))
+    CoreManager::CoreManager::CoreList coreList =
+        coreManager->getCores(threadClass);
+    if (coreList.size() == 0)
         return Arachne::NullThread;
-    uint32_t index1 = static_cast<uint32_t>(random()) % coreList->size();
-    uint32_t index2 = static_cast<uint32_t>(random()) % coreList->size();
-    while (index2 == index1 && coreList->size() > 1)
-        index2 = static_cast<uint32_t>(random()) % coreList->size();
+    uint32_t index1 = static_cast<uint32_t>(random()) % coreList.size();
+    uint32_t index2 = static_cast<uint32_t>(random()) % coreList.size();
+    while (index2 == index1 && coreList.size() > 1)
+        index2 = static_cast<uint32_t>(random()) % coreList.size();
 
-    int choice1 = coreList->get(index1);
-    int choice2 = coreList->get(index2);
+    int choice1 = coreList.get(index1);
+    int choice2 = coreList.get(index2);
 
     if (occupiedAndCount[choice1]->load().numOccupied <
         occupiedAndCount[choice2]->load().numOccupied)
@@ -581,7 +583,6 @@ createThreadWithClass(int threadClass, _Callable&& __f, _Args&&... __args) {
     if (threadId != NullThread) {
         threadId.context->threadClass = threadClass;
     }
-    coreList->free();
     return threadId;
 }
 

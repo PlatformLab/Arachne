@@ -19,8 +19,8 @@
 
 namespace Arachne {
 
-void migrateThreadsFromCore(CoreList* outputCores);
-void releaseCore(CoreList* outputCores);
+void migrateThreadsFromCore(CoreManager::CoreList outputCores);
+void releaseCore(CoreManager::CoreList outputCores);
 void decrementCoreCount();
 void incrementCoreCount();
 extern std::vector<uint64_t*> lastTotalCollectionTime;
@@ -70,31 +70,33 @@ DefaultCoreManager::coreUnavailable() {
 
 /**
  * Invoked by Arachne::createThread to get cores available for scheduling of
- * short-lived tasks. Returns NULL if an invalid threadClass is passed in.
+ * short-lived tasks. Returns an empty CoreManager::CoreList if an invalid
+ * threadClass is passed in.
  */
-CoreList*
+CoreManager::CoreList
 DefaultCoreManager::getCores(int threadClass) {
     switch (threadClass) {
         case DEFAULT:
-            return &sharedCores;
+            return sharedCores;
         case EXCLUSIVE:
             int coreId = getExclusiveCore();
             if (coreId < 0)
                 break;
-            CoreList* retVal = new CoreList(1, /*mustFree=*/true);
-            retVal->add(coreId);
+            CoreManager::CoreList retVal(1, /*mustFree=*/true);
+            retVal.add(coreId);
             return retVal;
     }
-    return NULL;
+    CoreManager::CoreList retVal(0, /*mustFree=*/true);
+    return retVal;
 }
 
 /**
  * Provide a set of cores for Arachne to migrate threads to when cleaning up a
  * core for return to the CoreArbiter.
  */
-CoreList*
+CoreManager::CoreList
 DefaultCoreManager::getMigrationTargets() {
-    return &sharedCores;
+    return sharedCores;
 }
 
 /**
@@ -136,7 +138,7 @@ DefaultCoreManager::getExclusiveCore() {
     sharedCores.remove(0);
 
     ThreadId migrationThread = createThreadOnCore(
-        newExclusiveCore, migrateThreadsFromCore, &sharedCores);
+        newExclusiveCore, migrateThreadsFromCore, sharedCores);
     // The current thread is a non-Arachne thread.
     if (core.kernelThreadId == -1) {
         // Polling for completion is a short-term hack until we figure out a

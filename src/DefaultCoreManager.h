@@ -35,8 +35,8 @@ class DefaultCoreManager : public CoreManager {
                        bool estimateLoad = true);
     virtual void coreAvailable(int myCoreId);
     virtual int coreUnavailable();
-    virtual CoreList* getCores(int threadClass);
-    virtual CoreList* getMigrationTargets();
+    virtual CoreManager::CoreList getCores(int threadClass);
+    virtual CoreManager::CoreList getMigrationTargets();
     void disableLoadEstimation();
     CoreLoadEstimator* getEstimator();
 
@@ -72,12 +72,12 @@ class DefaultCoreManager : public CoreManager {
     /**
      * Cores that are available for general scheduling.
      */
-    CoreList sharedCores;
+    CoreManager::CoreList sharedCores;
 
     /**
      * Cores that are currently hosting exclusive threads.
      */
-    CoreList exclusiveCores;
+    CoreManager::CoreList exclusiveCores;
 
     /**
      * The core adjustment thread will run as long as this flag is set.

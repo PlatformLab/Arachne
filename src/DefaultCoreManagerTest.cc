@@ -145,23 +145,19 @@ TEST_F(DefaultCoreManagerTest, DefaultCoreManager_coreAvailable) {
 
 TEST_F(DefaultCoreManagerTest, DefaultCoreManager_getCoresDefault) {
     DefaultCoreManager coreManager(1, 4, /*estimateLoad=*/false);
-    CoreList* coreList = coreManager.getCores(DefaultCoreManager::DEFAULT);
-    EXPECT_EQ(coreList->size(), 0U);
+    EXPECT_EQ(coreManager.getCores(DefaultCoreManager::DEFAULT).size(), 0U);
     coreManager.coreAvailable(5);
-    EXPECT_EQ(coreList->size(), 1U);
+    EXPECT_EQ(coreManager.getCores(DefaultCoreManager::DEFAULT).size(), 1U);
     coreManager.coreAvailable(7);
-    EXPECT_EQ(coreList->size(), 2U);
-    coreList->free();
+    EXPECT_EQ(coreManager.getCores(DefaultCoreManager::DEFAULT).size(), 2U);
 }
 
 TEST_F(DefaultCoreManagerTest, DefaultCoreManager_getCoresExclusive) {
     DefaultCoreManager* coreManager =
         reinterpret_cast<DefaultCoreManager*>(Arachne::getCoreManager());
-    CoreList* coreList = coreManager->getCores(DefaultCoreManager::EXCLUSIVE);
-    EXPECT_EQ(coreList->size(), 1U);
-    coreList = coreManager->getCores(DefaultCoreManager::EXCLUSIVE);
-    EXPECT_EQ(coreList->size(), 1U);
-    coreList->free();
+    CoreManager::CoreList coreList =
+        coreManager->getCores(DefaultCoreManager::EXCLUSIVE);
+    EXPECT_EQ(coreList.size(), 1U);
 }
 
 }  // namespace Arachne

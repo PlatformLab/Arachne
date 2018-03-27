@@ -16,14 +16,17 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
+#define private public
 #include "CoreManager.h"
+#undef private
 
 namespace Arachne {
 
 using ::testing::Eq;
+using ::testing::Not;
 
 TEST(CoreManagerTest, CoreList_addRemove) {
-    CoreList list(8);
+    CoreManager::CoreList list(8);
     EXPECT_THAT(list.size(), Eq(0U));
     list.add(1);
     EXPECT_THAT(list.size(), Eq(1U));
@@ -37,32 +40,24 @@ TEST(CoreManagerTest, CoreList_addRemove) {
 }
 
 TEST(CoreManagerTest, CoreList_copy) {
-    CoreList list(8, /*mustFree=*/true);
+    CoreManager::CoreList list(8, /*mustFree=*/true);
     list.add(1);
     list.add(8);
-    CoreList copy(list);
+    // Copy with mustFree equal to true.
+    CoreManager::CoreList copy(list);
     EXPECT_THAT(copy.capacity, Eq(list.capacity));
     EXPECT_THAT(copy.mustFree, Eq(list.mustFree));
     EXPECT_THAT(copy.size(), Eq(list.size()));
     EXPECT_THAT(copy[0], Eq(list[0]));
     EXPECT_THAT(copy[1], Eq(list[1]));
+    EXPECT_THAT(copy.cores, Not(Eq(list.cores)));
+
+    // Copy with mustFree equal to false.
+    CoreManager::CoreList list2(8, /*mustFree=*/false);
+    CoreManager::CoreList copy2(list2);
+    EXPECT_THAT(copy2.capacity, Eq(list2.capacity));
+    EXPECT_THAT(copy2.mustFree, Eq(list2.mustFree));
+    EXPECT_THAT(copy2.size(), Eq(list2.size()));
+    EXPECT_THAT(copy2.cores, Eq(list2.cores));
 }
-
-TEST(CoreManagerTest, CoreList_move) {
-    CoreList list(8, /*mustFree=*/true);
-    list.add(1);
-    list.add(8);
-    CoreList moveTarget(std::move(list));
-    EXPECT_THAT(moveTarget.capacity, Eq(8));
-    EXPECT_THAT(moveTarget.mustFree, Eq(true));
-    EXPECT_THAT(moveTarget.size(), Eq(2U));
-    EXPECT_THAT(moveTarget[0], Eq(1));
-    EXPECT_THAT(moveTarget[1], Eq(8));
-
-    EXPECT_THAT(list.capacity, Eq(0));
-    EXPECT_THAT(list.mustFree, Eq(false));
-    EXPECT_THAT(list.size(), Eq(0U));
-    EXPECT_TRUE(list.cores == NULL);
-}
-
 }  // namespace Arachne

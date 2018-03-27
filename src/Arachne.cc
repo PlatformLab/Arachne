@@ -200,7 +200,7 @@ CoreArbiterClient* coreArbiter = NULL;
 CoreManager* coreManager = NULL;
 
 // Forward declarations
-void releaseCore(CoreList* outputCores);
+void releaseCore(CoreManager::CoreList outputCores);
 void descheduleCore();
 void idleCorePrivate();
 void checkForArbiterRequest();
@@ -1401,14 +1401,13 @@ descheduleCore() {
             "Descheduling core failed due to lack of available cores!\n");
         return;
     }
-    CoreList* outputCores = coreManager->getMigrationTargets();
+    CoreManager::CoreList outputCores = coreManager->getMigrationTargets();
     if (createThreadOnCore(coreId, releaseCore, outputCores) == NullThread) {
         coreManager->coreAvailable(coreId);
         coreChangeActive = false;
         ARACHNE_LOG(WARNING, "Release core thread creation failed to %d!\n",
                     coreId);
     }
-    outputCores->free();
 }
 
 /**
@@ -1538,7 +1537,7 @@ preventCreationsToCore(int coreId) {
  *     Collection of cores where threads are migrated to.
  */
 void
-migrateThreadsFromCore(CoreList* outputCores) {
+migrateThreadsFromCore(CoreManager::CoreList outputCores) {
     preventCreationsToCore(core.kernelThreadId);
 
     std::lock_guard<SleepLock> _(coreExclusionMutex);
@@ -1558,13 +1557,13 @@ migrateThreadsFromCore(CoreList* outputCores) {
         }
         // Choose a victim core that we will pawn our work on.
         if ((blockedOccupiedAndCount.occupied >> i) & 1) {
-            if (outputCores->size() == 0) {
+            if (outputCores.size() == 0) {
                 ARACHNE_LOG(ERROR, "No available cores to migrate threads to.");
                 exit(1);
             }
             nextMigrationTarget =
-                (nextMigrationTarget + 1) % outputCores->size();
-            int coreId = outputCores->get(nextMigrationTarget);
+                (nextMigrationTarget + 1) % outputCores.size();
+            int coreId = outputCores.get(nextMigrationTarget);
 
             bool success = false;
             uint8_t index;
@@ -1623,18 +1622,16 @@ migrateThreadsFromCore(CoreList* outputCores) {
                 // Try again if we failed to find a slot to pawn our work onto.
                 i--;
                 numFailures++;
-                if (numFailures > outputCores->size()) {
+                if (numFailures > outputCores.size()) {
                     ARACHNE_LOG(ERROR,
                                 "Number of failures %u exceeds number of "
                                 "available cores %u.",
-                                numFailures, outputCores->size());
+                                numFailures, outputCores.size());
                     abort();
                 }
             }
         }
     }
-
-    outputCores->free();
 
     // Sanity checking that we are the only thread left on this core.
     int count = 0;
@@ -1663,7 +1660,7 @@ migrateThreadsFromCore(CoreList* outputCores) {
  * that all other threads' contexts on this core are saved.
  */
 void
-releaseCore(CoreList* outputCores) {
+releaseCore(CoreManager::CoreList outputCores) {
     // Remove all other threads from this core.
     migrateThreadsFromCore(outputCores);
     core.coreReadyForReturnToArbiter = true;

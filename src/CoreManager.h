@@ -21,105 +21,113 @@
 #include "Logger.h"
 
 namespace Arachne {
-/*
- * An unordered list of cores. This class's thread-safety is dependent on the
- * thread-safety of torn reads.
- */
-struct CoreList {
-    /**
-     * Each instance allocates all the memory it will use at the time of
-     * construction.
-     */
-    explicit CoreList(int capacity, bool mustFree = false)
-        : capacity(static_cast<uint16_t>(capacity)), mustFree(mustFree) {
-        cores = new int[capacity];
-        numFilled = 0;
-    }
-    /**
-     * Free memory iff this core has not already been mvoed.
-     */
-    ~CoreList() {
-        if (cores != NULL)
-            delete[] cores;
-    }
-    CoreList& operator=(CoreList&& other) {
-        numFilled = other.numFilled;
-        capacity = other.capacity;
-        mustFree = other.mustFree;
-        cores = other.cores;
-        other.cores = NULL;
-        other.capacity = 0;
-        other.numFilled = 0;
-        other.mustFree = false;
-        return *this;
-    }
-    CoreList(CoreList& other) { *this = other; }
-    CoreList& operator=(const CoreList& other) {
-        numFilled = other.numFilled;
-        capacity = other.capacity;
-        mustFree = other.mustFree;
-        cores = new int[capacity];
-        memcpy(cores, other.cores, numFilled * sizeof(cores[0]));
-        return *this;
-    }
-    CoreList(CoreList&& other) { *this = std::move(other); }
-    uint32_t size() { return numFilled; }
-    void add(int coreId) {
-        if (numFilled >= capacity) {
-            ARACHNE_LOG(WARNING,
-                        "Failed to add core %d; numFilled = %u, capacity = %u",
-                        coreId, numFilled, capacity);
-            return;
-        }
-        this->cores[numFilled] = coreId;
-        this->numFilled++;
-    }
-    void remove(int index) {
-        if (index >= numFilled) {
-            ARACHNE_LOG(WARNING,
-                        "Failed to remove core; index = %d, numFilled = %u",
-                        index, numFilled);
-            return;
-        }
-        memmove(cores + index, cores + index + 1,
-                (numFilled - index - 1) * sizeof(int));
-        numFilled--;
-    }
-
-    /**
-     * Users of CoreList outside of CoreManager implementations MUST call this
-     * function after they are done with the CoreList.
-     */
-    void free() {
-        if (mustFree)
-            delete this;
-    }
-    int& operator[](std::size_t index) { return cores[index]; }
-    int& get(std::size_t index) { return cores[index]; }
-
-    /* The number of cores in the list */
-    uint16_t numFilled;
-
-    /* The maximum number of cores in the list */
-    uint16_t capacity;
-
-    /*
-     * An array containing IDs for cores in this list.
-     */
-    int* cores;
-
-    /*
-     * This variable indicates whether this CoreList should be deleted by free.
-     */
-    bool mustFree;
-};
-
 /**
  * Implementors of this interface specify the allocation and use of cores in
  * Arachne.
  */
 class CoreManager {
   public:
+    /*
+     * An unordered list of cores. This class's thread-safety is dependent on
+     * the thread-safety of torn reads. In particular, we expect that an
+     * unsynchronized read of numFilled will return either a former value or the
+     * current value, but not a mixture of bits from different values.
+     * Transiently reading a former value larger than the current value may
+     * cause scheduling to the wrong core, but this race already exists when
+     * cores move between lists.
+     */
+    struct CoreList {
+        // Constructor
+        explicit CoreList(int capacity, bool mustFree = false)
+            : capacity(static_cast<uint16_t>(capacity)), mustFree(mustFree) {
+            cores = new int[capacity];
+            numFilled = 0;
+        }
+        /**
+         * Destructor frees memory depending on the value of mustFree.
+         */
+        ~CoreList() {
+            if (mustFree)
+                delete[] cores;
+        }
+        // Copy constructor
+        CoreList(const CoreList& other) { *this = other; }
+
+        // Copy assignment will allocate new memory iff the source object
+        // requires memory to be freed.
+        CoreList& operator=(const CoreList& other) {
+            numFilled = other.numFilled;
+            capacity = other.capacity;
+            mustFree = other.mustFree;
+            if (mustFree) {
+                // If the destructor releases memory, then the new core list
+                // must be a deep copy.
+                cores = new int[capacity];
+                memcpy(cores, other.cores, numFilled * sizeof(cores[0]));
+            } else {
+                // If the destructor does not release memory, then the core list
+                // can share memory with the old.
+                cores = other.cores;
+            }
+            return *this;
+        }
+
+        // Get the current number of elements in this CoreList.
+        uint16_t size() { return numFilled; }
+
+        // Get the maximum number of elements in this CoreList.
+        uint32_t getCapacity() { return capacity; }
+
+        // Insert the Core Id at the back of this list.
+        void add(int coreId) {
+            if (numFilled >= capacity) {
+                ARACHNE_LOG(
+                    ERROR,
+                    "Failed to add core %d; numFilled = %u, capacity = %u",
+                    coreId, numFilled, capacity);
+                abort();
+            }
+            this->cores[numFilled] = coreId;
+            this->numFilled++;
+        }
+
+        // Remove the Core Id at the given index in the list.
+        void remove(int index) {
+            if (index >= numFilled) {
+                ARACHNE_LOG(WARNING,
+                            "Failed to remove core; index = %d, numFilled = %u",
+                            index, numFilled);
+                return;
+            }
+            cores[index] = cores[numFilled - 1];
+            numFilled--;
+        }
+
+        int& operator[](std::size_t index) { return cores[index]; }
+        int& get(std::size_t index) { return cores[index]; }
+
+      private:
+        /* The number of cores in the list */
+        uint16_t numFilled;
+
+        /* The maximum number of cores this list is able to hold */
+        uint16_t capacity;
+
+        /*
+         * An array containing IDs for cores in this list. If mustFree is false,
+         * memory is allocated in the constructor and never de-allocated.
+         * Otherwise, memory is allocated in the constructor and copy
+         * constructor, and deallocated in the destructor.
+         */
+        int* cores;
+
+        /*
+         * This variable indicates whether the memory for this CoreList should
+         * be released.
+         */
+        bool mustFree;
+    };
+
     /**
      * Invoked by an Arachne kernel thread after it wakes up on a dedicated
      * core and sets up state to run the Arachne scheduler.
@@ -136,13 +144,13 @@ class CoreManager {
      * Invoked by Arachne::createThread to get cores available for a particular
      * threadClass.
      */
-    virtual CoreList* getCores(int threadClass) = 0;
+    virtual CoreList getCores(int threadClass) = 0;
 
     /**
      * Invoked by Arachne::descheduleCore to get a list of cores to migrate to
      * when clearing out a core.
      */
-    virtual CoreList* getMigrationTargets() = 0;
+    virtual CoreList getMigrationTargets() = 0;
 
     virtual ~CoreManager() {}
 };
