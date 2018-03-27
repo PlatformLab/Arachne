@@ -57,14 +57,17 @@ CoreLoadEstimator::estimate(int curActiveCores) {
     previousStats = currentStats;
 
     if (estimationStrategy == LOAD_FACTOR) {
-        // We should not ramp down if we have high occupancy of slots.
+        // We should not ramp down if we have a large number of blocked
+        // threads; these threads would have nowhere to migrate if we attempted
+        // to decrease core count.
         double averageSlotUtilization =
             static_cast<double>(currentStats.numThreadsCreated -
                                 currentStats.numThreadsFinished) /
             (curActiveCores * Arachne::maxThreadsPerCore);
 
-        // Scale down if the idle time after scale down is greater than the
-        // time at which we scaled up, plus a hysteresis threshold.
+        // Scale down if the core utilization after scale down is greater than
+        // the core utilization at which we scaled up, plus a hysteresis
+        // threshold.
         double localThreshold = utilizationThresholds[curActiveCores - 1] -
                                 idleCoreFractionHysteresis;
 

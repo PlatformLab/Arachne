@@ -38,9 +38,21 @@ class CoreLoadEstimator {
   private:
     /**
      * Strategy used by the coreLoadEstimator to estimate load.
+     * Multiple choices exist to facilitate experimentation and comparison
+     * between them across different workloads. They are set when the
+     * corresponding threshold-setting method is invoked.
      */
     enum EstimationStrategy {
+        /**
+         * Decide the number of cores based on a combination of load factor and
+         * utilization. Load factor is defined as the ratio of time spent going
+         * through all contexts on a core weighted by the number of threads
+         * executed to the total time the core was active.
+         */
         LOAD_FACTOR = 1,
+        /**
+         * Decide the number of cores based purely on the utilization.
+         */
         UTILIZATION = 2
     } estimationStrategy = LOAD_FACTOR;
 
@@ -82,8 +94,10 @@ class CoreLoadEstimator {
     double zeroCoreUtilizationThreshold = 1e-3;
 
     /*
-     * Do not ramp down if the percentage of occupied threadContext slots is
-     * above this threshold.
+     * Do not ramp down if the fraction of occupied threadContext slots is
+     * above this threshold. This exists because it does not make sense to
+     * decrease the number of cores if there are large numbers of blocked
+     * threads parked on the cores; such threads would have nowhere to migrate.
      */
     double slotOccupancyThreshold = 0.5;
 

@@ -158,7 +158,7 @@ arachne_set_maxutil(double maxutil) {
 void
 arachne_set_loadfactor(double loadfactor) {
     reinterpret_cast<Arachne::DefaultCoreManager*>(
-        Arachne::getCoreManagerForTest())
+        Arachne::getCoreManager())
         ->getEstimator()
         ->setLoadFactorThreshold(loadfactor);
 }
