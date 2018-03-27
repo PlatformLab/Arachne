@@ -17,8 +17,8 @@
 #include <stdio.h>
 
 #include "Arachne.h"
-#include "DefaultCoreManager.h"
 #include "CoreArbiter/CoreArbiterClient.h"
+#include "DefaultCoreManager.h"
 #include "arachne_wrapper.h"
 
 #ifdef __cplusplus
@@ -162,6 +162,15 @@ arachne_set_loadfactor(double loadfactor) {
         Arachne::getCoreManagerForTest())
         ->getEstimator()
         ->setLoadFactorThreshold(loadfactor);
+}
+
+/**
+ * This function is used to change the target of the error stream, allowing
+ * redirection to an application's log.
+ */
+void
+arachne_set_errorstream(FILE* ptr) {
+    Arachne::setErrorStream(ptr);
 }
 
 #ifdef __cplusplus
