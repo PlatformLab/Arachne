@@ -410,8 +410,9 @@ extern std::vector<std::atomic<MaskAndCount>*> occupiedAndCount;
 extern std::vector<std::atomic<uint64_t>*> publicPriorityMasks;
 
 #ifdef TEST
-static std::deque<uint64_t> mockRandomValues;
+extern std::deque<uint64_t> mockRandomValues;
 #endif
+
 /**
  * A random number generator from the Internet that returns 64-bit integers.
  * It is used for selecting candidate cores to create threads on.
@@ -443,6 +444,26 @@ random(void) {
     z = t ^ x ^ y;
 
     return z;
+}
+
+// Select a reasonably unloaded core from coreList using randomness with
+// refinement. This function is defined here to facilitate testing; defining it
+// in the CC file causes the compiler to generate an independent version of the
+// random() function above.
+static int
+chooseCore(const CoreManager::CoreList& coreList) {
+    uint32_t index1 = static_cast<uint32_t>(random()) % coreList.size();
+    uint32_t index2 = static_cast<uint32_t>(random()) % coreList.size();
+    while (index2 == index1 && coreList.size() > 1)
+        index2 = static_cast<uint32_t>(random()) % coreList.size();
+
+    int choice1 = coreList.get(index1);
+    int choice2 = coreList.get(index2);
+
+    if (occupiedAndCount[choice1]->load().numOccupied <
+        occupiedAndCount[choice2]->load().numOccupied)
+        return choice1;
+    return choice2;
 }
 
 /**
@@ -533,6 +554,8 @@ createThreadOnCore(uint32_t coreId, _Callable&& __f, _Args&&... __args) {
     return ThreadId(threadContext, generation);
 }
 
+int chooseCore(const CoreManager::CoreList& coreList);
+
 ////////////////////////////////////////////////////////////////////////////////
 // The ends the private section of the thread library.
 ////////////////////////////////////////////////////////////////////////////////
@@ -561,24 +584,10 @@ ThreadId
 createThreadWithClass(int threadClass, _Callable&& __f, _Args&&... __args) {
     // Find a core to enqueue to by picking two at random and choosing
     // the one with the fewest Arachne threads.
-    uint32_t kId;
-    CoreManager::CoreManager::CoreList coreList =
-        coreManager->getCores(threadClass);
+    CoreManager::CoreList coreList = coreManager->getCores(threadClass);
     if (coreList.size() == 0)
         return Arachne::NullThread;
-    uint32_t index1 = static_cast<uint32_t>(random()) % coreList.size();
-    uint32_t index2 = static_cast<uint32_t>(random()) % coreList.size();
-    while (index2 == index1 && coreList.size() > 1)
-        index2 = static_cast<uint32_t>(random()) % coreList.size();
-
-    int choice1 = coreList.get(index1);
-    int choice2 = coreList.get(index2);
-
-    if (occupiedAndCount[choice1]->load().numOccupied <
-        occupiedAndCount[choice2]->load().numOccupied)
-        kId = choice1;
-    else
-        kId = choice2;
+    uint32_t kId = static_cast<uint32_t>(chooseCore(coreList));
     auto threadId = createThreadOnCore(kId, __f, __args...);
     if (threadId != NullThread) {
         threadId.context->threadClass = threadClass;

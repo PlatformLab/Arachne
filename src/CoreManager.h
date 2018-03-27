@@ -73,10 +73,10 @@ class CoreManager {
         }
 
         // Get the current number of elements in this CoreList.
-        uint16_t size() { return numFilled; }
+        uint16_t size() const { return numFilled; }
 
         // Get the maximum number of elements in this CoreList.
-        uint32_t getCapacity() { return capacity; }
+        uint32_t getCapacity() const { return capacity; }
 
         // Insert the Core Id at the back of this list.
         void add(int coreId) {
@@ -93,7 +93,7 @@ class CoreManager {
 
         // Return the index of the given coreId, or -1 if it is not in the
         // current list.
-        int find(int coreId) {
+        int find(int coreId) const {
             for (int i = 0; i < numFilled; i++)
                 if (cores[i] == coreId)
                     return i;
@@ -112,8 +112,8 @@ class CoreManager {
             numFilled--;
         }
 
-        int& operator[](std::size_t index) { return cores[index]; }
-        int& get(std::size_t index) { return cores[index]; }
+        int& operator[](std::size_t index) const { return cores[index]; }
+        int& get(std::size_t index) const { return cores[index]; }
 
       private:
         /* The number of cores in the list */
@@ -160,12 +160,6 @@ class CoreManager {
      * is passed in.
      */
     virtual CoreList getCores(int threadClass) = 0;
-
-    /**
-     * Invoked by Arachne::descheduleCore to get a list of cores to migrate to
-     * when clearing out a core.
-     */
-    virtual CoreList getMigrationTargets() = 0;
 
     virtual ~CoreManager() {}
 };

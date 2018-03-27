@@ -383,6 +383,9 @@ TEST_F(ArachneTest, createThread_maxThreadsExceeded) {
     threadCreationIndicator = 0;
 }
 
+// Provide storage for mock random values when testing.
+std::deque<uint64_t> mockRandomValues;
+
 TEST_F(ArachneTest, createThread_pickLeastLoaded) {
     DefaultCoreManager* coreManager =
         reinterpret_cast<DefaultCoreManager*>(getCoreManager());

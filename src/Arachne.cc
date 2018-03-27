@@ -212,7 +212,7 @@ CoreArbiterClient* coreArbiter = NULL;
 CoreManager* coreManager = NULL;
 
 // Forward declarations
-void releaseCore(CoreManager::CoreList outputCores);
+void releaseCore();
 void descheduleCore();
 void idleCorePrivate();
 void checkForArbiterRequest();
@@ -223,7 +223,6 @@ void checkForArbiterRequest();
 // undefined reference error.
 const uint64_t ThreadContext::BLOCKED = ~0L;
 const uint64_t ThreadContext::UNOCCUPIED = ~0L - 1;
-
 const uint8_t MaskAndCount::EXCLUSIVE = maxThreadsPerCore * 2 + 1;
 
 /**
@@ -1423,8 +1422,7 @@ descheduleCore() {
         ownedCores.pop_back();
         coreManager->coreUnavailable(coreId);
     }
-    CoreManager::CoreList outputCores = coreManager->getMigrationTargets();
-    if (createThreadOnCore(coreId, releaseCore, outputCores) == NullThread) {
+    if (createThreadOnCore(coreId, releaseCore) == NullThread) {
         coreManager->coreAvailable(coreId);
         coreChangeActive = false;
         ARACHNE_LOG(WARNING, "Release core thread creation failed to %d!\n",
@@ -1559,7 +1557,7 @@ preventCreationsToCore(int coreId) {
  *     Collection of cores where threads are migrated to.
  */
 void
-migrateThreadsFromCore(CoreManager::CoreList outputCores) {
+migrateThreadsFromCore() {
     preventCreationsToCore(core.kernelThreadId);
 
     std::lock_guard<SleepLock> _(coreExclusionMutex);
@@ -1570,8 +1568,6 @@ migrateThreadsFromCore(CoreManager::CoreList outputCores) {
     // Migrate off all threads other than the current one.  Round robin among
     // cores because these are likely long-running threads.
 
-    int nextMigrationTarget = 0;
-    uint32_t numFailures = 0;
     for (uint8_t i = 0; i < maxThreadsPerCore; i++) {
         if (core.localThreadContexts[i] == core.loadedContext) {
             // Skip over ourselves
@@ -1579,13 +1575,14 @@ migrateThreadsFromCore(CoreManager::CoreList outputCores) {
         }
         // Choose a victim core that we will pawn our work on.
         if ((blockedOccupiedAndCount.occupied >> i) & 1) {
+            int threadClass = core.localThreadContexts[i]->threadClass;
+            CoreManager::CoreList outputCores =
+                coreManager->getCores(threadClass);
             if (outputCores.size() == 0) {
                 ARACHNE_LOG(ERROR, "No available cores to migrate threads to.");
                 exit(1);
             }
-            nextMigrationTarget =
-                (nextMigrationTarget + 1) % outputCores.size();
-            int coreId = outputCores.get(nextMigrationTarget);
+            int coreId = chooseCore(outputCores);
 
             bool success = false;
             uint8_t index;
@@ -1638,19 +1635,12 @@ migrateThreadsFromCore(CoreManager::CoreList outputCores) {
                     static_cast<uint8_t>(coreId);
                 core.localThreadContexts[i]->coreId =
                     static_cast<uint8_t>(core.kernelThreadId);
-                // Reset the failure count once we successfully place a thread.
-                numFailures = 0;
             } else {
-                // Try again if we failed to find a slot to pawn our work onto.
-                i--;
-                numFailures++;
-                if (numFailures > outputCores.size()) {
-                    ARACHNE_LOG(ERROR,
-                                "Number of failures %u exceeds number of "
-                                "available cores %u.",
-                                numFailures, outputCores.size());
-                    abort();
-                }
+                ARACHNE_LOG(
+                    ERROR,
+                    "Failed to find a core to migrate thread of class %d.",
+                    threadClass);
+                abort();
             }
         }
     }
@@ -1682,9 +1672,9 @@ migrateThreadsFromCore(CoreManager::CoreList outputCores) {
  * that all other threads' contexts on this core are saved.
  */
 void
-releaseCore(CoreManager::CoreList outputCores) {
+releaseCore() {
     // Remove all other threads from this core.
-    migrateThreadsFromCore(outputCores);
+    migrateThreadsFromCore();
     core.coreReadyForReturnToArbiter = true;
 }
 

@@ -19,8 +19,8 @@
 
 namespace Arachne {
 
-void migrateThreadsFromCore(CoreManager::CoreList outputCores);
-void releaseCore(CoreManager::CoreList outputCores);
+void migrateThreadsFromCore();
+void releaseCore();
 void decrementCoreCount();
 void incrementCoreCount();
 extern std::vector<uint64_t*> lastTotalCollectionTime;
@@ -92,15 +92,6 @@ DefaultCoreManager::getCores(int threadClass) {
 }
 
 /**
- * Provide a set of cores for Arachne to migrate threads to when cleaning up a
- * core for return to the CoreArbiter.
- */
-CoreManager::CoreList
-DefaultCoreManager::getMigrationTargets() {
-    return sharedCores;
-}
-
-/**
  * After this function returns, load estimations that have already begun
  * will complete, but no future load estimations will occur.
  */
@@ -138,8 +129,8 @@ DefaultCoreManager::getExclusiveCore() {
     exclusiveCores.add(newExclusiveCore);
     sharedCores.remove(0);
 
-    ThreadId migrationThread = createThreadOnCore(
-        newExclusiveCore, migrateThreadsFromCore, sharedCores);
+    ThreadId migrationThread =
+        createThreadOnCore(newExclusiveCore, migrateThreadsFromCore);
     // The current thread is a non-Arachne thread.
     if (core.kernelThreadId == -1) {
         // Polling for completion is a short-term hack until we figure out a
