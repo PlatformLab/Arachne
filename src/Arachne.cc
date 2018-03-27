@@ -1670,8 +1670,8 @@ releaseCore(CoreList* outputCores) {
 }
 
 /*
- * Idle a core so it performs no computation until unidled. Do nothing to
- * cores that are currently idled.
+ * Put the core into the most quiescent possible state to minimize performance
+ * interference with the hypertwin.
  *
  * \param coreId
  *     The coreId of the core that will idle
@@ -1687,13 +1687,15 @@ idleCore(int coreId) {
 }
 
 /*
- * Idle a core so it performs no computation until unidled.
+ * This method is invoked on the core being idled; puts the core into a deep
+ * sleep.
  *
  * \param coreId
  *     The coreId of the core that will idle
  */
 void
 idleCorePrivate() {
+    // Our experiments show that Linux will put the core to sleep.
     coreIdleSemaphores[core.kernelThreadId]->wait();
     coreIdle[core.kernelThreadId] = false;
 }
