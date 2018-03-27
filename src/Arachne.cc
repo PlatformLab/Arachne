@@ -393,12 +393,12 @@ schedulerMainLoop() {
     while (true) {
         // Check for whether this thread should exit, for the purposes of
         // ramping down.
-        if (core.threadShouldYield) {
+        if (core.coreReadyForReturnToArbiter) {
             // Switch back to our kernel-provided stack to block in the Core
             // Arbiter, since the next time this thread unblocks, it may not
             // live on the same core, and will use a different set of user
             // contexts.
-            core.threadShouldYield = false;
+            core.coreReadyForReturnToArbiter = false;
             swapcontext(&kernelThreadStacks[core.kernelThreadId],
                         &core.loadedContext->sp);
         }
@@ -494,7 +494,7 @@ yield() {
     if (!core.loadedContext)
         return;
     if (core.localOccupiedAndCount->load().numOccupied == 1 && !shutdown &&
-        !core.threadShouldYield)
+        !core.coreReadyForReturnToArbiter)
         return;
     // This thread is still runnable since it is merely yielding.
     core.loadedContext->wakeupTimeInCycles = 0L;
@@ -1666,7 +1666,7 @@ void
 releaseCore(CoreList* outputCores) {
     // Remove all other threads from this core.
     migrateThreadsFromCore(outputCores);
-    core.threadShouldYield = true;
+    core.coreReadyForReturnToArbiter = true;
 }
 
 /*

@@ -44,15 +44,16 @@ const int maxThreadsPerCore = 56;
 
 struct ThreadContext;
 struct MaskAndCount;
+
 /**
  * This class holds all the state associated with a particular core in Arachne.
  */
 struct Core {
     /**
-     * Alert the kernel thread that cleanup is complete and it should block for
-     * ramp-down.
+     * True means Arachne has finished migrating threads off this core and it's
+     * now safe to call blockUntilCoreAvailable.
      */
-    bool threadShouldYield;
+    bool coreReadyForReturnToArbiter;
 
     /**
      * This pointer allows fast access to the current kernel thread's
