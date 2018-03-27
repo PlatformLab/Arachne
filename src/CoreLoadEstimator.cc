@@ -14,13 +14,13 @@
  */
 #include "CoreLoadEstimator.h"
 
+#include <thread>
+
 namespace Arachne {
 
-CoreLoadEstimator::CoreLoadEstimator(int maxNumCores)
-    : lock(false),
-      utilizationThresholds(new double[maxNumCores]),
-      maxNumCores(maxNumCores) {}
-CoreLoadEstimator::~CoreLoadEstimator() { delete[] utilizationThresholds; }
+CoreLoadEstimator::CoreLoadEstimator()
+    : lock(false), utilizationThresholds(std::thread::hardware_concurrency()) {}
+CoreLoadEstimator::~CoreLoadEstimator() {}
 
 /**
  * Returns -1,0,1 to suggest whether the core count should decrease,
@@ -79,7 +79,8 @@ CoreLoadEstimator::estimate(int curActiveCores) {
                     averageLoadFactor, loadFactorThreshold,
                     averageSlotUtilization);
 
-        if (curActiveCores < maxNumCores &&
+        if (static_cast<size_t>(curActiveCores) <
+                utilizationThresholds.size() &&
             averageLoadFactor > loadFactorThreshold) {
             // Record our current totalUtilizedCores, so we will only ramp down
             // if utilization would drop below this level.

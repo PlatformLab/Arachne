@@ -29,7 +29,7 @@ DefaultCoreManager::DefaultCoreManager(int minNumCores, int maxNumCores,
                                        bool estimateLoad)
     : minNumCores(minNumCores),
       maxNumCores(maxNumCores),
-      loadEstimator(maxNumCores),
+      loadEstimator(),
       lock(false),
       sharedCores(maxNumCores),
       exclusiveCores(maxNumCores),

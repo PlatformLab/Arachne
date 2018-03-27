@@ -29,7 +29,7 @@ namespace Arachne {
  */
 class CoreLoadEstimator {
   public:
-    explicit CoreLoadEstimator(int maxNumCores);
+    CoreLoadEstimator();
     ~CoreLoadEstimator();
     int estimate(int currentNumCores);
     void setLoadFactorThreshold(double loadFactorThreshold);
@@ -78,7 +78,7 @@ class CoreLoadEstimator {
      * utilizationThresholds[i] is the active core fraction at the time the
      * number of cores was ramped up from i to i + 1.
      */
-    double* utilizationThresholds = NULL;
+    std::vector<double> utilizationThresholds;
 
     /*
      * The difference in load, expressed as a fraction of a core, between a
@@ -100,12 +100,6 @@ class CoreLoadEstimator {
      * threads parked on the cores; such threads would have nowhere to migrate.
      */
     double slotOccupancyThreshold = 0.5;
-
-    /*
-     * Store the maximum cores the application is willing to use so that we
-     * never recommend increasing the number of cores beyond this number.
-     */
-    int maxNumCores;
 
     /**
      * Stats collected during the previous execution of estimate.
