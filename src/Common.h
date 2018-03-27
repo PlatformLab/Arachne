@@ -20,6 +20,8 @@
 #include <stdlib.h>
 #include <atomic>
 
+// This file exists to resolve circular dependencies.
+
 namespace Arachne {
 
 #define CACHE_LINE_SIZE 64
