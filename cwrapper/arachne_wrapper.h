@@ -59,6 +59,7 @@ int arachne_thread_create_with_class(arachne_thread_id* id,
                                      int thread_class);
 void arachne_set_maxutil(double maxutil);
 void arachne_set_loadfactor(double loadfactor);
+void arachne_set_errorstream(FILE* ptr);
 #ifdef __cplusplus
 }
 #endif
