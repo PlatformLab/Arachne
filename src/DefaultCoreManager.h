@@ -34,7 +34,7 @@ class DefaultCoreManager : public CoreManager {
     DefaultCoreManager(int minNumCores, int maxNumCores,
                        bool estimateLoad = true);
     virtual void coreAvailable(int myCoreId);
-    virtual int coreUnavailable();
+    virtual void coreUnavailable(int coreId);
     virtual CoreManager::CoreList getCores(int threadClass);
     virtual CoreManager::CoreList getMigrationTargets();
     void disableLoadEstimation();

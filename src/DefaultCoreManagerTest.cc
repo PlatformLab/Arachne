@@ -143,6 +143,16 @@ TEST_F(DefaultCoreManagerTest, DefaultCoreManager_coreAvailable) {
     EXPECT_EQ(coreManager.sharedCores.size(), 2U);
 }
 
+TEST_F(DefaultCoreManagerTest, DefaultCoreManager_coreUnavailable) {
+    DefaultCoreManager coreManager(1, 4, /*estimateLoad=*/false);
+    coreManager.coreAvailable(1);
+    coreManager.coreAvailable(2);
+    EXPECT_EQ(coreManager.sharedCores.size(), 2U);
+    coreManager.coreUnavailable(1);
+    EXPECT_EQ(coreManager.sharedCores.size(), 1);
+    EXPECT_EQ(coreManager.sharedCores[0], 2);
+}
+
 TEST_F(DefaultCoreManagerTest, DefaultCoreManager_getCoresDefault) {
     DefaultCoreManager coreManager(1, 4, /*estimateLoad=*/false);
     EXPECT_EQ(coreManager.getCores(DefaultCoreManager::DEFAULT).size(), 0U);

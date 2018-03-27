@@ -37,7 +37,7 @@ DefaultCoreManager::DefaultCoreManager(int minNumCores, int maxNumCores,
       coreAdjustmentThreadStarted(false) {}
 
 /**
- * Add the given core to the pool of threads for general scheduling.
+ * See documentation in CoreManager.
  */
 void
 DefaultCoreManager::coreAvailable(int myCoreId) {
@@ -54,24 +54,25 @@ DefaultCoreManager::coreAvailable(int myCoreId) {
 }
 
 /**
- * Record the loss of a core and return its coreId. Returns -1 if there are no
- * cores available for descheduling.
+ * See documentation in CoreManager.
  */
-int
-DefaultCoreManager::coreUnavailable() {
+void
+DefaultCoreManager::coreUnavailable(int coreId) {
     Lock guard(lock);
-    if (sharedCores.size() == 0) {
-        return -1;
+    int index = sharedCores.find(coreId);
+    if (index != -1) {
+        sharedCores.remove(index);
+        return;
     }
-    int freeCoreId = sharedCores[sharedCores.size() - 1];
-    sharedCores.remove(sharedCores.size() - 1);
-    return freeCoreId;
+    ARACHNE_LOG(ERROR,
+                "Tried to remove core %d, unknown by CoreManager or held "
+                "exclusively by a thread.\n",
+                coreId);
+    abort();
 }
 
 /**
- * Invoked by Arachne::createThread to get cores available for scheduling of
- * short-lived tasks. Returns an empty CoreManager::CoreList if an invalid
- * threadClass is passed in.
+ * See documentation in CoreManager.
  */
 CoreManager::CoreList
 DefaultCoreManager::getCores(int threadClass) {

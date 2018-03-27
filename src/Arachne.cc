@@ -123,6 +123,18 @@ std::vector<std::thread> kernelThreads;
 std::vector<void*> kernelThreadStacks;
 
 /**
+ * The set of cores Arachne has been given by the CoreArbiter and not yet
+ * returned. This is used to determine which core will be returned to the
+ * CoreArbiter the next time Arachne is asked to.
+ */
+std::vector<int> ownedCores;
+
+/**
+ * Protect the data structure above.
+ */
+std::mutex ownedCoresMutex;
+
+/**
  * Alert the kernel threads that they should exit immediately. This is used
  * only for testing.
  */
@@ -253,6 +265,10 @@ threadMain() {
         &IdleTimeTracker::lastTotalCollectionTime;
     for (;;) {
         coreArbiter->blockUntilCoreAvailable();
+        {
+            std::lock_guard<std::mutex> guard(ownedCoresMutex);
+            ownedCores.push_back(core.kernelThreadId);
+        }
         // Prevent the use of abandoned ThreadContext which occurred as a
         // result of a shutdown request.
         if (shutdown)
@@ -1391,15 +1407,21 @@ descheduleCore() {
     // Create a thread on the target core to handle the actual core release,
     // since we are currently borrowing an arbitrary context and should not
     // hold it for too long.
-    // If this creation fails, it would implies that we are overloaded and
-    // should not ramp down.
-    int coreId = coreManager->coreUnavailable();
-    if (coreId == -1) {
-        coreChangeActive = false;
-        ARACHNE_LOG(
-            WARNING,
-            "Descheduling core failed due to lack of available cores!\n");
-        return;
+    // If this creation fails, it implies that we are overloaded and should not
+    // ramp down.
+    int coreId = -1;
+    {
+        std::lock_guard<std::mutex> guard(ownedCoresMutex);
+        if (ownedCores.size() == 0) {
+            coreChangeActive = false;
+            ARACHNE_LOG(
+                WARNING,
+                "Descheduling core failed due to lack of available cores!\n");
+            return;
+        }
+        coreId = ownedCores.back();
+        ownedCores.pop_back();
+        coreManager->coreUnavailable(coreId);
     }
     CoreManager::CoreList outputCores = coreManager->getMigrationTargets();
     if (createThreadOnCore(coreId, releaseCore, outputCores) == NullThread) {

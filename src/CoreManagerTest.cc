@@ -38,6 +38,13 @@ TEST(CoreManagerTest, CoreList_addRemove) {
     EXPECT_THAT(list.size(), Eq(1U));
     EXPECT_THAT(list[0], Eq(8));
 }
+TEST(CoreManagerTest, CoreList_find) {
+    CoreManager::CoreList list(8);
+    list.add(1);
+    list.add(2);
+    EXPECT_THAT(list.find(2), Eq(1));
+    EXPECT_THAT(list.find(1), Eq(0));
+}
 
 TEST(CoreManagerTest, CoreList_copy) {
     CoreManager::CoreList list(8, /*mustFree=*/true);

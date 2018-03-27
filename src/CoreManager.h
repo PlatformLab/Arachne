@@ -91,6 +91,15 @@ class CoreManager {
             this->numFilled++;
         }
 
+        // Return the index of the given coreId, or -1 if it is not in the
+        // current list.
+        int find(int coreId) {
+            for (int i = 0; i < numFilled; i++)
+                if (cores[i] == coreId)
+                    return i;
+            return -1;
+        }
+
         // Remove the Core Id at the given index in the list.
         void remove(int index) {
             if (index >= numFilled) {
@@ -138,15 +147,17 @@ class CoreManager {
     virtual void coreAvailable(int myCoreId) = 0;
 
     /**
-     * Invoked by Arachne to get a CoreId when any core detects a core release
-     * request from the Core Arbiter.
+     * This method is called to let CorePolicy know that the given core is
+     * about to be returned to CoreArbiter.
      */
-    virtual int coreUnavailable() = 0;
+    virtual void coreUnavailable(int coreId) = 0;
 
     /**
      * This method is invoked to determine where a new thread will be placed.
      * The return value indicates one or more cores on which the thread may be
-     * placed.  Arachne will choose a lightly loaded core among these.
+     * placed.  Arachne will choose a lightly loaded core among these. It
+     * should return an empty CoreManager::CoreList if an invalid threadClass
+     * is passed in.
      */
     virtual CoreList getCores(int threadClass) = 0;
 
