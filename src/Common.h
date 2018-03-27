@@ -71,31 +71,33 @@ struct Core {
     int kernelThreadId = -1;
 
     /**
-     * This is the context that a given kernel thread is currently executing.
+     * This is the context of the thread that a given core is currently
+     * executing. If the core is not executing a context, it polls for threads
+     * to execute using this context's stack.
      */
     ThreadContext* loadedContext;
 
     /**
-     * See documentation for MaskAndCount.
+     * This points at the occupied bitmask that describes occupancy for this
+     * core.
      */
     std::atomic<MaskAndCount>* localOccupiedAndCount;
 
     /**
-     * A bit is set to prevent migration; this should be set before the
-     * occupied flag is cleared.
+     * The ith bit is set to prevent migration of the ThreadContext at index i.
+     * To prevent migration of active contexts, runtime code must set the bit
+     * corresponding to loadedContext before clearing the occupied flag at
+     * thread exit.
      */
     std::atomic<uint64_t>* localPinnedContexts;
 
     /**
-     * This represents each core's local copy of the high-priority mask. Each
-     * call to dispatch() will first examine this bitmask. It will clear the
-     * first set bit and switch to that context. If there are no set bits, it
-     * will copy the current value of publicPriorityMasks for the current core
-     * to here, and then atomically clear those bits using an atomic OR.
-     *
-     * When ramping down cores, this value (if nonzero) should be cleared,
-     * since all non-terminated threads on this core will be migrated away
-     * from this thread.
+     * A bitmask in which set bits represent contexts that should run with
+     * elevated priority.
+     * Each call to dispatch() will examine this bitmask before searching other
+     * contexts. When reducing the number of cores, this value (if nonzero)
+     * should be cleared, since all non-terminated threads on this core will be
+     * migrated away from this thread.
      */
     uint64_t privatePriorityMask;
 
@@ -108,8 +110,9 @@ struct Core {
     uint8_t nextCandidateIndex = 0;
 
     /**
-     * This is the highest-indexed context known to be occupied by the dispatch
-     * loop of a given core.
+     * This is the highest-indexed context known to be occupied on a given
+     * core. Additional occupied contexts are immediately above this context
+     * and have no unoccupied contexts between them.
      */
     uint8_t highestOccupiedContext;
 };
