@@ -131,6 +131,9 @@ class CoreManager {
     /**
      * Invoked by an Arachne kernel thread after it wakes up on a dedicated
      * core and sets up state to run the Arachne scheduler.
+     *
+     * \param myCoreId
+     *     The identifier for the core that is invoking this method.
      */
     virtual void coreAvailable(int myCoreId) = 0;
 
@@ -141,8 +144,9 @@ class CoreManager {
     virtual int coreUnavailable() = 0;
 
     /**
-     * Invoked by Arachne::createThread to get cores available for a particular
-     * threadClass.
+     * This method is invoked to determine where a new thread will be placed.
+     * The return value indicates one or more cores on which the thread may be
+     * placed.  Arachne will choose a lightly loaded core among these.
      */
     virtual CoreList getCores(int threadClass) = 0;
 
