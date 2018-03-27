@@ -1483,13 +1483,12 @@ checkForArbiterRequest() {
 
 /**
  * After this function returns, threads may no longer be added to the target
- * core. This function can be invoked from any thread on any core.
+ * core. This function can be invoked from any thread on any core. It is
+ * invoked by CoreManagers to block creations when cores transition
+ * between thread classes.
  */
 void
 preventCreationsToCore(int coreId) {
-    // Read our current context out to make sure we don't migrate ourselves
-    // while running. Note that depending on the caller, the pointer may not
-    // point to anything reasonable, so we should not dereference it.
     MaskAndCount originalMask = *occupiedAndCount[coreId];
 
     // It is an error if the core we are migrating to is already exclusive.
@@ -1531,12 +1530,15 @@ preventCreationsToCore(int coreId) {
 
 /**
  * Remove all threads from the target core (with the exception of the caller),
- * and place them into outputCores. This function can only be run from the core
- * that we are removing threads from. The parameter outputCores must not
+ * and migrate them into outputCores. This function can only be run from the
+ * core that we are removing threads from. The parameter outputCores must not
  * include the current core.
+ *
+ * \param outputCores
+ *     Collection of cores where threads are migrated to.
  */
 void
-removeThreadsFromCore(CoreList* outputCores) {
+migrateThreadsFromCore(CoreList* outputCores) {
     preventCreationsToCore(core.kernelThreadId);
 
     std::lock_guard<SleepLock> _(coreExclusionMutex);
@@ -1663,7 +1665,7 @@ removeThreadsFromCore(CoreList* outputCores) {
 void
 releaseCore(CoreList* outputCores) {
     // Remove all other threads from this core.
-    removeThreadsFromCore(outputCores);
+    migrateThreadsFromCore(outputCores);
     core.threadShouldYield = true;
 }
 

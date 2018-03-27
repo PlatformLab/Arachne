@@ -19,7 +19,7 @@
 
 namespace Arachne {
 
-void removeThreadsFromCore(CoreList* outputCores);
+void migrateThreadsFromCore(CoreList* outputCores);
 void releaseCore(CoreList* outputCores);
 void decrementCoreCount();
 void incrementCoreCount();
@@ -136,7 +136,7 @@ DefaultCoreManager::getExclusiveCore() {
     sharedCores.remove(0);
 
     ThreadId migrationThread = createThreadOnCore(
-        newExclusiveCore, removeThreadsFromCore, &sharedCores);
+        newExclusiveCore, migrateThreadsFromCore, &sharedCores);
     // The current thread is a non-Arachne thread.
     if (core.kernelThreadId == -1) {
         // Polling for completion is a short-term hack until we figure out a
