@@ -42,17 +42,12 @@ class SpinLock {
     // Constructor
     // \param name
     //     The name of this SpinLock, used for logging when there is a
-    //     potential deadlock.
+    //     potential deadlock. If given, the name must be a string literal.
     // \param shouldYield
     //     True means that threads attempting to acquire this SpinLock will
     //     allow other threads to run.
-    explicit SpinLock(std::string name, bool shouldYield = true)
-        : locked(false), name(name), shouldYield(shouldYield) {}
-
-    // Delegating constructor forces const char* to resolve to string instead
-    // of bool.
     explicit SpinLock(const char* name, bool shouldYield = true)
-        : SpinLock(std::string(name), shouldYield) {}
+        : locked(false), name(name), shouldYield(shouldYield) {}
     explicit SpinLock(bool shouldYield = true)
         : locked(false),
           owner(NULL),
@@ -72,7 +67,7 @@ class SpinLock {
                     ARACHNE_LOG(
                         WARNING,
                         "%s SpinLock locked for one second; deadlock?\n",
-                        name.c_str());
+                        name);
                     startOfContention = now;
                 }
             }
@@ -99,7 +94,7 @@ class SpinLock {
     inline void unlock() { locked.store(false, std::memory_order_release); }
 
     /** Set the label used for deadlock warning. */
-    inline void setName(std::string name) { this->name = name; }
+    inline void setName(const char* name) { this->name = name; }
 
   private:
     // Implements the lock: false means free, true means locked
@@ -112,7 +107,7 @@ class SpinLock {
     // the lock, what it protects, where it exists in the codebase, etc.
     //
     // Used to identify the lock when reporting a potential deadlock.
-    std::string name;
+    const char* name;
 
     // Controls whether the acquiring thread should yield control of the core
     // each time it fails to acquire this SpinLock.
