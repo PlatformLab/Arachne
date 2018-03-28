@@ -20,8 +20,7 @@
 namespace Arachne {
 
 // Forward declarations
-void migrateThreadsFromCore();
-void releaseCore();
+void prepareForExclusiveUse(int coreId);
 void decrementCoreCount();
 void incrementCoreCount();
 extern std::vector<uint64_t*> lastTotalCollectionTime;
@@ -134,23 +133,7 @@ DefaultCoreManager::getExclusiveCore() {
     int newExclusiveCore = sharedCores[0];
     exclusiveCores.add(newExclusiveCore);
     sharedCores.remove(0);
-
-    ThreadId migrationThread =
-        createThreadOnCore(newExclusiveCore, migrateThreadsFromCore);
-    // The current thread is a non-Arachne thread.
-    if (core.kernelThreadId == -1) {
-        // Polling for completion is a short-term hack until we figure out a
-        // good story for joining Arachne threads from non-Arachne threads.
-        while (Arachne::occupiedAndCount[newExclusiveCore]->load().occupied)
-            usleep(10);
-    } else {
-        Arachne::join(migrationThread);
-    }
-
-    // Prepare this core for scheduling exclusively.
-    // By setting numOccupied to one less than the maximium number of threads
-    // per core, we ensure that only one thread gets scheduled onto this core.
-    *occupiedAndCount[newExclusiveCore] = {0, maxThreadsPerCore - 1};
+    prepareForExclusiveUse(newExclusiveCore);
     return newExclusiveCore;
 }
 
