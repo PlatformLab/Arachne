@@ -24,10 +24,8 @@
 namespace Arachne {
 
 /**
- * Arachne's default CoreManager makes all cores available for general
- * scheduling unless the application invokes createExclusiveThread; each call
- * to createExclusiveThread will remove one core from the general scheduling
- * pool.
+ * Arachne's default CoreManager has two classes of threads. Default threads
+ * can be scheduled on any core. Exclusive threads own the core they run on.
  */
 class DefaultCoreManager : public CoreManager {
   public:
@@ -41,7 +39,8 @@ class DefaultCoreManager : public CoreManager {
     CoreLoadEstimator* getEstimator();
 
     /**
-     * Limit the thread classes that the default core manager supports.
+     * Applications using this CoreManager must create threads using one of
+     * these classes.
      */
     enum ThreadClass { DEFAULT = 0, EXCLUSIVE = 1 };
 
