@@ -37,6 +37,7 @@ class DefaultCoreManager : public CoreManager {
     virtual void coreUnavailable(int coreId);
     virtual CoreManager::CoreList getCores(int threadClass);
     void disableLoadEstimation();
+    void enableLoadEstimation();
     CoreLoadEstimator* getEstimator();
 
     /**

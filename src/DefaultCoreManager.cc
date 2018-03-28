@@ -100,6 +100,14 @@ DefaultCoreManager::disableLoadEstimation() {
     coreAdjustmentShouldRun.store(false);
 }
 
+/**
+ * After this function returns, load estimation will resume normal operation.
+ */
+void
+DefaultCoreManager::enableLoadEstimation() {
+    coreAdjustmentShouldRun.store(true);
+}
+
 CoreLoadEstimator*
 DefaultCoreManager::getEstimator() {
     return &loadEstimator;
@@ -155,8 +163,12 @@ DefaultCoreManager::getExclusiveCore() {
  */
 void
 DefaultCoreManager::adjustCores() {
-    while (coreAdjustmentShouldRun.load()) {
+    while (true) {
         Arachne::sleep(measurementPeriod);
+        if (!coreAdjustmentShouldRun.load()) {
+            loadEstimator.clearHistory();
+            continue;
+        }
         Lock guard(lock);
         int estimate = loadEstimator.estimate(sharedCores.size());
         if (estimate == 0)

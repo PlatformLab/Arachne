@@ -140,6 +140,15 @@ CoreLoadEstimator::estimate(int curActiveCores) {
 }
 
 /**
+ * This function causes the estimator to behave as if running for the first
+ * time, with no prior history.
+ */
+void
+CoreLoadEstimator::clearHistory() {
+    previousStats.collectionTime = 0;
+}
+
+/**
  * Invoking this function will set the load factor threshold and also
  * change the load estimation strategy to use load factor.
  */

@@ -32,6 +32,7 @@ class CoreLoadEstimator {
     CoreLoadEstimator();
     ~CoreLoadEstimator();
     int estimate(int currentNumCores);
+    void clearHistory();
     void setLoadFactorThreshold(double loadFactorThreshold);
     void setMaxUtilization(double maxUtilization);
 
