@@ -21,6 +21,7 @@ namespace Arachne {
 
 // Forward declarations
 void prepareForExclusiveUse(int coreId);
+int findAndClaimUnusedCore(CoreManager::CoreList* cores);
 void decrementCoreCount();
 void incrementCoreCount();
 extern std::vector<uint64_t*> lastTotalCollectionTime;
@@ -159,30 +160,18 @@ DefaultCoreManager::adjustCores() {
                 decrementCoreCount();
             continue;
         }
-        // Estimator believes we need more cores
+        // Estimator believes we need more cores.
         // First, see if any exclusive cores are available for turning back to
         // shared. Note that this transition might race with an exclusive thread
         // creation that just received an exclusive core, but such a race is
         // safe as long as it results only in the failure of the exclusive
         // thread creation.
-        for (uint32_t i = 0; i < exclusiveCores.size(); i++) {
-            int coreId = exclusiveCores[i];
-            MaskAndCount slotMap = *occupiedAndCount[coreId];
-            if (slotMap.numOccupied == maxThreadsPerCore - 1) {
-                // Attempt to reclaim this core with a CAS. Only move back
-                // to sharedCores if we succeed.
-                MaskAndCount oldSlotMap = slotMap;
-                slotMap.numOccupied = maxThreadsPerCore;
-                if (occupiedAndCount[coreId]->compare_exchange_strong(
-                        oldSlotMap, slotMap)) {
-                    exclusiveCores.remove(i);
-                    *lastTotalCollectionTime[coreId] = 0;
-                    *occupiedAndCount[coreId] = {0, 0};
-                    sharedCores.add(coreId);
-                    continue;
-                }
-            }
+        int coreId = findAndClaimUnusedCore(&exclusiveCores);
+        if (coreId != -1) {
+            sharedCores.add(coreId);
+            continue;
         }
+
         // Then try to incrementCoreCount the traditional way.
         incrementCoreCount();
     }

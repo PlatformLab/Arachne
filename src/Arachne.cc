@@ -1045,8 +1045,8 @@ init(int* argcp, const char** argv) {
     }
 
     if (coreManager == NULL) {
-        coreManager = new DefaultCoreManager(maxNumCores,
-                                             !disableLoadEstimation);
+        coreManager =
+            new DefaultCoreManager(maxNumCores, !disableLoadEstimation);
     }
 
     std::vector<uint32_t> coreRequest({minNumCores, 0, 0, 0, 0, 0, 0, 0});
@@ -1724,7 +1724,8 @@ unidleCore(int coreId) {
  * This method puts the given core into a state such that no threads are
  * running on it and only a single thread can be scheduled onto it.
  */
-void prepareForExclusiveUse(int coreId) {
+void
+prepareForExclusiveUse(int coreId) {
     ThreadId migrationThread =
         createThreadOnCore(coreId, migrateThreadsFromCore);
     // The current thread is a non-Arachne thread.
@@ -1741,6 +1742,32 @@ void prepareForExclusiveUse(int coreId) {
     // By setting numOccupied to one less than the maximium number of threads
     // per core, we ensure that only one thread gets scheduled onto this core.
     *occupiedAndCount[coreId] = {0, maxThreadsPerCore - 1};
+}
+
+/**
+ * Look for any core which is entirely unoccupied, remove it from the given
+ * CoreList and return its Id.
+ */
+int
+findAndClaimUnusedCore(CoreManager::CoreList* cores) {
+    for (uint32_t i = 0; i < cores->size(); i++) {
+        int coreId = cores->get(i);
+        MaskAndCount slotMap = *occupiedAndCount[coreId];
+        if (slotMap.numOccupied == maxThreadsPerCore - 1) {
+            // Attempt to reclaim this core with a CAS. Only move back
+            // to sharedCores if we succeed.
+            MaskAndCount oldSlotMap = slotMap;
+            slotMap.numOccupied = maxThreadsPerCore;
+            if (occupiedAndCount[coreId]->compare_exchange_strong(oldSlotMap,
+                                                                  slotMap)) {
+                cores->remove(i);
+                *lastTotalCollectionTime[coreId] = 0;
+                *occupiedAndCount[coreId] = {0, 0};
+                return coreId;
+            }
+        }
+    }
+    return -1;
 }
 
 }  // namespace Arachne

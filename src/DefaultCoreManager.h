@@ -29,8 +29,7 @@ namespace Arachne {
  */
 class DefaultCoreManager : public CoreManager {
   public:
-    DefaultCoreManager(int maxNumCores,
-                       bool estimateLoad = true);
+    explicit DefaultCoreManager(int maxNumCores, bool estimateLoad = true);
     virtual void coreAvailable(int myCoreId);
     virtual void coreUnavailable(int coreId);
     virtual CoreManager::CoreList getCores(int threadClass);
