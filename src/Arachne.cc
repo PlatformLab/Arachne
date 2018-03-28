@@ -1045,7 +1045,7 @@ init(int* argcp, const char** argv) {
     }
 
     if (coreManager == NULL) {
-        coreManager = new DefaultCoreManager(minNumCores, maxNumCores,
+        coreManager = new DefaultCoreManager(maxNumCores,
                                              !disableLoadEstimation);
     }
 

@@ -29,7 +29,7 @@ namespace Arachne {
  */
 class DefaultCoreManager : public CoreManager {
   public:
-    DefaultCoreManager(int minNumCores, int maxNumCores,
+    DefaultCoreManager(int maxNumCores,
                        bool estimateLoad = true);
     virtual void coreAvailable(int myCoreId);
     virtual void coreUnavailable(int coreId);
@@ -47,11 +47,6 @@ class DefaultCoreManager : public CoreManager {
   private:
     int getExclusiveCore();
     void adjustCores();
-    /**
-     * The minimum number of cores that the application needs to run
-     * effectively.
-     */
-    const int minNumCores;
     /**
      * The maximum number of cores that Arachne will use.
      */

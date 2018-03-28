@@ -19,16 +19,22 @@
 
 namespace Arachne {
 
+// Forward declarations
 void migrateThreadsFromCore();
 void releaseCore();
 void decrementCoreCount();
 void incrementCoreCount();
 extern std::vector<uint64_t*> lastTotalCollectionTime;
 
-DefaultCoreManager::DefaultCoreManager(int minNumCores, int maxNumCores,
-                                       bool estimateLoad)
-    : minNumCores(minNumCores),
-      maxNumCores(maxNumCores),
+// Constructor
+//
+// \param maxNumCores
+//     The largest number of cores the application will ever require.
+// \param estimateLoad
+//     True means that this core estimator will estimate load and adjust the
+//     number of cores.
+DefaultCoreManager::DefaultCoreManager(int maxNumCores, bool estimateLoad)
+    : maxNumCores(maxNumCores),
       loadEstimator(),
       lock(false),
       sharedCores(maxNumCores),
