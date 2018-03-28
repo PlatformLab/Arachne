@@ -121,19 +121,11 @@ DefaultCoreManager::getEstimator() {
 
 /**
  * Find or allocate a core for exclusive use by a thread.
+ * Existing threads may be migrated to make a core exclusive.
  */
 int
 DefaultCoreManager::getExclusiveCore() {
     Lock guard(lock);
-    // Look for an existing idle exclusive core
-    for (uint32_t i = 0; i < exclusiveCores.size(); i++) {
-        if (occupiedAndCount[exclusiveCores[i]]->load().occupied == 0) {
-            // Enable scheduling on this core again
-            *occupiedAndCount[exclusiveCores[i]] = {0, 0};
-            return exclusiveCores[i];
-        }
-    }
-    // Failed to find one; make one instead from the shared cores.
     // Take the oldest core to be an exclusive core, so it is relinquished last.
     // No cores available, return failure.
     if (sharedCores.size() == 0) {
