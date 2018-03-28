@@ -45,7 +45,9 @@ class SpinLock {
     //     potential deadlock. If given, the name must be a string literal.
     // \param shouldYield
     //     True means that threads attempting to acquire this SpinLock will
-    //     allow other threads to run.
+    //     allow other threads to run. For short critical sections that hold
+    //     onto a core throughout, it will minimize latency to set this to
+    //     false. Otherwise, it is more core efficient to set this to true.
     explicit SpinLock(const char* name, bool shouldYield = true)
         : locked(false), name(name), shouldYield(shouldYield) {}
     explicit SpinLock(bool shouldYield = true)
@@ -112,10 +114,7 @@ class SpinLock {
     // Controls whether the acquiring thread should yield control of the core
     // each time it fails to acquire this SpinLock.
     //
-    // For short critical sections that hold onto a core throughout, it will
-    // minimize latency to set this to false.
-    // For longer critical sections that may relinguish a core, it is necessary
-    // to set this to true to avoid deadlock.
+    // Should only be set to false for internal Arachne use.
     bool shouldYield;
 };
 }  // namespace Arachne
