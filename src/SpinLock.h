@@ -33,20 +33,28 @@ void yield();
 extern thread_local Core core;
 
 /**
- * A resource that can be acquired by only one thread at a time.
+ * A resource that can be acquired by only one thread at a time. Threads which
+ * fail to acquire the resource will continue to actively attempt to acquire it
+ * rather than sleeping.
  */
 class SpinLock {
   public:
-    /** Constructor and destructor for spinlock. */
+    // Constructor
+    // \param name
+    //     The name of this SpinLock, used for logging when there is a
+    //     potential deadlock.
+    // \param shouldYield
+    //     True means that threads attempting to acquire this SpinLock will
+    //     allow other threads to run.
     explicit SpinLock(std::string name, bool shouldYield = true)
-        : state(false), name(name), shouldYield(shouldYield) {}
+        : locked(false), name(name), shouldYield(shouldYield) {}
 
     // Delegating constructor forces const char* to resolve to string instead
     // of bool.
     explicit SpinLock(const char* name, bool shouldYield = true)
         : SpinLock(std::string(name), shouldYield) {}
     explicit SpinLock(bool shouldYield = true)
-        : state(false),
+        : locked(false),
           owner(NULL),
           name("unnamed"),
           shouldYield(shouldYield) {}
@@ -55,7 +63,7 @@ class SpinLock {
     /** Repeatedly try to acquire this resource until success. */
     inline void lock() {
         uint64_t startOfContention = 0;
-        while (state.exchange(true, std::memory_order_acquire) != false) {
+        while (locked.exchange(true, std::memory_order_acquire) != false) {
             if (startOfContention == 0) {
                 startOfContention = Cycles::rdtsc();
             } else {
@@ -80,9 +88,7 @@ class SpinLock {
      *    Whether or not the acquisition succeeded.  inline bool
      */
     inline bool try_lock() {
-        // If the original value was false, then we successfully acquired the
-        // lock. Otherwise we failed.
-        if (!state.exchange(true, std::memory_order_acquire)) {
+        if (!locked.exchange(true, std::memory_order_acquire)) {
             owner = core.loadedContext;
             return true;
         }
@@ -90,14 +96,14 @@ class SpinLock {
     }
 
     /** Release resource. */
-    inline void unlock() { state.store(false, std::memory_order_release); }
+    inline void unlock() { locked.store(false, std::memory_order_release); }
 
     /** Set the label used for deadlock warning. */
     inline void setName(std::string name) { this->name = name; }
 
   private:
     // Implements the lock: false means free, true means locked
-    std::atomic<bool> state;
+    std::atomic<bool> locked;
 
     // Used to identify the owning context for this lock.
     ThreadContext* owner;
