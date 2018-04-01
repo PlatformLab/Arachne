@@ -24,7 +24,7 @@
 #include "CoreArbiter/CoreArbiterServer.h"
 #include "CoreArbiter/Logger.h"
 #include "CoreArbiter/MockSyscall.h"
-#include "DefaultCoreManager.h"
+#include "DefaultCorePolicy.h"
 
 namespace Arachne {
 
@@ -134,9 +134,9 @@ static volatile int numWaitedOn;
 static volatile int flag;
 
 bool
-canThreadBeCreatedOnCore(int threadClass, CoreManager* coreManager,
+canThreadBeCreatedOnCore(int threadClass, CorePolicy* corePolicy,
                          int coreId) {
-    CoreManager::CoreList coreList = coreManager->getCores(threadClass);
+    CorePolicy::CoreList coreList = corePolicy->getCores(threadClass);
     for (uint32_t i = 0; i < coreList.size(); i++) {
         if (coreList.get(i) == coreId) {
             return true;
@@ -387,14 +387,14 @@ TEST_F(ArachneTest, createThread_maxThreadsExceeded) {
 std::deque<uint64_t> mockRandomValues;
 
 TEST_F(ArachneTest, createThread_pickLeastLoaded) {
-    DefaultCoreManager* coreManager =
-        reinterpret_cast<DefaultCoreManager*>(getCoreManager());
+    DefaultCorePolicy* corePolicy =
+        reinterpret_cast<DefaultCorePolicy*>(getCorePolicy());
     mockRandomValues.push_back(0);
     mockRandomValues.push_back(0);
     mockRandomValues.push_back(1);
     createThread(clearFlag);
-    int core0 = coreManager->getCores(0).get(0);
-    int core1 = coreManager->getCores(0).get(1);
+    int core0 = corePolicy->getCores(0).get(0);
+    int core1 = corePolicy->getCores(0).get(1);
     EXPECT_EQ(1U, Arachne::occupiedAndCount[core1]->load().numOccupied);
     EXPECT_EQ(1U, Arachne::occupiedAndCount[core1]->load().occupied);
     threadCreationIndicator = 1;
@@ -864,8 +864,8 @@ TEST_F(ArachneTest, incrementCoreCount) {
     waitForTermination();
     maxNumCores = 4;
     Arachne::init();
-    DefaultCoreManager* coreManager =
-        reinterpret_cast<DefaultCoreManager*>(getCoreManager());
+    DefaultCorePolicy* corePolicy =
+        reinterpret_cast<DefaultCorePolicy*>(getCorePolicy());
     // Articially wake up one less than maximum threads.
     std::vector<uint32_t> coreRequest({3, 0, 0, 0, 0, 0, 0, 0});
     coreArbiter->setRequestedCores(coreRequest);
@@ -874,11 +874,11 @@ TEST_F(ArachneTest, incrementCoreCount) {
     size_t size;
     FILE* newStream = open_memstream(&str, &size);
     setErrorStream(newStream);
-    EXPECT_EQ(coreManager->sharedCores.size(), 3U);
+    EXPECT_EQ(corePolicy->sharedCores.size(), 3U);
     incrementCoreCount();
     limitedTimeWait([]() -> bool { return numActiveCores > 3; });
     EXPECT_TRUE(
-        canThreadBeCreatedOnCore(0, coreManager, coreManager->sharedCores[3]));
+        canThreadBeCreatedOnCore(0, corePolicy, corePolicy->sharedCores[3]));
     fflush(newStream);
     EXPECT_EQ("Attempting to increase number of cores 3 --> 4\n",
               std::string(str));
@@ -891,18 +891,18 @@ TEST_F(ArachneTest, decrementCoreCount) {
     size_t size;
     FILE* newStream = open_memstream(&str, &size);
     setErrorStream(newStream);
-    DefaultCoreManager* coreManager =
-        reinterpret_cast<DefaultCoreManager*>(getCoreManager());
+    DefaultCorePolicy* corePolicy =
+        reinterpret_cast<DefaultCorePolicy*>(getCorePolicy());
     EXPECT_TRUE(
-        canThreadBeCreatedOnCore(0, coreManager, coreManager->sharedCores[2]));
+        canThreadBeCreatedOnCore(0, corePolicy, corePolicy->sharedCores[2]));
     decrementCoreCount();
     limitedTimeWait(
         []() -> bool { return numActiveCores < 3 && !coreChangeActive; });
-    EXPECT_EQ(coreManager->sharedCores.size(), 2U);
+    EXPECT_EQ(corePolicy->sharedCores.size(), 2U);
     decrementCoreCount();
     limitedTimeWait(
         []() -> bool { return numActiveCores < 2 && !coreChangeActive; });
-    EXPECT_EQ(coreManager->sharedCores.size(), 1U);
+    EXPECT_EQ(corePolicy->sharedCores.size(), 1U);
     fflush(newStream);
     EXPECT_EQ(
         "Attempting to decrease number of cores 3 --> 2\n"
@@ -924,19 +924,19 @@ exclusiveThread() {
 // Since the functions are paired, this also serves as the test for
 // makeSharedOnCore.
 TEST_F(ArachneTest, createExclusiveThread) {
-    DefaultCoreManager* coreManager =
-        reinterpret_cast<DefaultCoreManager*>(getCoreManager());
-    createThreadWithClass(DefaultCoreManager::EXCLUSIVE, exclusiveThread);
-    limitedTimeWait([&coreManager]() -> bool {
-        return Arachne::occupiedAndCount[coreManager->exclusiveCores[0]]
+    DefaultCorePolicy* corePolicy =
+        reinterpret_cast<DefaultCorePolicy*>(getCorePolicy());
+    createThreadWithClass(DefaultCorePolicy::EXCLUSIVE, exclusiveThread);
+    limitedTimeWait([&corePolicy]() -> bool {
+        return Arachne::occupiedAndCount[corePolicy->exclusiveCores[0]]
                    ->load()
                    .numOccupied == 56;
     });
 
     // Check that the core is no longer available in the default scheduling
     // class.
-    EXPECT_FALSE(canThreadBeCreatedOnCore(0, coreManager,
-                                          coreManager->exclusiveCores[0]));
+    EXPECT_FALSE(canThreadBeCreatedOnCore(0, corePolicy,
+                                          corePolicy->exclusiveCores[0]));
     shouldExit.store(1);
 }
 

@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef COREMANAGER_H_
-#define COREMANAGER_H_
+#ifndef COREPOLICY_H_
+#define COREPOLICY_H_
 
 #include <string.h>
 #include <atomic>
@@ -25,7 +25,7 @@ namespace Arachne {
  * Implementors of this interface specify the allocation and use of cores in
  * Arachne.
  */
-class CoreManager {
+class CorePolicy {
   public:
     /*
      * An unordered list of cores. This class's thread-safety is dependent on
@@ -156,13 +156,13 @@ class CoreManager {
      * This method is invoked to determine where a new thread will be placed.
      * The return value indicates one or more cores on which the thread may be
      * placed.  Arachne will choose a lightly loaded core among these. It
-     * should return an empty CoreManager::CoreList if an invalid threadClass
+     * should return an empty CorePolicy::CoreList if an invalid threadClass
      * is passed in.
      */
     virtual CoreList getCores(int threadClass) = 0;
 
-    virtual ~CoreManager() {}
+    virtual ~CorePolicy() {}
 };
 
 }  // namespace Arachne
-#endif  // COREMANAGER_H_
+#endif  // COREPOLICY_H_

@@ -28,7 +28,7 @@
 #include <vector>
 
 #include "Common.h"
-#include "CoreManager.h"
+#include "CorePolicy.h"
 #include "Logger.h"
 #include "PerfStats.h"
 #include "PerfUtils/Cycles.h"
@@ -72,7 +72,7 @@ extern std::function<void()> initCore;
 
 extern std::vector<ThreadContext**> allThreadContexts;
 
-extern CoreManager* coreManager;
+extern CorePolicy* corePolicy;
 
 extern std::atomic<bool>* coreIdle;
 
@@ -137,11 +137,11 @@ void idleCore(int coreId);
 void unidleCore(int coreId);
 
 bool removeAllThreadsFromCore(int coreId,
-                              CoreManager::CoreManager::CoreList outputCores);
+                              CorePolicy::CorePolicy::CoreList outputCores);
 void makeSharedOnCore();
 
-void setCoreManager(CoreManager* arachneCoreManager);
-CoreManager* getCoreManager();
+void setCorePolicy(CorePolicy* arachneCorePolicy);
+CorePolicy* getCorePolicy();
 
 void block();
 void signal(ThreadId id);
@@ -312,7 +312,7 @@ struct ThreadContext {
 
     /// Specified by applications to indicate general properties of this thread
     /// (e.g. latency-sensitive foreground thread vs throughput-sensitive
-    /// background thread); used by CoreManager.
+    /// background thread); used by CorePolicy.
     // It defaults to 0 for threads created without specifying a class.
     int threadClass = 0;
 
@@ -451,7 +451,7 @@ random(void) {
 // in the CC file causes the compiler to generate an independent version of the
 // random() function above.
 static int
-chooseCore(const CoreManager::CoreList& coreList) {
+chooseCore(const CorePolicy::CoreList& coreList) {
     uint32_t index1 = static_cast<uint32_t>(random()) % coreList.size();
     uint32_t index2 = static_cast<uint32_t>(random()) % coreList.size();
     while (index2 == index1 && coreList.size() > 1)
@@ -554,7 +554,7 @@ createThreadOnCore(uint32_t coreId, _Callable&& __f, _Args&&... __args) {
     return ThreadId(threadContext, generation);
 }
 
-int chooseCore(const CoreManager::CoreList& coreList);
+int chooseCore(const CorePolicy::CoreList& coreList);
 
 ////////////////////////////////////////////////////////////////////////////////
 // The ends the private section of the thread library.
@@ -565,7 +565,7 @@ int chooseCore(const CoreManager::CoreList& coreList);
  *
  * \param threadClass
  *     The class of the thread being created; its meaning is determined by the
- *     currently running CoreManager.
+ *     currently running CorePolicy.
  * \param __f
  *     The main function for the new thread.
  * \param __args
@@ -584,7 +584,7 @@ ThreadId
 createThreadWithClass(int threadClass, _Callable&& __f, _Args&&... __args) {
     // Find a core to enqueue to by picking two at random and choosing
     // the one with the fewest Arachne threads.
-    CoreManager::CoreList coreList = coreManager->getCores(threadClass);
+    CorePolicy::CoreList coreList = corePolicy->getCores(threadClass);
     if (coreList.size() == 0)
         return Arachne::NullThread;
     uint32_t kId = static_cast<uint32_t>(chooseCore(coreList));

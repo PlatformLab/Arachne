@@ -17,7 +17,7 @@
 #include "gtest/gtest.h"
 
 #define private public
-#include "CoreManager.h"
+#include "CorePolicy.h"
 #undef private
 
 namespace Arachne {
@@ -25,8 +25,8 @@ namespace Arachne {
 using ::testing::Eq;
 using ::testing::Not;
 
-TEST(CoreManagerTest, CoreList_addRemove) {
-    CoreManager::CoreList list(8);
+TEST(CorePolicyTest, CoreList_addRemove) {
+    CorePolicy::CoreList list(8);
     EXPECT_THAT(list.size(), Eq(0U));
     list.add(1);
     EXPECT_THAT(list.size(), Eq(1U));
@@ -38,20 +38,20 @@ TEST(CoreManagerTest, CoreList_addRemove) {
     EXPECT_THAT(list.size(), Eq(1U));
     EXPECT_THAT(list[0], Eq(8));
 }
-TEST(CoreManagerTest, CoreList_find) {
-    CoreManager::CoreList list(8);
+TEST(CorePolicyTest, CoreList_find) {
+    CorePolicy::CoreList list(8);
     list.add(1);
     list.add(2);
     EXPECT_THAT(list.find(2), Eq(1));
     EXPECT_THAT(list.find(1), Eq(0));
 }
 
-TEST(CoreManagerTest, CoreList_copy) {
-    CoreManager::CoreList list(8, /*mustFree=*/true);
+TEST(CorePolicyTest, CoreList_copy) {
+    CorePolicy::CoreList list(8, /*mustFree=*/true);
     list.add(1);
     list.add(8);
     // Copy with mustFree equal to true.
-    CoreManager::CoreList copy(list);
+    CorePolicy::CoreList copy(list);
     EXPECT_THAT(copy.capacity, Eq(list.capacity));
     EXPECT_THAT(copy.mustFree, Eq(list.mustFree));
     EXPECT_THAT(copy.size(), Eq(list.size()));
@@ -60,8 +60,8 @@ TEST(CoreManagerTest, CoreList_copy) {
     EXPECT_THAT(copy.cores, Not(Eq(list.cores)));
 
     // Copy with mustFree equal to false.
-    CoreManager::CoreList list2(8, /*mustFree=*/false);
-    CoreManager::CoreList copy2(list2);
+    CorePolicy::CoreList list2(8, /*mustFree=*/false);
+    CorePolicy::CoreList copy2(list2);
     EXPECT_THAT(copy2.capacity, Eq(list2.capacity));
     EXPECT_THAT(copy2.mustFree, Eq(list2.mustFree));
     EXPECT_THAT(copy2.size(), Eq(list2.size()));

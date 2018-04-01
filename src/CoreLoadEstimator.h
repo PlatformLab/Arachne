@@ -109,4 +109,4 @@ class CoreLoadEstimator {
 };
 
 }  // namespace Arachne
-#endif  // DEFAULTCOREMANAGER_H_
+#endif  // CORELOADESTIMATOR_H

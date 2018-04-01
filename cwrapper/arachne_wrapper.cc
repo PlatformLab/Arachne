@@ -18,7 +18,7 @@
 
 #include "Arachne.h"
 #include "CoreArbiter/CoreArbiterClient.h"
-#include "DefaultCoreManager.h"
+#include "DefaultCorePolicy.h"
 #include "arachne_wrapper.h"
 
 #ifdef __cplusplus
@@ -70,7 +70,7 @@ arachne_wait_termination() {
 
 /**
  * This function is the wrapper for Arachne::createThreadWithClass.
- * Under Arachne's default core manager, the following thread classes are
+ * Under Arachne's default core policy, the following thread classes are
  * available.
  *
  *    Class 0: Normal thread creation
@@ -146,7 +146,7 @@ arachne_thread_getid() {
  */
 void
 arachne_set_maxutil(double maxutil) {
-    reinterpret_cast<Arachne::DefaultCoreManager*>(Arachne::getCoreManager())
+    reinterpret_cast<Arachne::DefaultCorePolicy*>(Arachne::getCorePolicy())
         ->getEstimator()
         ->setMaxUtilization(maxutil);
 }
@@ -157,8 +157,8 @@ arachne_set_maxutil(double maxutil) {
  */
 void
 arachne_set_loadfactor(double loadfactor) {
-    reinterpret_cast<Arachne::DefaultCoreManager*>(
-        Arachne::getCoreManager())
+    reinterpret_cast<Arachne::DefaultCorePolicy*>(
+        Arachne::getCorePolicy())
         ->getEstimator()
         ->setLoadFactorThreshold(loadfactor);
 }

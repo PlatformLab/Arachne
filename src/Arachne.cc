@@ -16,8 +16,8 @@
 #include <stdio.h>
 #include <thread>
 #include "CoreArbiter/CoreArbiterClient.h"
-#include "CoreManager.h"
-#include "DefaultCoreManager.h"
+#include "CorePolicy.h"
+#include "DefaultCorePolicy.h"
 #include "PerfUtils/TimeTrace.h"
 #include "PerfUtils/Util.h"
 
@@ -207,9 +207,9 @@ std::string coreArbiterSocketPath;
 CoreArbiterClient* coreArbiter = NULL;
 
 /*
- *  The CoreManager that Arachne will use.
+ *  The CorePolicy that Arachne will use.
  */
-CoreManager* coreManager = NULL;
+CorePolicy* corePolicy = NULL;
 
 // Forward declarations
 void releaseCore();
@@ -284,7 +284,7 @@ threadMain() {
             *core.localOccupiedAndCount = {0, 0};
             *publicPriorityMasks[core.kernelThreadId] = 0;
             core.privatePriorityMask = 0;
-            coreManager->coreAvailable(core.kernelThreadId);
+            corePolicy->coreAvailable(core.kernelThreadId);
 
             // This marks the point at which new thread creations may begin.
             numActiveCores++;
@@ -805,8 +805,8 @@ waitForTermination() {
     publicPriorityMasks.clear();
     PerfUtils::Util::serialize();
     coreArbiter->reset();
-    delete coreManager;
-    coreManager = NULL;
+    delete corePolicy;
+    corePolicy = NULL;
     initialized = false;
 }
 
@@ -957,30 +957,30 @@ ThreadContext::initializeStack() {
  * than the default. This function should be invoked before Arachne::init(),
  * and the object passed in is owned by Arachne after this function returns.
  *
- * \param arachneCoreManager
- *    A pointer to the CoreManager that Arachne will use.  The CoreManager
+ * \param arachneCorePolicy
+ *    A pointer to the CorePolicy that Arachne will use.  The CorePolicy
  *    controls thread allocation to cores.
  */
 void
-setCoreManager(CoreManager* arachneCoreManager) {
+setCorePolicy(CorePolicy* arachneCorePolicy) {
     if (initialized) {
         ARACHNE_LOG(ERROR,
                     "Attempting to set core policy after Arachne::init has "
                     "already been invoked");
         abort();
     }
-    if (coreManager != NULL)
-        delete coreManager;
-    coreManager = arachneCoreManager;
+    if (corePolicy != NULL)
+        delete corePolicy;
+    corePolicy = arachneCorePolicy;
 }
 
 /**
  * Get the current core policy used by Arachne. This should be used only for
  * testing.
  */
-CoreManager*
-getCoreManager() {
-    return coreManager;
+CorePolicy*
+getCorePolicy() {
+    return corePolicy;
 }
 
 /**
@@ -1044,9 +1044,9 @@ init(int* argcp, const char** argv) {
                     maxNumCores, hardwareCoresAvailable);
     }
 
-    if (coreManager == NULL) {
-        coreManager =
-            new DefaultCoreManager(maxNumCores, !disableLoadEstimation);
+    if (corePolicy == NULL) {
+        corePolicy =
+            new DefaultCorePolicy(maxNumCores, !disableLoadEstimation);
     }
 
     std::vector<uint32_t> coreRequest({minNumCores, 0, 0, 0, 0, 0, 0, 0});
@@ -1420,10 +1420,10 @@ descheduleCore() {
         }
         coreId = ownedCores.back();
         ownedCores.pop_back();
-        coreManager->coreUnavailable(coreId);
+        corePolicy->coreUnavailable(coreId);
     }
     if (createThreadOnCore(coreId, releaseCore) == NullThread) {
-        coreManager->coreAvailable(coreId);
+        corePolicy->coreAvailable(coreId);
         coreChangeActive = false;
         ARACHNE_LOG(WARNING, "Release core thread creation failed to %d!\n",
                     coreId);
@@ -1431,7 +1431,7 @@ descheduleCore() {
 }
 
 /**
- * This function can be called from CoreManagers to increase the number of
+ * This function can be called from CorePolicys to increase the number of
  * cores used by Arachne.
  */
 void
@@ -1503,7 +1503,7 @@ checkForArbiterRequest() {
 /**
  * After this function returns, threads may no longer be added to the target
  * core. This function can be invoked from any thread on any core. It is
- * invoked by CoreManagers to block creations when cores transition
+ * invoked by CorePolicys to block creations when cores transition
  * between thread classes.
  */
 void
@@ -1576,8 +1576,8 @@ migrateThreadsFromCore() {
         // Choose a victim core that we will pawn our work on.
         if ((blockedOccupiedAndCount.occupied >> i) & 1) {
             int threadClass = core.localThreadContexts[i]->threadClass;
-            CoreManager::CoreList outputCores =
-                coreManager->getCores(threadClass);
+            CorePolicy::CoreList outputCores =
+                corePolicy->getCores(threadClass);
             if (outputCores.size() == 0) {
                 ARACHNE_LOG(ERROR, "No available cores to migrate threads to.");
                 exit(1);
@@ -1749,7 +1749,7 @@ prepareForExclusiveUse(int coreId) {
  * CoreList and return its Id.
  */
 int
-findAndClaimUnusedCore(CoreManager::CoreList* cores) {
+findAndClaimUnusedCore(CorePolicy::CoreList* cores) {
     for (uint32_t i = 0; i < cores->size(); i++) {
         int coreId = cores->get(i);
         MaskAndCount slotMap = *occupiedAndCount[coreId];

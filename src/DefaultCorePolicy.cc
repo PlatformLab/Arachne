@@ -13,7 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include "DefaultCoreManager.h"
+#include "DefaultCorePolicy.h"
 #include <atomic>
 #include "Arachne.h"
 
@@ -21,7 +21,7 @@ namespace Arachne {
 
 // Forward declarations
 void prepareForExclusiveUse(int coreId);
-int findAndClaimUnusedCore(CoreManager::CoreList* cores);
+int findAndClaimUnusedCore(CorePolicy::CoreList* cores);
 void decrementCoreCount();
 void incrementCoreCount();
 extern std::vector<uint64_t*> lastTotalCollectionTime;
@@ -33,7 +33,7 @@ extern std::vector<uint64_t*> lastTotalCollectionTime;
 // \param estimateLoad
 //     True means that this core estimator will estimate load and adjust the
 //     number of cores.
-DefaultCoreManager::DefaultCoreManager(int maxNumCores, bool estimateLoad)
+DefaultCorePolicy::DefaultCorePolicy(int maxNumCores, bool estimateLoad)
     : maxNumCores(maxNumCores),
       loadEstimator(),
       lock(false),
@@ -43,14 +43,14 @@ DefaultCoreManager::DefaultCoreManager(int maxNumCores, bool estimateLoad)
       coreAdjustmentThreadStarted(false) {}
 
 /**
- * See documentation in CoreManager.
+ * See documentation in CorePolicy.
  */
 void
-DefaultCoreManager::coreAvailable(int myCoreId) {
+DefaultCorePolicy::coreAvailable(int myCoreId) {
     Lock guard(lock);
     sharedCores.add(myCoreId);
     if (!coreAdjustmentThreadStarted && coreAdjustmentShouldRun) {
-        if (Arachne::createThread(&DefaultCoreManager::adjustCores, this) ==
+        if (Arachne::createThread(&DefaultCorePolicy::adjustCores, this) ==
             Arachne::NullThread) {
             ARACHNE_LOG(ERROR, "Failed to create thread to adjustCores!");
             exit(1);
@@ -60,10 +60,10 @@ DefaultCoreManager::coreAvailable(int myCoreId) {
 }
 
 /**
- * See documentation in CoreManager.
+ * See documentation in CorePolicy.
  */
 void
-DefaultCoreManager::coreUnavailable(int coreId) {
+DefaultCorePolicy::coreUnavailable(int coreId) {
     Lock guard(lock);
     int index = sharedCores.find(coreId);
     if (index != -1) {
@@ -71,17 +71,17 @@ DefaultCoreManager::coreUnavailable(int coreId) {
         return;
     }
     ARACHNE_LOG(ERROR,
-                "Tried to remove core %d, unknown by CoreManager or held "
+                "Tried to remove core %d, unknown by CorePolicy or held "
                 "exclusively by a thread.\n",
                 coreId);
     abort();
 }
 
 /**
- * See documentation in CoreManager.
+ * See documentation in CorePolicy.
  */
-CoreManager::CoreList
-DefaultCoreManager::getCores(int threadClass) {
+CorePolicy::CoreList
+DefaultCorePolicy::getCores(int threadClass) {
     switch (threadClass) {
         case DEFAULT:
             return sharedCores;
@@ -89,11 +89,11 @@ DefaultCoreManager::getCores(int threadClass) {
             int coreId = getExclusiveCore();
             if (coreId < 0)
                 break;
-            CoreManager::CoreList retVal(1, /*mustFree=*/true);
+            CorePolicy::CoreList retVal(1, /*mustFree=*/true);
             retVal.add(coreId);
             return retVal;
     }
-    CoreManager::CoreList retVal(0, /*mustFree=*/true);
+    CorePolicy::CoreList retVal(0, /*mustFree=*/true);
     return retVal;
 }
 
@@ -102,7 +102,7 @@ DefaultCoreManager::getCores(int threadClass) {
  * will complete, but no future load estimations will occur.
  */
 void
-DefaultCoreManager::disableLoadEstimation() {
+DefaultCorePolicy::disableLoadEstimation() {
     coreAdjustmentShouldRun.store(false);
 }
 
@@ -110,12 +110,12 @@ DefaultCoreManager::disableLoadEstimation() {
  * After this function returns, load estimation will resume normal operation.
  */
 void
-DefaultCoreManager::enableLoadEstimation() {
+DefaultCorePolicy::enableLoadEstimation() {
     coreAdjustmentShouldRun.store(true);
 }
 
 CoreLoadEstimator*
-DefaultCoreManager::getEstimator() {
+DefaultCorePolicy::getEstimator() {
     return &loadEstimator;
 }
 
@@ -124,7 +124,7 @@ DefaultCoreManager::getEstimator() {
  * Existing threads may be migrated to make a core exclusive.
  */
 int
-DefaultCoreManager::getExclusiveCore() {
+DefaultCorePolicy::getExclusiveCore() {
     Lock guard(lock);
     // Take the oldest core to be an exclusive core, so it is relinquished last.
     // No cores available, return failure.
@@ -144,7 +144,7 @@ DefaultCoreManager::getExclusiveCore() {
  * decrease the total number of cores used by Arachne.
  */
 void
-DefaultCoreManager::adjustCores() {
+DefaultCorePolicy::adjustCores() {
     while (true) {
         Arachne::sleep(measurementPeriod);
         if (!coreAdjustmentShouldRun.load()) {

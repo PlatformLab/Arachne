@@ -13,32 +13,32 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#ifndef DEFAULTCOREMANAGER_H_
-#define DEFAULTCOREMANAGER_H_
+#ifndef DEFAULTCOREPOLICY_H_
+#define DEFAULTCOREPOLICY_H_
 
 #include <mutex>
 #include "CoreLoadEstimator.h"
-#include "CoreManager.h"
+#include "CorePolicy.h"
 #include "SpinLock.h"
 
 namespace Arachne {
 
 /**
- * Arachne's default CoreManager has two classes of threads. Default threads
+ * Arachne's default CorePolicy has two classes of threads. Default threads
  * can be scheduled on any core. Exclusive threads own the core they run on.
  */
-class DefaultCoreManager : public CoreManager {
+class DefaultCorePolicy : public CorePolicy {
   public:
-    explicit DefaultCoreManager(int maxNumCores, bool estimateLoad = true);
+    explicit DefaultCorePolicy(int maxNumCores, bool estimateLoad = true);
     virtual void coreAvailable(int myCoreId);
     virtual void coreUnavailable(int coreId);
-    virtual CoreManager::CoreList getCores(int threadClass);
+    virtual CorePolicy::CoreList getCores(int threadClass);
     void disableLoadEstimation();
     void enableLoadEstimation();
     CoreLoadEstimator* getEstimator();
 
     /**
-     * Applications using this CoreManager must create threads using one of
+     * Applications using this CorePolicy must create threads using one of
      * these classes.
      */
     enum ThreadClass { DEFAULT = 0, EXCLUSIVE = 1 };
@@ -65,12 +65,12 @@ class DefaultCoreManager : public CoreManager {
     /**
      * Cores that are available for general scheduling.
      */
-    CoreManager::CoreList sharedCores;
+    CorePolicy::CoreList sharedCores;
 
     /**
      * Cores that are currently hosting exclusive threads.
      */
-    CoreManager::CoreList exclusiveCores;
+    CorePolicy::CoreList exclusiveCores;
 
     /**
      * The core adjustment thread will run as long as this flag is set.
@@ -91,4 +91,4 @@ class DefaultCoreManager : public CoreManager {
     uint64_t measurementPeriod = 50 * 1000 * 1000;
 };
 }  // namespace Arachne
-#endif  // DEFAULTCOREMANAGER_H_
+#endif  // DEFAULTCOREPOLICY_H_

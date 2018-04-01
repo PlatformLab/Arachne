@@ -25,7 +25,7 @@
 #include "CoreArbiter/CoreArbiterServer.h"
 #include "CoreArbiter/Logger.h"
 #include "CoreArbiter/MockSyscall.h"
-#include "DefaultCoreManager.h"
+#include "DefaultCorePolicy.h"
 
 namespace Arachne {
 
@@ -86,7 +86,7 @@ __attribute__((unused))::testing::Environment* const testEnvironment =
     (useCoreArbiter) ? ::testing::AddGlobalTestEnvironment(new Environment)
                      : NULL;
 
-struct DefaultCoreManagerTest : public ::testing::Test {
+struct DefaultCorePolicyTest : public ::testing::Test {
     virtual void SetUp() {
         Arachne::minNumCores = 1;
         Arachne::maxNumCores = 3;
@@ -124,49 +124,49 @@ limitedTimeWait(std::function<bool()> condition, int numIterations) {
     ASSERT_TRUE(condition());
 }
 
-TEST_F(DefaultCoreManagerTest, DefaultCoreManager_constructor) {
-    DefaultCoreManager coreManager(4, /*estimateLoad=*/false);
+TEST_F(DefaultCorePolicyTest, DefaultCorePolicy_constructor) {
+    DefaultCorePolicy corePolicy(4, /*estimateLoad=*/false);
     for (unsigned i = 0; i < std::thread::hardware_concurrency(); i++) {
-        EXPECT_EQ(coreManager.sharedCores.capacity, 4U);
-        EXPECT_EQ(coreManager.exclusiveCores.capacity, 4U);
-        EXPECT_EQ(coreManager.sharedCores.size(), 0U);
+        EXPECT_EQ(corePolicy.sharedCores.capacity, 4U);
+        EXPECT_EQ(corePolicy.exclusiveCores.capacity, 4U);
+        EXPECT_EQ(corePolicy.sharedCores.size(), 0U);
     }
-    coreManager.coreAvailable(1);
-    EXPECT_EQ(coreManager.sharedCores.size(), 1U);
+    corePolicy.coreAvailable(1);
+    EXPECT_EQ(corePolicy.sharedCores.size(), 1U);
 }
 
-TEST_F(DefaultCoreManagerTest, DefaultCoreManager_coreAvailable) {
-    DefaultCoreManager coreManager(4, /*estimateLoad=*/false);
-    coreManager.coreAvailable(1);
-    EXPECT_EQ(coreManager.sharedCores.size(), 1U);
-    coreManager.coreAvailable(3);
-    EXPECT_EQ(coreManager.sharedCores.size(), 2U);
+TEST_F(DefaultCorePolicyTest, DefaultCorePolicy_coreAvailable) {
+    DefaultCorePolicy corePolicy(4, /*estimateLoad=*/false);
+    corePolicy.coreAvailable(1);
+    EXPECT_EQ(corePolicy.sharedCores.size(), 1U);
+    corePolicy.coreAvailable(3);
+    EXPECT_EQ(corePolicy.sharedCores.size(), 2U);
 }
 
-TEST_F(DefaultCoreManagerTest, DefaultCoreManager_coreUnavailable) {
-    DefaultCoreManager coreManager(4, /*estimateLoad=*/false);
-    coreManager.coreAvailable(1);
-    coreManager.coreAvailable(2);
-    EXPECT_EQ(coreManager.sharedCores.size(), 2U);
-    coreManager.coreUnavailable(1);
-    EXPECT_EQ(coreManager.sharedCores.size(), 1);
-    EXPECT_EQ(coreManager.sharedCores[0], 2);
+TEST_F(DefaultCorePolicyTest, DefaultCorePolicy_coreUnavailable) {
+    DefaultCorePolicy corePolicy(4, /*estimateLoad=*/false);
+    corePolicy.coreAvailable(1);
+    corePolicy.coreAvailable(2);
+    EXPECT_EQ(corePolicy.sharedCores.size(), 2U);
+    corePolicy.coreUnavailable(1);
+    EXPECT_EQ(corePolicy.sharedCores.size(), 1);
+    EXPECT_EQ(corePolicy.sharedCores[0], 2);
 }
 
-TEST_F(DefaultCoreManagerTest, DefaultCoreManager_getCoresDefault) {
-    DefaultCoreManager coreManager(4, /*estimateLoad=*/false);
-    EXPECT_EQ(coreManager.getCores(DefaultCoreManager::DEFAULT).size(), 0U);
-    coreManager.coreAvailable(5);
-    EXPECT_EQ(coreManager.getCores(DefaultCoreManager::DEFAULT).size(), 1U);
-    coreManager.coreAvailable(7);
-    EXPECT_EQ(coreManager.getCores(DefaultCoreManager::DEFAULT).size(), 2U);
+TEST_F(DefaultCorePolicyTest, DefaultCorePolicy_getCoresDefault) {
+    DefaultCorePolicy corePolicy(4, /*estimateLoad=*/false);
+    EXPECT_EQ(corePolicy.getCores(DefaultCorePolicy::DEFAULT).size(), 0U);
+    corePolicy.coreAvailable(5);
+    EXPECT_EQ(corePolicy.getCores(DefaultCorePolicy::DEFAULT).size(), 1U);
+    corePolicy.coreAvailable(7);
+    EXPECT_EQ(corePolicy.getCores(DefaultCorePolicy::DEFAULT).size(), 2U);
 }
 
-TEST_F(DefaultCoreManagerTest, DefaultCoreManager_getCoresExclusive) {
-    DefaultCoreManager* coreManager =
-        reinterpret_cast<DefaultCoreManager*>(Arachne::getCoreManager());
-    CoreManager::CoreList coreList =
-        coreManager->getCores(DefaultCoreManager::EXCLUSIVE);
+TEST_F(DefaultCorePolicyTest, DefaultCorePolicy_getCoresExclusive) {
+    DefaultCorePolicy* corePolicy =
+        reinterpret_cast<DefaultCorePolicy*>(Arachne::getCorePolicy());
+    CorePolicy::CoreList coreList =
+        corePolicy->getCores(DefaultCorePolicy::EXCLUSIVE);
     EXPECT_EQ(coreList.size(), 1U);
 }
 
