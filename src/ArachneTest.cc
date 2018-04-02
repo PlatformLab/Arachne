@@ -18,7 +18,9 @@
 #include "gtest/gtest.h"
 
 #define private public
+#define ARACHNE_TEST
 #include "Arachne.h"
+#undef ARACHNE_TEST
 #include "CoreArbiter/ArbiterClientShim.h"
 #include "CoreArbiter/CoreArbiterClient.h"
 #include "CoreArbiter/CoreArbiterServer.h"

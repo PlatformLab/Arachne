@@ -409,7 +409,7 @@ extern std::vector<std::atomic<MaskAndCount>*> occupiedAndCount;
 
 extern std::vector<std::atomic<uint64_t>*> publicPriorityMasks;
 
-#ifdef TEST
+#ifdef ARACHNE_TEST
 extern std::deque<uint64_t> mockRandomValues;
 #endif
 
@@ -419,7 +419,7 @@ extern std::deque<uint64_t> mockRandomValues;
  */
 inline uint64_t
 random(void) {
-#ifdef TEST
+#ifdef ARACHNE_TEST
     if (!mockRandomValues.empty()) {
         uint64_t returnValue = mockRandomValues.front();
         mockRandomValues.pop_front();
