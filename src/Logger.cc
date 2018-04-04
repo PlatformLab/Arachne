@@ -20,7 +20,7 @@
 namespace Arachne {
 
 extern FILE* errorStream;
-LogLevel Logger::displayMinLevel = NOTICE;
+LogLevel Logger::displayMinLevel = WARNING;
 std::mutex Logger::mutex;
 
 void

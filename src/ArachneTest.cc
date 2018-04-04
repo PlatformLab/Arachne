@@ -60,6 +60,7 @@ struct Environment : public ::testing::Environment {
     // Override this to define how to set up the environment.
     virtual void SetUp() {
         // Initalize core arbiter server
+        Arachne::Logger::setLogLevel(NOTICE);
         CoreArbiter::Logger::setLogLevel(CoreArbiter::WARNING);
         sys = new MockSyscall();
         sys->callGeteuid = false;
