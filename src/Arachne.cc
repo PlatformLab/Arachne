@@ -14,6 +14,7 @@
  */
 
 #include <stdio.h>
+#include <sys/time.h>
 #include <thread>
 #include "CoreArbiter/CoreArbiterClient.h"
 #include "CorePolicy.h"
@@ -303,6 +304,14 @@ threadMain() {
             numActiveCores++;
             ARACHNE_LOG(DEBUG, "Number of cores increased from %d to %d\n",
                         numActiveCores - 1, numActiveCores.load());
+#ifdef CORE_TRACE
+            struct timeval now;
+            gettimeofday(&now, NULL);
+            uint64_t curTime = now.tv_sec * 1000000 + now.tv_usec;
+            ARACHNE_LOG(ERROR, "%lu,%02d\n", curTime, numActiveCores - 1);
+            ARACHNE_LOG(ERROR, "%lu,%02d\n", curTime, numActiveCores.load());
+#endif
+
 #if TIME_TRACE
             TimeTrace::record("Core Count %d --> %d", numActiveCores - 1,
                               numActiveCores.load());
@@ -334,6 +343,14 @@ threadMain() {
                         "going offline.",
                         numActiveCores + 1, numActiveCores.load(),
                         core.kernelThreadId);
+#ifdef CORE_TRACE
+            struct timeval now;
+            gettimeofday(&now, NULL);
+            uint64_t curTime = now.tv_sec * 1000000 + now.tv_usec;
+            ARACHNE_LOG(ERROR, "%lu,%02d\n", curTime, numActiveCores + 1);
+            ARACHNE_LOG(ERROR, "%lu,%02d\n", curTime, numActiveCores.load());
+#endif
+
 #if TIME_TRACE
             TimeTrace::record("Core Count %d --> %d", numActiveCores + 1,
                               numActiveCores.load());
@@ -1058,8 +1075,7 @@ init(int* argcp, const char** argv) {
     }
 
     if (corePolicy == NULL) {
-        corePolicy =
-            new DefaultCorePolicy(maxNumCores, !disableLoadEstimation);
+        corePolicy = new DefaultCorePolicy(maxNumCores, !disableLoadEstimation);
     }
 
     std::vector<uint32_t> coreRequest({minNumCores, 0, 0, 0, 0, 0, 0, 0});
