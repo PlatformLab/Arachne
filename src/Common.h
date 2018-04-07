@@ -29,6 +29,7 @@ namespace Arachne {
 
 // The following macros issue hints to the compiler that a particular branch is
 // more likely than another.
+#ifndef likely
 #ifdef __GNUC__
 // Note that the double negation here is used for coercion to the boolean type.
 #define likely(x) __builtin_expect(!!(x), 1)
@@ -36,6 +37,7 @@ namespace Arachne {
 #else
 #define likely(x) (x)
 #define unlikely(x) (x)
+#endif
 #endif
 
 // Largest number of Arachne threads that can be simultaneously created on each
