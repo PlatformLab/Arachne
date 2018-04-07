@@ -14,6 +14,7 @@
  */
 
 #include <stdio.h>
+#include <sys/time.h>
 #include <thread>
 #include "CoreArbiter/CoreArbiterClient.h"
 #include "CorePolicy.h"
@@ -312,6 +313,16 @@ threadMain() {
         numActiveCores++;
         ARACHNE_LOG(DEBUG, "Number of cores increased from %d to %d\n",
                     numActiveCores - 1, numActiveCores.load());
+#ifdef CORE_TRACE
+        {
+            struct timeval now;
+            gettimeofday(&now, NULL);
+            uint64_t curTime = now.tv_sec * 1000000 + now.tv_usec;
+            ARACHNE_LOG(ERROR, "%lu,%02d\n", curTime, numActiveCores - 1);
+            ARACHNE_LOG(ERROR, "%lu,%02d\n", curTime, numActiveCores.load());
+        }
+#endif
+
 #if TIME_TRACE
         TimeTrace::record("Core Count %d --> %d", numActiveCores - 1,
                           numActiveCores.load());
@@ -339,6 +350,16 @@ threadMain() {
                     "Number of cores decreased from %d to %d\n; Core %d "
                     "going offline.",
                     numActiveCores + 1, numActiveCores.load(), core.id);
+#ifdef CORE_TRACE
+        {
+            struct timeval now;
+            gettimeofday(&now, NULL);
+            uint64_t curTime = now.tv_sec * 1000000 + now.tv_usec;
+            ARACHNE_LOG(ERROR, "%lu,%02d\n", curTime, numActiveCores + 1);
+            ARACHNE_LOG(ERROR, "%lu,%02d\n", curTime, numActiveCores.load());
+        }
+#endif
+
 #if TIME_TRACE
         TimeTrace::record("Core Count %d --> %d", numActiveCores + 1,
                           numActiveCores.load());
