@@ -284,9 +284,22 @@ threadMain() {
             *core.localOccupiedAndCount = {0, 0};
             *publicPriorityMasks[core.kernelThreadId] = 0;
             core.privatePriorityMask = 0;
-            corePolicy->coreAvailable(core.kernelThreadId);
+        }
 
+        // Correct the ThreadContext.coreId() here to match the existing core.
+        // We must do these operations before making cores available for
+        // scheduling because otherwise our ThreadContexts may be targetted for
+        // migration before stacks are initialized.
+        for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
+            core.localThreadContexts[k]->coreId =
+                static_cast<uint8_t>(core.kernelThreadId);
+            core.localThreadContexts[k]->initializeStack();
+        }
+
+        {
+            std::lock_guard<SpinLock> _(coreChangeMutex);
             // This marks the point at which new thread creations may begin.
+            corePolicy->coreAvailable(core.kernelThreadId);
             numActiveCores++;
             ARACHNE_LOG(DEBUG, "Number of cores increased from %d to %d\n",
                         numActiveCores - 1, numActiveCores.load());
@@ -299,19 +312,11 @@ threadMain() {
             PerfStats::threadStats.numCoreIncrements++;
         }
 
-        // Correct the ThreadContext.coreId() here to match the existing core.
-        // It is valid to initialize this after incrementing numActiveCores
-        // because thread creations do not touch these variables.
-        for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
-            core.localThreadContexts[k]->coreId =
-                static_cast<uint8_t>(core.kernelThreadId);
-            core.localThreadContexts[k]->initializeStack();
-        }
-
         // Correct statistics
         IdleTimeTracker::numThreadsRan = 0;
         IdleTimeTracker::lastDispatchIterationStart = Cycles::rdtsc();
 
+        // Poll for work to do using the first context
         core.loadedContext = core.localThreadContexts[0];
 
         // Transfers control to the Arachne dispatcher.
