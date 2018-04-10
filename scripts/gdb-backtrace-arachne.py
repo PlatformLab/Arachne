@@ -67,7 +67,7 @@ class BackTraceArachneCommand (gdb.Command):
         bitmask = maskAndCountPointer.dereference()['_M_i']['occupied']
 
         # Perform a backtrace on all the occupied bits.
-        for i in xrange(56):
+        for i in range(56):
            if (bitmask >> i) & 1:
                threadContext = gdb.parse_and_eval("Arachne::core.localThreadContexts[{0}]".format(i))
                print("Arachne Thread {0}: {1}".format(i, threadContext))
