@@ -1,6 +1,8 @@
 # This script provides convenience command bta (backtrace-arachne) to backtrace
 # an Arachne thread, given a ThreadContext* as an argument.
 
+from __future__ import print_function
+
 import gdb
 class BackTraceArachneCommand (gdb.Command):
   "Backtrace command for user threads in Arachne threading library."
@@ -15,21 +17,21 @@ class BackTraceArachneCommand (gdb.Command):
 
     # Check if we are backtracing the current context
     loadedContext = gdb.parse_and_eval("Arachne::core.loadedContext")
-    if isinstance(threadContext, basestring):
+    if isinstance(threadContext, str):
         threadContext = gdb.parse_and_eval(threadContext)
-    if long(loadedContext) == long(threadContext):
+    if int(loadedContext) == int(threadContext):
         gdb.execute("backtrace", from_tty)
         return
 
     SP = gdb.parse_and_eval("$sp")
-    PC = long(gdb.parse_and_eval("$pc"))
-    r12 = long(gdb.parse_and_eval("$r12"))
-    r13 = long(gdb.parse_and_eval("$r13"))
-    r14 = long(gdb.parse_and_eval("$r14"))
-    r15 = long(gdb.parse_and_eval("$r15"))
-    rbx = long(gdb.parse_and_eval("$rbx"))
-    rbp = long(gdb.parse_and_eval("$rbp"))
-    loadedContext = long(gdb.parse_and_eval("Arachne::core.loadedContext"))
+    PC = int(gdb.parse_and_eval("$pc"))
+    r12 = int(gdb.parse_and_eval("$r12"))
+    r13 = int(gdb.parse_and_eval("$r13"))
+    r14 = int(gdb.parse_and_eval("$r14"))
+    r15 = int(gdb.parse_and_eval("$r15"))
+    rbx = int(gdb.parse_and_eval("$rbx"))
+    rbp = int(gdb.parse_and_eval("$rbp"))
+    loadedContext = int(gdb.parse_and_eval("Arachne::core.loadedContext"))
 
     gdb.execute("set Arachne::core.loadedContext = ((Arachne::ThreadContext*){0})".format(threadContext))
     gdb.execute("set $rbp = *(uint64_t*) Arachne::core.loadedContext->sp")
@@ -38,7 +40,7 @@ class BackTraceArachneCommand (gdb.Command):
     gdb.execute("set $r14 = *(((uint64_t*) Arachne::core.loadedContext->sp)+3)")
     gdb.execute("set $r13 = *(((uint64_t*) Arachne::core.loadedContext->sp)+4)")
     gdb.execute("set $r12 = *(((uint64_t*) Arachne::core.loadedContext->sp)+5)")
-    gdb.execute("set $rsp=Arachne::core.loadedContext->sp + Arachne::SpaceForSavedRegisters", from_tty)
+    gdb.execute("set $rsp=Arachne::core.loadedContext->sp + Arachne::SPACE_FOR_SAVED_REGISTERS", from_tty)
     gdb.execute("set $pc = *(void **)$rsp", from_tty)
 
     gdb.execute("backtrace", from_tty)
@@ -60,7 +62,7 @@ class BackTraceArachneCommand (gdb.Command):
         # Backtrace all threadcontexts that are occupied in the current core
         maskAndCountPointer = gdb.parse_and_eval("Arachne::core.localOccupiedAndCount")
         if maskAndCountPointer == 0:
-          print "Current core is not an Arachne core!"
+          print("Current core is not an Arachne core!")
           return
         bitmask = maskAndCountPointer.dereference()['_M_i']['occupied']
 
@@ -68,7 +70,7 @@ class BackTraceArachneCommand (gdb.Command):
         for i in xrange(56):
            if (bitmask >> i) & 1:
                threadContext = gdb.parse_and_eval("Arachne::core.localThreadContexts[{0}]".format(i))
-               print "Arachne Thread {0}: {1}".format(i, threadContext)
+               print("Arachne Thread {0}: {1}".format(i, threadContext))
                try:
                    self.backtrace(threadContext, from_tty)
                except:
@@ -79,13 +81,13 @@ class BackTraceArachneCommand (gdb.Command):
     # Verify that the type is correct
     typestring=str(gdb.parse_and_eval(arg).type)
     if typestring.strip() != "Arachne::ThreadContext *":
-        print "Please pass an Arachne::ThreadContext*"
+        print("Please pass an Arachne::ThreadContext*")
         return
 
     # Check if the provided threadcontext is NULL, and do nothing if it is.
-    threadcontextvalue = long(gdb.parse_and_eval(arg))
+    threadcontextvalue = int(gdb.parse_and_eval(arg))
     if threadcontextvalue == 0:
-        print "A NULL pointer was passed!"
+        print("A NULL pointer was passed!")
         return
 
     self.backtrace(arg, from_tty)
