@@ -310,6 +310,11 @@ struct ThreadContext {
     /// This will only change if a ThreadContext is migrated.
     uint8_t coreId;
 
+    /// Unique identifier for the core that this threadcontext lived on when
+    /// Arachne was first initialized.  This helps us determine whether the
+    /// thread was migrated, and where it was migrated from.
+    const uint8_t originalCoreId;
+
     /// Specified by applications to indicate general properties of this thread
     /// (e.g. latency-sensitive foreground thread vs throughput-sensitive
     /// background thread); used by CorePolicy.

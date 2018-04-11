@@ -908,6 +908,7 @@ ThreadContext::ThreadContext(uint8_t coreId, uint8_t idInCore)
       joinLock(),
       joinCV(),
       coreId(coreId),
+      originalCoreId(coreId),
       idInCore(idInCore),
       threadInvocation(),
       wakeupTimeInCycles(threadInvocation.wakeupTimeInCycles) {
