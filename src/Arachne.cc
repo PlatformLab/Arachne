@@ -455,7 +455,8 @@ schedulerMainLoop() {
         core.loadedContext->generation++;
 
         // Pin the current context before clearing the occupied bit.
-        *core.localPinnedContexts = 1 << core.loadedContext->idInCore;
+        uint64_t pinMask = 1 << core.loadedContext->idInCore;
+        core.localPinnedContexts->store(pinMask);
 
         // The code below clears the occupied flag for the current
         // ThreadContext.
@@ -481,15 +482,21 @@ schedulerMainLoop() {
         } while (!success);
 
         // Reset highestOccupiedContext based on value of occupied flag, which
-        // we just CASed in.
-        uint64_t occupied = slotMap.occupied;
+        // we just CASed in, and the pinned context mask, which we just set.
+        // It is necessary to consider pinMask because it forces other cores
+        // attempting to migrate threads to this core to target contexts at
+        // slots above the pinned context, even if the pinned context is
+        // unocupied, which creates a gap between highestOccupiedContext and
+        // the next occupied context.
+        uint64_t occupiedOrPinned = slotMap.occupied | pinMask;
+
         // The result of __builtin_clzll is undefined if occupied is 0.
         // The function __builtin_clzll returns the number leading 0-bits,
         // so subtract the return value of 63 to get a zero-based bit index
         core.highestOccupiedContext =
-            occupied == 0
+            occupiedOrPinned == 0
                 ? 0
-                : static_cast<uint8_t>(63 - __builtin_clzll(occupied));
+                : static_cast<uint8_t>(63 - __builtin_clzll(occupiedOrPinned));
 
         // Newborn threads should not have elevated priority, even if the
         // predecessors had leftover priority
