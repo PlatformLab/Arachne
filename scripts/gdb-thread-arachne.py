@@ -29,16 +29,16 @@ class ThreadArachneCommand (gdb.Command):
   def thread(self, threadContext, from_tty):
     # Check if we are switching to the currently active context
     loadedContext = gdb.parse_and_eval("Arachne::core.loadedContext")
-    if isinstance(threadContext, basestring):
+    if isinstance(threadContext, str):
         threadContext = gdb.parse_and_eval(threadContext)
 
-    if long(loadedContext) == long(threadContext):
+    if int(loadedContext) == int(threadContext):
         self.restoreKernelThread(from_tty)
         return
 
     originalSP = gdb.parse_and_eval("$sp")
-    originalPC = long(gdb.parse_and_eval("$pc"))
-    gdb.execute("set ($rsp)=((Arachne::ThreadContext*){0})->sp + Arachne::SpaceForSavedRegisters".format(threadContext), from_tty)
+    originalPC = int(gdb.parse_and_eval("$pc"))
+    gdb.execute("set ($rsp)=((Arachne::ThreadContext*){0})->sp + Arachne::SPACE_FOR_SAVED_REGISTERS".format(threadContext), from_tty)
     gdb.execute("set ($pc)= *(void **)$rsp", from_tty)
     kThreadNum = gdb.selected_thread().num
     if not kThreadNum in self.kernelThreadMap:
@@ -56,13 +56,13 @@ class ThreadArachneCommand (gdb.Command):
     threadContext = gdb.parse_and_eval(arg)
     typestring = str(threadContext.type)
     if typestring.strip() != "Arachne::ThreadContext *":
-        print "Please pass an Arachne::ThreadContext*"
+        print("Please pass an Arachne::ThreadContext*")
         return
 
     # Check if the provided threadcontext is NULL, and do nothing if it is.
-    threadContextValue = long(threadContext)
+    threadContextValue = int(threadContext)
     if threadContextValue == 0:
-        print "A NULL pointer was passed!"
+        print("A NULL pointer was passed!")
         return
 
     self.thread(arg, from_tty)
