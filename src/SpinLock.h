@@ -93,7 +93,12 @@ class SpinLock {
     }
 
     /** Release resource. */
-    inline void unlock() { locked.store(false, std::memory_order_release); }
+    inline void unlock() {
+        // Null out the owner before unlocking, to avoid misconstruing previous
+        // ownership with current ownership.
+        owner = NULL;
+        locked.store(false, std::memory_order_release);
+    }
 
     /** Set the label used for deadlock warning. */
     inline void setName(const char* name) { this->name = name; }
