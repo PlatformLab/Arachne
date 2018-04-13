@@ -104,10 +104,10 @@ std::atomic<bool> coreChangeActive;
 /**
  * Used to ensure that only one thread attempts to become exclusive or shared
  * at a time. This protects against a thread being migrated while it is
- * halfway through makeExclusiveOnCore and making incorrect assumptiosn about
+ * halfway through makeExclusiveOnCore and making incorrect assumptions about
  * the core it is currently on.
  */
-SleepLock coreExclusionMutex;
+SpinLock coreExclusionMutex;
 
 /**
  * Configurable maximum stack size for all threads.
@@ -1573,7 +1573,7 @@ void
 migrateThreadsFromCore() {
     preventCreationsToCore(core.kernelThreadId);
 
-    std::lock_guard<SleepLock> _(coreExclusionMutex);
+    std::lock_guard<SpinLock> _(coreExclusionMutex);
 
     // Start migration of remaining threads.
     MaskAndCount blockedOccupiedAndCount = *core.localOccupiedAndCount;
