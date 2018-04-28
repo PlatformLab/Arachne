@@ -82,12 +82,12 @@ class CoreLoadEstimator {
     std::vector<double> utilizationThresholds;
 
     /*
-     * The difference in load, expressed as a fraction of a core, between a
+     * The difference in load, expressed as a utilization delta, between a
      * ramp-down threshold and the corresponding ramp-up threshold (i.e., we
-     * wait to ramp down until the load gets a bit below the point at
-     * which we ramped up).
+     * wait to ramp down until the load gets a bit below the point at which we
+     * ramped up).
      */
-    double idleCoreFractionHysteresis = 0.2;
+    double idleCoreFractionHysteresis = 0.05;
 
     /*
      * Core utilizations below this threshold are considered effectively 0.

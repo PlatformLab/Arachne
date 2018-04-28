@@ -68,8 +68,9 @@ CoreLoadEstimator::estimate(int curActiveCores) {
         // Scale down if the core utilization after scale down is greater than
         // the core utilization at which we scaled up, plus a hysteresis
         // threshold.
-        double localThreshold = utilizationThresholds[curActiveCores - 1] -
-                                idleCoreFractionHysteresis;
+        double localThreshold =
+            utilizationThresholds[curActiveCores - 1] -
+            idleCoreFractionHysteresis * (curActiveCores - 1);
 
         ARACHNE_LOG(DEBUG,
                     "curActiveCores = %d, totalUtilizedCores = %lf, "
