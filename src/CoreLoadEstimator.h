@@ -87,12 +87,12 @@ class CoreLoadEstimator {
      * wait to ramp down until the load gets a bit below the point at which we
      * ramped up).
      */
-    double idleCoreFractionHysteresis = 0.05;
+    double idleCoreFractionHysteresis = 0.09;
 
     /*
      * Core utilizations below this threshold are considered effectively 0.
      */
-    double zeroCoreUtilizationThreshold = 1e-3;
+    double zeroCoreUtilizationThreshold = 0.01;
 
     /*
      * Do not ramp down if the fraction of occupied threadContext slots is
