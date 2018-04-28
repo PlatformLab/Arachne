@@ -29,11 +29,27 @@ namespace Arachne {
 
 // Change 0 -> 1 in the following line to compile detailed time tracing in
 // this file.
-#define TIME_TRACE 0
+#define TIME_TRACE 1
 
 using CoreArbiter::CoreArbiterClient;
 using PerfUtils::Cycles;
 using PerfUtils::TimeTrace;
+
+// Provides a cleaner way of invoking TimeTrace::record, with the code
+// conditionally compiled in or out by the TIME_TRACE #ifdef. Arguments
+// are made uint64_t (as opposed to uin32_t) so the caller doesn't have to
+// frequently cast their 64-bit arguments into uint32_t explicitly: we will
+// help perform the casting internally.
+static inline void
+timeTrace(const char* format,
+        uint64_t arg0 = 0, uint64_t arg1 = 0, uint64_t arg2 = 0,
+        uint64_t arg3 = 0)
+{
+#if TIME_TRACE
+    TimeTrace::record(format, uint32_t(arg0), uint32_t(arg1),
+            uint32_t(arg2), uint32_t(arg3));
+#endif
+}
 
 /**
  * This variable prevents multiple initializations of the library, but does
@@ -526,6 +542,7 @@ yield() {
     // This thread is still runnable since it is merely yielding.
     core.loadedContext->wakeupTimeInCycles = 0L;
     dispatch();
+    timeTrace("Core %d: Just returned from dispatch() call in yield", Arachne::core.kernelThreadId);
 }
 
 /**
@@ -565,6 +582,7 @@ void
 dispatch() {
     NestedDispatchDetector detector;
     IdleTimeTracker idleTimeTracker;
+    timeTrace("Core %d: Just constructed NestedDispatchDetector and idleTimeTracker", Arachne::core.kernelThreadId);
     Core& core = Arachne::core;
     // Cache the original context so that we can survive across migrations to
     // other kernel threads, since core.loadedContext is not reloaded correctly
@@ -583,6 +601,7 @@ dispatch() {
     // Check for core release request once before checking for high priority
     // threads.
     checkForArbiterRequest();
+    timeTrace("Core %d: Just checked for stackoverflow and arbiter request at top of dispatch", Arachne::core.kernelThreadId);
 
     uint64_t dispatchIterationStartCycles = Cycles::rdtsc();
 
@@ -594,6 +613,7 @@ dispatch() {
             *publicPriorityMasks[core.kernelThreadId] &=
                 ~core.privatePriorityMask;
     }
+    timeTrace("Core %d: Just copied public priority mask", Arachne::core.kernelThreadId);
 
     // Run any high priority threads before searching the entire set of
     // contexts for runnable threads.
@@ -645,6 +665,8 @@ dispatch() {
             }
         }
     }
+    timeTrace("Core %d: Just checked high priority threads", Arachne::core.kernelThreadId);
+
     // Find a thread to switch to
     uint8_t currentIndex = core.nextCandidateIndex;
 
@@ -706,6 +728,7 @@ dispatch() {
             void** saved = &core.loadedContext->sp;
             core.loadedContext = currentContext;
 
+			timeTrace("Core %d: About to update perfstats.", Arachne::core.kernelThreadId);
             // Flush the idle cycle counter before a context switch because
             // switching to a fresh (previously unused) context will cause
             // dispatch to be called from the top again before this
@@ -713,7 +736,9 @@ dispatch() {
             // dispatchStartCycles (used for computing idle cycles) but not
             // lastTotalCollectionTime (used for computing total cycles).
             idleTimeTracker.updatePerfStats();
+			timeTrace("Core %d: About to swapcontext", Arachne::core.kernelThreadId);
             swapcontext(&core.loadedContext->sp, saved);
+			timeTrace("Core %d: Just returned from swapcontext", Arachne::core.kernelThreadId);
             // After the old context is swapped out above, this line executes
             // in the new context.
             originalContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
