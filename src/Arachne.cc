@@ -732,6 +732,17 @@ dispatch() {
             currentContext->wakeupTimeInCycles) {
             core.nextCandidateIndex = static_cast<uint8_t>(currentIndex + 1);
 
+            TimeTrace::record(beforeCheckingHighestOccupied,
+                              "About to check highestOccupied");
+            TimeTrace::record(afterCheckingHighestOccupied,
+                              "Just checked highestOccupied");
+            TimeTrace::record(afterHandlingCurrentIndexZero,
+                              "Just handled currentIndex");
+            timeTrace(
+                "Core %d: About to check loadedContext, currentIndex = %d, "
+                "loadedContext.idInCore = %d, highestOccupiedContext = %d",
+                Arachne::core.kernelThreadId, currentIndex,
+                currentContext->idInCore, core.highestOccupiedContext);
             if (currentContext == core.loadedContext) {
                 core.loadedContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
                 IdleTimeTracker::numThreadsRan++;
@@ -794,20 +805,29 @@ block() {
 void
 signal(ThreadId id) {
     uint64_t oldWakeupTime = id.context->wakeupTimeInCycles;
+    timeTrace("Core %d: Just read old wakeup time",
+              Arachne::core.kernelThreadId);
     if (oldWakeupTime != ThreadContext::UNOCCUPIED) {
         // We do the CAS in assembly because we do not want to pay for the
         // extra memory fences for ordinary stores that std::atomic adds.
         uint64_t newValue = 0L;
+        timeTrace("Core %d: About to CAS the wakeupTimeInCycles",
+                  Arachne::core.kernelThreadId);
         __asm__ __volatile__("lock; cmpxchgq %0,%1"
                              : "=r"(newValue),
                                "=m"(id.context->wakeupTimeInCycles),
                                "=a"(oldWakeupTime)
                              : "0"(newValue), "2"(oldWakeupTime));
+        timeTrace("Core %d: Finished CASing the wakeup time in cycles",
+                  Arachne::core.kernelThreadId);
 
         // Raise the priority of the newly awakened thread.
         if (id.context->coreId != static_cast<uint8_t>(~0))
             *publicPriorityMasks[id.context->coreId] |=
                 (1L << id.context->idInCore);
+        timeTrace(
+            "Core %d: Finished raising priority of newly signalled thread.",
+            Arachne::core.kernelThreadId);
     }
 }
 
