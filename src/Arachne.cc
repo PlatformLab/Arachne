@@ -733,6 +733,25 @@ block() {
 }
 
 /**
+ * Perform a atomic compare_exchange operation on a 64-bit value, returning the
+ * old value. This is useful for performing atomic CAS operations on non-atomic
+ * variable.
+ *
+ * \param target
+ *    The memory address to attempt to CAS.
+ * \param test
+ *    If the target is equal to this value, then it will be set to newValue.
+ * \param newValue
+ *    The value to set if the test succeeds.
+ */
+uint64_t compareExchange(volatile uint64_t* target, uint64_t test, uint64_t newValue) {
+    __asm__ __volatile__("lock; cmpxchgq %0,%1" : "=r" (newValue),
+            "=m" (*target), "=a" (test) : "0" (newValue), "2" (test));
+    return test;
+}
+
+
+/**
  * Make the thread referred to by ThreadId runnable.
  * If one thread exits and another is created between the check and the setting
  * of the wakeup flag, this signal will result in a spurious wake-up.
@@ -744,22 +763,37 @@ block() {
  */
 void
 signal(ThreadId id) {
-    uint64_t oldWakeupTime = id.context->wakeupTimeInCycles;
-    if (oldWakeupTime != ThreadContext::UNOCCUPIED) {
-        // We do the CAS in assembly because we do not want to pay for the
-        // extra memory fences for ordinary stores that std::atomic adds.
-        uint64_t newValue = 0L;
-        __asm__ __volatile__("lock; cmpxchgq %0,%1"
-                             : "=r"(newValue),
-                               "=m"(id.context->wakeupTimeInCycles),
-                               "=a"(oldWakeupTime)
-                             : "0"(newValue), "2"(oldWakeupTime));
+    // Speculatively assume that that the read being signaled is in the BLOCKED
+    // state, and retry the CAS if it is not. This approach avoids first taking
+    // a cache miss to read and then performing a CAS in the case when the
+    // target thread is actually BLOCKED.
+    // Experiments show that this approach can save 40 ns compared to explicitly reading
+    // wakeupTimeInCycles and then performing the CAS.
+    //
+    // When explicitly reading, we pay:
+    //     1 cache miss to read on the signaler core.
+    //     1 cache invalidate other caches during the CAS.
+    //     1 cache miss to read on the target core.
+    // Under the CAS-first approach, if the wakeupTimeInCycles == BLOCKED, we pay:
+    //     1 cache invalidate other caches during the CAS.
+    //     1 cache miss to read on the target core.
+    uint64_t oldWakeupTime = ThreadContext::BLOCKED;
+    uint64_t newValue = 0L;
+    oldWakeupTime = compareExchange(&id.context->wakeupTimeInCycles, oldWakeupTime, newValue);
 
-        // Raise the priority of the newly awakened thread.
-        if (id.context->coreId != static_cast<uint8_t>(~0))
-            *publicPriorityMasks[id.context->coreId] |=
-                (1L << id.context->idInCore);
+    // The original value was not BLOCKED, so we try again wtih the true
+    // original value, unless the target is already runnable or UNOCCUPIED.
+    // This typically happens if the target thread was sleeping rather than
+    // blocked.
+    if (oldWakeupTime != ThreadContext::BLOCKED &&
+            oldWakeupTime != ThreadContext::UNOCCUPIED &&
+            oldWakeupTime != 0L) {
+        compareExchange(&id.context->wakeupTimeInCycles, oldWakeupTime, newValue);
     }
+    // Raise the priority of the newly awakened thread.
+    if (id.context->coreId != static_cast<uint8_t>(~0))
+        *publicPriorityMasks[id.context->coreId] |=
+            (1L << id.context->idInCore);
 }
 
 /**
