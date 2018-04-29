@@ -793,6 +793,26 @@ block() {
 }
 
 /**
+ * Perform a atomic compare_exchange operation on a 64-bit value, returning the
+ * old value. This is useful for performing atomic CAS operations on non-atomic
+ * variable.
+ *
+ * \param target
+ *    The memory address to attempt to CAS.
+ * \param test
+ *    If the target is equal to this value, then it will be set to newValue.
+ * \param newValue
+ *    The value to set if the test succeeds.
+ */
+uint64_t
+compareExchange(volatile uint64_t* target, uint64_t test, uint64_t newValue) {
+    __asm__ __volatile__("lock; cmpxchgq %0,%1"
+                         : "=r"(newValue), "=m"(*target), "=a"(test)
+                         : "0"(newValue), "2"(test));
+    return test;
+}
+
+/**
  * Make the thread referred to by ThreadId runnable.
  * If one thread exits and another is created between the check and the setting
  * of the wakeup flag, this signal will result in a spurious wake-up.
@@ -804,31 +824,31 @@ block() {
  */
 void
 signal(ThreadId id) {
-    uint64_t oldWakeupTime = id.context->wakeupTimeInCycles;
-    timeTrace("Core %d: Just read old wakeup time",
+    // Try to CAS first, assuming the common case is that thread being
+    // signalled is blocked rather than sleeping.  This way, we avoid taking a
+    // cache miss to first read the value before attmepting to the CAS, and get
+    // the value if the CAS fails.
+    uint64_t oldWakeupTime = ThreadContext::BLOCKED;
+    uint64_t newValue = 0L;
+    timeTrace("Core %d: About to CAS the wakeupTimeInCycles",
               Arachne::core.kernelThreadId);
-    if (oldWakeupTime != ThreadContext::UNOCCUPIED) {
-        // We do the CAS in assembly because we do not want to pay for the
-        // extra memory fences for ordinary stores that std::atomic adds.
-        uint64_t newValue = 0L;
-        timeTrace("Core %d: About to CAS the wakeupTimeInCycles",
-                  Arachne::core.kernelThreadId);
-        __asm__ __volatile__("lock; cmpxchgq %0,%1"
-                             : "=r"(newValue),
-                               "=m"(id.context->wakeupTimeInCycles),
-                               "=a"(oldWakeupTime)
-                             : "0"(newValue), "2"(oldWakeupTime));
-        timeTrace("Core %d: Finished CASing the wakeup time in cycles",
-                  Arachne::core.kernelThreadId);
-
-        // Raise the priority of the newly awakened thread.
-        if (id.context->coreId != static_cast<uint8_t>(~0))
-            *publicPriorityMasks[id.context->coreId] |=
-                (1L << id.context->idInCore);
-        timeTrace(
-            "Core %d: Finished raising priority of newly signalled thread.",
-            Arachne::core.kernelThreadId);
+    oldWakeupTime = compareExchange(&id.context->wakeupTimeInCycles,
+                                    oldWakeupTime, newValue);
+    timeTrace("Core %d: Finished CASing the wakeup time in cycles",
+              Arachne::core.kernelThreadId);
+    // We guessed wrong, try agian, with the new value if the old value was not
+    // UNOCCUPIED or already runnable.
+    if (oldWakeupTime != ThreadContext::BLOCKED &&
+        oldWakeupTime != ThreadContext::UNOCCUPIED && oldWakeupTime != 0L) {
+        compareExchange(&id.context->wakeupTimeInCycles, oldWakeupTime,
+                        newValue);
     }
+    // Raise the priority of the newly awakened thread.
+    if (id.context->coreId != static_cast<uint8_t>(~0))
+        *publicPriorityMasks[id.context->coreId] |=
+            (1L << id.context->idInCore);
+    timeTrace("Core %d: Finished raising priority of newly signalled thread.",
+              Arachne::core.kernelThreadId);
 }
 
 /**
