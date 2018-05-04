@@ -15,7 +15,9 @@
 
 #include "DefaultCorePolicy.h"
 #include <atomic>
+#include <string>
 #include "Arachne.h"
+#include <sched.h>
 
 namespace Arachne {
 
@@ -42,12 +44,54 @@ DefaultCorePolicy::DefaultCorePolicy(int maxNumCores, bool estimateLoad)
       coreAdjustmentShouldRun(estimateLoad),
       coreAdjustmentThreadStarted(false) {}
 
+// This will be used for the dispatch thread
+int firstCoreId = -1;
+
+/**
+ * Get the core id of the hypertwin of the given core. This code assumes there
+ * is only one such hypertwin on the system it is running on. It also assumes
+that hypertwins are delimited by the comma separator.
+ *
+ * \param coreId
+ *     The coreId whose hypertwin's ID will be returned.
+ */
+int
+getHyperTwin(int coreId) {
+    // This file contains the siblings of core coreId.
+    std::string siblingFilePath = "/sys/devices/system/cpu/cpu" +
+                                  std::to_string(coreId) +
+                                  "/topology/thread_siblings_list";
+    FILE* siblingFile = fopen(siblingFilePath.c_str(), "r");
+    int twin1, twin2;
+    // The first cpuid in the file is always that of the physical core
+    if (fscanf(siblingFile, "%d,%d", &twin1, &twin2) < 0) {
+        abort();
+    }
+    if (coreId == twin1)
+        return twin2;
+    return twin1;
+}
+
 /**
  * See documentation in CorePolicy.
  */
 void
 DefaultCorePolicy::coreAvailable(int myCoreId) {
     Lock guard(lock);
+    if (firstCoreId == -1) {
+        firstCoreId = sched_getcpu();
+        exclusiveCores.add(myCoreId);
+        return;
+    }
+    // Found the hypertwin of firstCoreId
+    if (sched_getcpu() == getHyperTwin(firstCoreId)) {
+        exclusiveCores.add(myCoreId);
+        // Schedule an idle thread onto it. Never add to sharedCores, so no
+        // chance of reclamation.
+        idleCore(myCoreId);
+        return;
+    }
+    // This does not run if we became the first core.
     sharedCores.add(myCoreId);
     if (!coreAdjustmentThreadStarted && coreAdjustmentShouldRun) {
         if (Arachne::createThread(&DefaultCorePolicy::adjustCores, this) ==
@@ -86,7 +130,7 @@ DefaultCorePolicy::getCores(int threadClass) {
         case DEFAULT:
             return sharedCores;
         case EXCLUSIVE:
-            int coreId = getExclusiveCore();
+            int coreId = exclusiveCores[0];
             if (coreId < 0)
                 break;
             CorePolicy::CoreList retVal(1, /*mustFree=*/true);
