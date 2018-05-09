@@ -133,11 +133,11 @@ arachne_thread_yield() {
 
 /**
  * This function is used to get thread local variable
- * Arachne::core.kernelThreadId
+ * Arachne::core.id
  */
 int
 arachne_thread_getid() {
-    return Arachne::core.kernelThreadId;
+    return Arachne::core.id;
 }
 
 /**

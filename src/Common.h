@@ -65,12 +65,9 @@ struct Core {
     ThreadContext** localThreadContexts;
 
     /**
-     * Holds the identifier for the thread in which it is stored: allows each
-     * kernel thread to identify itself. This should eventually become a
-     * coreId, when we support multiple kernel threads per core to handle
-     * blocking system calls.
+     * The unique identifier given by the Linux kernel for this core.
      */
-    int kernelThreadId = -1;
+    int id = -1;
 
     /**
      * This is the context of the thread that a given core is currently
@@ -92,6 +89,12 @@ struct Core {
      * thread exit.
      */
     std::atomic<uint64_t>* localPinnedContexts;
+
+    /**
+     * Setting a jth bit indicates that the priority of the thread living at
+     * index j is temporarily raised.
+     */
+    std::atomic<uint64_t>* publicPriorityMask;
 
     /**
      * A bitmask in which set bits represent contexts that should run with
