@@ -68,8 +68,7 @@ class SpinLock {
                 if (Cycles::toSeconds(now - startOfContention) > 1.0) {
                     ARACHNE_LOG(
                         WARNING,
-                        "%s SpinLock locked for one second; deadlock?\n",
-                        name);
+                        "%s SpinLock locked for one second; deadlock?\n", name);
                     startOfContention = now;
                 }
             }
