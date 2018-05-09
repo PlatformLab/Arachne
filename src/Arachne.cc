@@ -69,11 +69,6 @@ volatile uint32_t minNumCores;
 std::atomic<uint32_t> numActiveCores;
 
 /**
- * The ID of the next kernel thread to be allocated.
- */
-static std::atomic<int> nextKernelThreadId(0);
-
-/**
  * Number of requests to yield cores back to the arbiter that have not yet been
  * satisfied.
  */
@@ -223,6 +218,7 @@ void checkForArbiterRequest();
 // undefined reference error.
 const uint64_t ThreadContext::BLOCKED = ~0L;
 const uint64_t ThreadContext::UNOCCUPIED = ~0L - 1;
+const uint8_t ThreadContext::CORE_UNASSIGNED = ~0L;
 const uint8_t MaskAndCount::EXCLUSIVE = maxThreadsPerCore * 2 + 1;
 
 /**
@@ -247,6 +243,55 @@ alignedAlloc(size_t size, size_t alignment) {
 }
 
 /**
+ * Initialize thread local data structures that will later be "registered"
+ * in a global array depending on the real core id assigned by the core
+ * arbiter.
+ */
+void
+initializeCore(Core* core) {
+    core->localOccupiedAndCount =
+        reinterpret_cast<std::atomic<Arachne::MaskAndCount>*>(
+            alignedAlloc(sizeof(std::atomic<MaskAndCount>)));
+    memset(core->localOccupiedAndCount, 0, sizeof(std::atomic<MaskAndCount>));
+
+    core->localPinnedContexts = reinterpret_cast<std::atomic<uint64_t>*>(
+        alignedAlloc(sizeof(uint64_t)));
+    // All cores initially poll for work on context 0's stack.
+    core->localPinnedContexts->store(1U);
+
+    core->publicPriorityMask = reinterpret_cast<std::atomic<uint64_t>*>(
+        alignedAlloc(sizeof(std::atomic<uint64_t>)));
+    memset(core->publicPriorityMask, 0, sizeof(std::atomic<uint64_t>));
+
+    // Allocate stacks and contexts
+    ThreadContext** contexts = new ThreadContext*[maxThreadsPerCore];
+    for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
+        contexts[k] = reinterpret_cast<ThreadContext*>(
+            alignedAlloc(sizeof(ThreadContext)));
+        new (contexts[k]) ThreadContext(k);
+    }
+    core->localThreadContexts = contexts;
+}
+
+/**
+ * Release resources allocated during initializeCore().
+ */
+void
+deinitializeCore(Core* core) {
+    free(core->localOccupiedAndCount);
+    free(core->localPinnedContexts);
+    free(core->publicPriorityMask);
+
+    for (int k = 0; k < maxThreadsPerCore; k++) {
+        free(core->localThreadContexts[k]->stack);
+        core->localThreadContexts[k]->joinLock.~SpinLock();
+        core->localThreadContexts[k]->joinCV.~ConditionVariable();
+        free(core->localThreadContexts[k]);
+    }
+    delete[] core->localThreadContexts;
+}
+
+/**
  * Main function for a kernel thread, which roughly corresponds to a core.
  */
 void
@@ -254,16 +299,15 @@ threadMain() {
     if (initCore)
         initCore();
 
-    // This is currently assigned and never changes. It will switch to physical
-    // core ID after we have built the infrastructure for it.
-    core.kernelThreadId = nextKernelThreadId.fetch_add(1);
-
-    // Register the address of our IdleTimeTracker::lastTotalCollectionTime
-    // with a global index.
-    lastTotalCollectionTime[core.kernelThreadId] =
-        &IdleTimeTracker::lastTotalCollectionTime;
+    initializeCore(&core);
     for (;;) {
-        coreArbiter->blockUntilCoreAvailable();
+        // Get kernelThreadId from coreArbiter
+        core.kernelThreadId = coreArbiter->blockUntilCoreAvailable();
+
+        // Register the address of our IdleTimeTracker::lastTotalCollectionTime
+        // with a global index.
+        lastTotalCollectionTime[core.kernelThreadId] =
+            &IdleTimeTracker::lastTotalCollectionTime;
         {
             std::lock_guard<std::mutex> guard(ownedCoresMutex);
             ownedCores.push_back(core.kernelThreadId);
@@ -274,24 +318,28 @@ threadMain() {
             break;
         {
             std::lock_guard<SpinLock> _(coreChangeMutex);
-            core.localOccupiedAndCount = occupiedAndCount[core.kernelThreadId];
-            core.localPinnedContexts = pinnedContexts[core.kernelThreadId];
-            core.localThreadContexts = allThreadContexts[core.kernelThreadId];
+            occupiedAndCount[core.kernelThreadId] = core.localOccupiedAndCount;
+            pinnedContexts[core.kernelThreadId] = core.localPinnedContexts;
+            allThreadContexts[core.kernelThreadId] = core.localThreadContexts;
+            publicPriorityMasks[core.kernelThreadId] = core.publicPriorityMask;
 
             IdleTimeTracker::lastTotalCollectionTime = 0;
-            // Clean up state from the previous thread that was using this data
-            // structure.
+            // Clean up state from the last time this thread ran. This should
+            // eventually be removed once we ensure that cleanup happens on
+            // descheduling.
             *core.localOccupiedAndCount = {0, 0};
-            *publicPriorityMasks[core.kernelThreadId] = 0;
+            *core.publicPriorityMask = 0;
             core.privatePriorityMask = 0;
         }
 
-        // Correct the ThreadContext.coreId() here to match the existing core.
+        // Correct the ThreadContext.coreId() here to match the current core.
         // We must do these operations before making cores available for
-        // scheduling because otherwise our ThreadContexts may be targetted for
-        // migration before stacks are initialized.
+        // scheduling because otherwise our ThreadContexts may be targeted for
+        // migration before their stacks are initialized.
         for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
             core.localThreadContexts[k]->coreId =
+                static_cast<uint8_t>(core.kernelThreadId);
+            core.localThreadContexts[k]->originalCoreId =
                 static_cast<uint8_t>(core.kernelThreadId);
             core.localThreadContexts[k]->initializeStack();
         }
@@ -350,6 +398,8 @@ threadMain() {
         }
         PerfStats::threadStats.numCoreDecrements++;
     }
+    deinitializeCore(&core);
+
     PerfStats::deregisterStats(&PerfStats::threadStats);
     coreArbiter->unregisterThread();
 }
@@ -501,8 +551,7 @@ schedulerMainLoop() {
         // Newborn threads should not have elevated priority, even if the
         // predecessors had leftover priority
         core.privatePriorityMask &= ~(1L << (core.loadedContext->idInCore));
-        *publicPriorityMasks[core.kernelThreadId] &=
-            ~(1L << (core.loadedContext->idInCore));
+        *core.publicPriorityMask &= ~(1L << (core.loadedContext->idInCore));
         PerfStats::threadStats.numThreadsFinished++;
 
         core.loadedContext->joinCV.notifyAll();
@@ -589,10 +638,9 @@ dispatch() {
     // Check for high priority threads.
     if (!core.privatePriorityMask) {
         // Copy & paste from the public list.
-        core.privatePriorityMask = *publicPriorityMasks[core.kernelThreadId];
+        core.privatePriorityMask = *core.publicPriorityMask;
         if (core.privatePriorityMask)
-            *publicPriorityMasks[core.kernelThreadId] &=
-                ~core.privatePriorityMask;
+            *core.publicPriorityMask &= ~core.privatePriorityMask;
     }
 
     // Run any high priority threads before searching the entire set of
@@ -744,12 +792,13 @@ block() {
  * \param newValue
  *    The value to set if the test succeeds.
  */
-uint64_t compareExchange(volatile uint64_t* target, uint64_t test, uint64_t newValue) {
-    __asm__ __volatile__("lock; cmpxchgq %0,%1" : "=r" (newValue),
-            "=m" (*target), "=a" (test) : "0" (newValue), "2" (test));
+uint64_t
+compareExchange(volatile uint64_t* target, uint64_t test, uint64_t newValue) {
+    __asm__ __volatile__("lock; cmpxchgq %0,%1"
+                         : "=r"(newValue), "=m"(*target), "=a"(test)
+                         : "0"(newValue), "2"(test));
     return test;
 }
-
 
 /**
  * Make the thread referred to by ThreadId runnable.
@@ -763,32 +812,34 @@ uint64_t compareExchange(volatile uint64_t* target, uint64_t test, uint64_t newV
  */
 void
 signal(ThreadId id) {
-    // Speculatively assume that that the read being signaled is in the BLOCKED
-    // state, and retry the CAS if it is not. This approach avoids first taking
-    // a cache miss to read and then performing a CAS in the case when the
-    // target thread is actually BLOCKED.
-    // Experiments show that this approach can save 40 ns compared to explicitly reading
-    // wakeupTimeInCycles and then performing the CAS.
+    // Speculatively assume that that the thread being signaled is in the
+    // BLOCKED state, and retry the CAS if it is not. This approach avoids
+    // first taking a cache miss to read and then performing a CAS in the case
+    // when the target thread is actually BLOCKED.
+    // Experiments show that this approach can save 40 ns compared to explicitly
+    // reading wakeupTimeInCycles and then performing the CAS.
     //
     // When explicitly reading, we pay:
     //     1 cache miss to read on the signaler core.
     //     1 cache invalidate other caches during the CAS.
     //     1 cache miss to read on the target core.
-    // Under the CAS-first approach, if the wakeupTimeInCycles == BLOCKED, we pay:
+    // Under the CAS-first approach, if the wakeupTimeInCycles == BLOCKED, we
+    // pay:
     //     1 cache invalidate other caches during the CAS.
     //     1 cache miss to read on the target core.
     uint64_t oldWakeupTime = ThreadContext::BLOCKED;
     uint64_t newValue = 0L;
-    oldWakeupTime = compareExchange(&id.context->wakeupTimeInCycles, oldWakeupTime, newValue);
+    oldWakeupTime = compareExchange(&id.context->wakeupTimeInCycles,
+                                    oldWakeupTime, newValue);
 
     // The original value was not BLOCKED, so we try again wtih the true
     // original value, unless the target is already runnable or UNOCCUPIED.
     // This typically happens if the target thread was sleeping rather than
     // blocked.
     if (oldWakeupTime != ThreadContext::BLOCKED &&
-            oldWakeupTime != ThreadContext::UNOCCUPIED &&
-            oldWakeupTime != 0L) {
-        compareExchange(&id.context->wakeupTimeInCycles, oldWakeupTime, newValue);
+        oldWakeupTime != ThreadContext::UNOCCUPIED && oldWakeupTime != 0L) {
+        compareExchange(&id.context->wakeupTimeInCycles, oldWakeupTime,
+                        newValue);
     }
     // Raise the priority of the newly awakened thread.
     if (id.context->coreId != static_cast<uint8_t>(~0))
@@ -832,18 +883,6 @@ waitForTermination() {
     kernelThreads.clear();
     kernelThreadStacks.clear();
 
-    for (size_t i = 0; i < maxNumCores; i++) {
-        for (int k = 0; k < maxThreadsPerCore; k++) {
-            free(allThreadContexts[i][k]->stack);
-            allThreadContexts[i][k]->joinLock.~SpinLock();
-            allThreadContexts[i][k]->joinCV.~ConditionVariable();
-            free(allThreadContexts[i][k]);
-        }
-        delete[] allThreadContexts[i];
-        free(occupiedAndCount[i]);
-        free(pinnedContexts[i]);
-        free(publicPriorityMasks[i]);
-    }
     delete[] coreIdle;
     allThreadContexts.clear();
     occupiedAndCount.clear();
@@ -943,13 +982,13 @@ parseOptions(int* argcp, const char** argv) {
     *argcp = argc;
 }
 
-ThreadContext::ThreadContext(uint8_t coreId, uint8_t idInCore)
+ThreadContext::ThreadContext(uint8_t idInCore)
     : stack(NULL),
       sp(NULL),
       generation(1),
       joinLock(),
       joinCV(),
-      coreId(coreId),
+      coreId(CORE_UNASSIGNED),
       originalCoreId(coreId),
       idInCore(idInCore),
       threadInvocation(),
@@ -1074,9 +1113,9 @@ init(int* argcp, const char** argv) {
         coreArbiter = CoreArbiterClient::getInstance(coreArbiterSocketPath);
     }
 
+    volatile uint32_t numHardwareCores = std::thread::hardware_concurrency();
     // CoreArbiter reserves 1 core to run non-Arachne threads.
-    volatile uint32_t hardwareCoresAvailable =
-        std::thread::hardware_concurrency() - 1;
+    volatile uint32_t hardwareCoresAvailable = numHardwareCores - 1;
     if (minNumCores == 0)
         minNumCores = 1;
     if (maxNumCores == 0)
@@ -1093,55 +1132,33 @@ init(int* argcp, const char** argv) {
     }
 
     if (corePolicy == NULL) {
-        corePolicy =
-            new DefaultCorePolicy(maxNumCores, !disableLoadEstimation);
+        corePolicy = new DefaultCorePolicy(maxNumCores, !disableLoadEstimation);
     }
 
-    std::vector<uint32_t> coreRequest({minNumCores, 0, 0, 0, 0, 0, 0, 0});
-    coreArbiter->setRequestedCores(coreRequest);
     coreReleaseRequestCount = 0;
-    lastTotalCollectionTime.resize(maxNumCores);
-
-    // We assume that maxNumCores will not be exceeded in the lifetime of this
-    // application.
-    coreIdle = new std::atomic<bool>[maxNumCores];
-    for (unsigned int i = 0; i < maxNumCores; i++) {
-        occupiedAndCount.push_back(
-            reinterpret_cast<std::atomic<Arachne::MaskAndCount>*>(
-                alignedAlloc(sizeof(MaskAndCount))));
-        memset(occupiedAndCount.back(), 0, sizeof(std::atomic<MaskAndCount>));
-
-        pinnedContexts.push_back(reinterpret_cast<std::atomic<uint64_t>*>(
-            alignedAlloc(sizeof(uint64_t))));
-        // Initialized to pin context 0.
-        pinnedContexts.back()->store(1U);
-
-        publicPriorityMasks.push_back(reinterpret_cast<std::atomic<uint64_t>*>(
-            alignedAlloc(sizeof(std::atomic<uint64_t>))));
-        memset(publicPriorityMasks.back(), 0, sizeof(std::atomic<uint64_t>));
-        // Here we will allocate all the thread contexts and stacks
-        ThreadContext** contexts = new ThreadContext*[maxThreadsPerCore];
-        for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
-            contexts[k] = reinterpret_cast<ThreadContext*>(
-                alignedAlloc(sizeof(ThreadContext)));
-            new (contexts[k]) ThreadContext(static_cast<uint8_t>(i), k);
-        }
-        allThreadContexts.push_back(contexts);
+    lastTotalCollectionTime.resize(numHardwareCores);
+    // Create enough data structures to account for every core in the system.
+    occupiedAndCount.resize(numHardwareCores);
+    pinnedContexts.resize(numHardwareCores);
+    publicPriorityMasks.resize(numHardwareCores);
+    allThreadContexts.resize(numHardwareCores);
+    coreIdle = new std::atomic<bool>[numHardwareCores];
+    for (unsigned int i = 0; i < numHardwareCores; i++) {
         coreIdleSemaphores.push_back(new ::Semaphore);
         coreIdle[i].store(false);
     }
 
     // Allocate space to store all the original kernel pointers
-    kernelThreadStacks.resize(maxNumCores);
+    kernelThreadStacks.resize(numHardwareCores);
     shutdown = false;
-
-    // Reset the nextKernelThreadId so that a de-initialization followed by a
-    // re-initialization works correctly.
-    nextKernelThreadId.store(0);
 
     // Ensure that data structure and stack allocation completes before we
     // begin to use it in a new thread.
     PerfUtils::Util::serialize();
+
+    // Request the mininum number of cores.
+    std::vector<uint32_t> coreRequest({minNumCores, 0, 0, 0, 0, 0, 0, 0});
+    coreArbiter->setRequestedCores(coreRequest);
 
     // Note that the main thread is not part of the thread pool.
     for (unsigned int i = 0; i < maxNumCores; i++) {
@@ -1172,25 +1189,8 @@ init(int* argcp, const char** argv) {
  */
 void
 testInit() {
-    // NB: This technically leads to sharing memory with the highest index of
-    // publicPriorityMasks, as well any other place where core.kernelThreadId is
-    // used as an index.
-    core.kernelThreadId = maxNumCores - 1;
-    core.localOccupiedAndCount =
-        reinterpret_cast<std::atomic<Arachne::MaskAndCount>*>(
-            alignedAlloc(sizeof(MaskAndCount)));
-    memset(core.localOccupiedAndCount, 0, sizeof(MaskAndCount));
-
-    core.localThreadContexts = new ThreadContext*[maxThreadsPerCore];
+    initializeCore(&core);
     for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
-        // Technically, this allocates a bunch of user stacks which will never
-        // be used, and it can be optimized out if it turns out to be too
-        // expensive.
-        core.localThreadContexts[k] = reinterpret_cast<ThreadContext*>(
-            alignedAlloc(sizeof(ThreadContext)));
-        new (core.localThreadContexts[k]) ThreadContext(~0, k);
-        core.localThreadContexts[k]->wakeupTimeInCycles =
-            ThreadContext::BLOCKED;
         // It is important to re-initialize stacks here because some of the
         // contexts may be in the middle of dispatch calls from
         // schedulerMainLoop and switching to them will a spurious return from
@@ -1199,6 +1199,7 @@ testInit() {
         core.localThreadContexts[k]->initializeStack();
     }
     core.loadedContext = *core.localThreadContexts;
+    core.loadedContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
     *core.localOccupiedAndCount = {1, 1};
 }
 
@@ -1208,18 +1209,7 @@ testInit() {
  */
 void
 testDestroy() {
-    free(core.localOccupiedAndCount);
-    for (int k = 0; k < maxThreadsPerCore; k++) {
-        free(core.localThreadContexts[k]->stack);
-        core.localThreadContexts[k]->joinLock.~SpinLock();
-        core.localThreadContexts[k]->joinCV.~ConditionVariable();
-
-        free(core.localThreadContexts[k]);
-    }
-    delete[] core.localThreadContexts;
-    core.kernelThreadId = -1;
-    core.loadedContext = NULL;
-    *core.localOccupiedAndCount = {0, 0};
+    deinitializeCore(&core);
 }
 
 /**
