@@ -570,8 +570,8 @@ dispatch() {
     // other kernel threads, since core.loadedContext is not reloaded correctly
     // from TLS after switching back to this context.
     ThreadContext* originalContext = core.loadedContext;
-    if (*reinterpret_cast<uint64_t*>(core.loadedContext->stack) !=
-        STACK_CANARY) {
+    if (unlikely(*reinterpret_cast<uint64_t*>(core.loadedContext->stack) !=
+        STACK_CANARY)) {
         ARACHNE_LOG(ERROR,
                     "Stack overflow detected on %p. Canary = %lu."
                     " Aborting...\n",
