@@ -23,7 +23,6 @@
 
 #include "Arachne.h"
 #include "CoreArbiter/ArbiterClientShim.h"
-#include "CoreArbiter/Semaphore.h"
 
 namespace Arachne {
 
@@ -164,9 +163,6 @@ std::vector<uint64_t*> lastTotalCollectionTime;
  * Values pointed to must be in separate cache lines for high performance.
  */
 std::vector<std::atomic<uint64_t>*> publicPriorityMasks;
-
-/* Which cores are idled? */
-std::atomic<bool>* coreIdle;
 
 /**
  * An array of semaphores cores can park on to idle themselves.
@@ -619,7 +615,7 @@ dispatch() {
     // from TLS after switching back to this context.
     ThreadContext* originalContext = core.loadedContext;
     if (unlikely(*reinterpret_cast<uint64_t*>(core.loadedContext->stack) !=
-        STACK_CANARY)) {
+                 STACK_CANARY)) {
         ARACHNE_LOG(ERROR,
                     "Stack overflow detected on %p. Canary = %lu."
                     " Aborting...\n",
@@ -882,7 +878,6 @@ waitForTermination() {
     kernelThreads.clear();
     kernelThreadStacks.clear();
 
-    delete[] coreIdle;
     allThreadContexts.clear();
     occupiedAndCount.clear();
     pinnedContexts.clear();
@@ -1140,10 +1135,8 @@ init(int* argcp, const char** argv) {
     pinnedContexts.resize(numHardwareCores);
     publicPriorityMasks.resize(numHardwareCores);
     allThreadContexts.resize(numHardwareCores);
-    coreIdle = new std::atomic<bool>[numHardwareCores];
     for (unsigned int i = 0; i < numHardwareCores; i++) {
         coreIdleSemaphores.push_back(new ::Semaphore);
-        coreIdle[i].store(false);
     }
 
     // Allocate space to store all the original kernel pointers
@@ -1716,18 +1709,16 @@ releaseCore() {
 
 /*
  * Put the core into the most quiescent possible state to minimize performance
- * interference with the hypertwin.
+ * interference with the hypertwin. Note that a core only becomes unidled if
+ * there have been at least as many calls to unidleCore  as there are idleCore.
  *
  * \param coreId
  *     The coreId of the core that will idle
  */
 void
 idleCore(int coreId) {
-    if (!coreIdle[coreId]) {
-        coreIdle[coreId] = true;
-        if (createThreadOnCore(coreId, idleCorePrivate) == NullThread) {
-            ARACHNE_LOG(ERROR, "Error creating idleCorePrivate thread\n");
-        }
+    if (createThreadOnCore(coreId, idleCorePrivate) == NullThread) {
+        ARACHNE_LOG(ERROR, "Error creating idleCorePrivate thread\n");
     }
 }
 
@@ -1742,11 +1733,11 @@ void
 idleCorePrivate() {
     // Our experiments show that Linux will put the core to sleep.
     coreIdleSemaphores[core.kernelThreadId]->wait();
-    coreIdle[core.kernelThreadId] = false;
 }
 
 /*
- * Unidle an idled core.  Do nothing to cores that are not currently idled.
+ * Unidle an core. If it was not idle, the next call to idleCore will not idle
+ * the core.
  *
  * \param coreId
  *     The coreId of the core that will be unidled.
