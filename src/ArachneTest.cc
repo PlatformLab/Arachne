@@ -981,18 +981,42 @@ TEST_F(ArachneTest, idleAndUnidle) {
     int core0 = corePolicy->getCores(0)[0];
     int core1 = corePolicy->getCores(0)[1];
     int core2 = corePolicy->getCores(0)[2];
+
     idleCore(core0);
     idleCore(core2);
-    limitedTimeWait([core2]() -> bool { return Arachne::coreIdle[core2]; });
-    EXPECT_TRUE(Arachne::coreIdle[core0]);
-    EXPECT_FALSE(Arachne::coreIdle[core1]);
-    EXPECT_TRUE(Arachne::coreIdle[core2]);
+
+    limitedTimeWait([core2]() -> bool {
+        return Arachne::coreIdleSemaphores[core2]->get_num_blocked_for_test() ==
+               1;
+    });
+    limitedTimeWait([core0]() -> bool {
+        return Arachne::coreIdleSemaphores[core0]->get_num_blocked_for_test() ==
+               1;
+    });
+
+    EXPECT_EQ(1,
+              Arachne::coreIdleSemaphores[core0]->get_num_blocked_for_test());
+    EXPECT_EQ(1,
+              Arachne::coreIdleSemaphores[core2]->get_num_blocked_for_test());
+
     unidleCore(core0);
     unidleCore(core2);
-    limitedTimeWait([core2]() -> bool { return !Arachne::coreIdle[core2]; });
-    EXPECT_FALSE(Arachne::coreIdle[core0]);
-    EXPECT_FALSE(Arachne::coreIdle[core1]);
-    EXPECT_FALSE(Arachne::coreIdle[core2]);
+
+    limitedTimeWait([core2]() -> bool {
+        return Arachne::coreIdleSemaphores[core2]->get_num_blocked_for_test() ==
+               0;
+    });
+    limitedTimeWait([core0]() -> bool {
+        return Arachne::coreIdleSemaphores[core0]->get_num_blocked_for_test() ==
+               0;
+    });
+
+    EXPECT_EQ(0,
+              Arachne::coreIdleSemaphores[core0]->get_num_blocked_for_test());
+    EXPECT_EQ(0,
+              Arachne::coreIdleSemaphores[core1]->get_num_blocked_for_test());
+    EXPECT_EQ(0,
+              Arachne::coreIdleSemaphores[core2]->get_num_blocked_for_test());
 }
 
 TEST_F(ArachneTest, nestedDispatchDetector) {
