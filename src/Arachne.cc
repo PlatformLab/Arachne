@@ -89,13 +89,6 @@ volatile uint32_t maxNumCores;
 SpinLock coreChangeMutex(false);
 
 /**
- * The mutex above cannot be held across the scaling up and down of the number
- * of cores, so this variable is set when there is a core change in effect, to
- * prevent multiple core changes from occurring simultaneously.
- */
-std::atomic<bool> coreChangeActive;
-
-/**
  * Used to ensure that only one thread attempts to become exclusive or shared
  * at a time. This protects against a thread being migrated while it is
  * halfway through makeExclusiveOnCore and making incorrect assumptions about
@@ -351,8 +344,6 @@ threadMain() {
             TimeTrace::record("Core Count %d --> %d", numActiveCores - 1,
                               numActiveCores.load());
 #endif
-            if (coreChangeActive)
-                coreChangeActive = false;
             PerfStats::threadStats.numCoreIncrements++;
         }
 
@@ -382,13 +373,11 @@ threadMain() {
             TimeTrace::record("Core Count %d --> %d", numActiveCores + 1,
                               numActiveCores.load());
 #endif
-            coreChangeActive = false;
 
             // Cleanup is completed, so we can carry on with the next core
             // release if needed.
             coreReleaseRequestCount--;
             if (coreReleaseRequestCount) {
-                coreChangeActive = true;
                 descheduleCore();
             }
         }
@@ -1443,7 +1432,6 @@ descheduleCore() {
     {
         std::lock_guard<std::mutex> guard(ownedCoresMutex);
         if (ownedCores.size() == 0) {
-            coreChangeActive = false;
             ARACHNE_LOG(
                 WARNING,
                 "Descheduling core failed due to lack of available cores!\n");
@@ -1455,50 +1443,23 @@ descheduleCore() {
     }
     if (createThreadOnCore(coreId, releaseCore) == NullThread) {
         corePolicy->coreAvailable(coreId);
-        coreChangeActive = false;
         ARACHNE_LOG(WARNING, "Release core thread creation failed to %d!\n",
                     coreId);
     }
 }
 
 /**
- * This function can be called from CorePolicys to increase the number of
- * cores used by Arachne.
+ * This function tells the CoreArbiter the currently desired number of cores.
  */
-void
-incrementCoreCount() {
+void setCoreCount(uint32_t desiredNumCores) {
     std::lock_guard<SpinLock> _(coreChangeMutex);
-    if (coreChangeActive)
-        return;
-    if (numActiveCores >= maxNumCores)
+    if (desiredNumCores < minNumCores || desiredNumCores > maxNumCores)
         return;
 
-    coreChangeActive = true;
-    ARACHNE_LOG(NOTICE, "Attempting to increase number of cores %u --> %u\n",
-                numActiveCores.load(), numActiveCores + 1);
+    ARACHNE_LOG(NOTICE, "Attempting to change number of cores: %u --> %u\n",
+                    numActiveCores.load(), desiredNumCores);
     std::vector<uint32_t> coreRequest(
-        {numActiveCores + 1, 0, 0, 0, 0, 0, 0, 0});
-    coreArbiter->setRequestedCores(coreRequest);
-}
-
-/**
- * This function can be called from any thread to attempt to decrease the
- * number of cores used by Arachne. It may return before a core is actually
- * released, and there is no guarantee that a core will be released.
- */
-void
-decrementCoreCount() {
-    std::lock_guard<SpinLock> _(coreChangeMutex);
-    if (coreChangeActive)
-        return;
-    if (numActiveCores <= minNumCores)
-        return;
-
-    coreChangeActive = true;
-    ARACHNE_LOG(NOTICE, "Attempting to decrease number of cores %u --> %u\n",
-                numActiveCores.load(), numActiveCores - 1);
-    std::vector<uint32_t> coreRequest(
-        {numActiveCores - 1, 0, 0, 0, 0, 0, 0, 0});
+        {desiredNumCores, 0, 0, 0, 0, 0, 0, 0});
     coreArbiter->setRequestedCores(coreRequest);
 }
 
@@ -1526,7 +1487,6 @@ checkForArbiterRequest() {
         // We must prevent future core changes here because we may have been
         // asked to release core without first asking the arbiter to reduce our
         // core count.
-        coreChangeActive = true;
         descheduleCore();
     }
 }
