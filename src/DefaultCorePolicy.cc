@@ -22,8 +22,7 @@ namespace Arachne {
 // Forward declarations
 void prepareForExclusiveUse(int coreId);
 int findAndClaimUnusedCore(CorePolicy::CoreList* cores);
-void decrementCoreCount();
-void incrementCoreCount();
+void setCoreCount(uint32_t desiredNumCores);
 extern std::vector<uint64_t*> lastTotalCollectionTime;
 
 // Constructor
@@ -157,7 +156,7 @@ DefaultCorePolicy::adjustCores() {
             continue;
         if (estimate == -1) {
             if (sharedCores.size() > 1)
-                decrementCoreCount();
+                setCoreCount(Arachne::numActiveCores - 1);
             continue;
         }
         // Estimator believes we need more cores.
@@ -173,7 +172,7 @@ DefaultCorePolicy::adjustCores() {
         }
 
         // Then try to incrementCoreCount the traditional way.
-        incrementCoreCount();
+        setCoreCount(Arachne::numActiveCores + 1);
     }
 }
 }  // namespace Arachne

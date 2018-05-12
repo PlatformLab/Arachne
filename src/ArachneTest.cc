@@ -894,55 +894,34 @@ TEST_F(ArachneTest, setErrorStream) {
     free(str);
 }
 
-TEST_F(ArachneTest, incrementCoreCount) {
-    void incrementCoreCount();
-    shutDown();
-    waitForTermination();
-    maxNumCores = 4;
-    Arachne::init();
-    DefaultCorePolicy* corePolicy =
-        reinterpret_cast<DefaultCorePolicy*>(getCorePolicy());
-    // Articially wake up one less than maximum threads.
-    std::vector<uint32_t> coreRequest({3, 0, 0, 0, 0, 0, 0, 0});
-    coreArbiter->setRequestedCores(coreRequest);
-    limitedTimeWait([]() -> bool { return numActiveCores == 3; });
-    char* str;
-    size_t size;
-    FILE* newStream = open_memstream(&str, &size);
-    setErrorStream(newStream);
-    EXPECT_EQ(corePolicy->sharedCores.size(), 3U);
-    incrementCoreCount();
-    limitedTimeWait([]() -> bool { return numActiveCores > 3; });
-    EXPECT_TRUE(
-        canThreadBeCreatedOnCore(0, corePolicy, corePolicy->sharedCores[3]));
-    fflush(newStream);
-    EXPECT_EQ("Attempting to increase number of cores 3 --> 4\n",
-              std::string(str));
-    free(str);
-}
-//
-TEST_F(ArachneTest, decrementCoreCount) {
-    void decrementCoreCount();
+TEST_F(ArachneTest, setCoreCount) {
+    void setCoreCount(uint32_t);
     char* str;
     size_t size;
     FILE* newStream = open_memstream(&str, &size);
     setErrorStream(newStream);
     DefaultCorePolicy* corePolicy =
         reinterpret_cast<DefaultCorePolicy*>(getCorePolicy());
-    EXPECT_TRUE(
-        canThreadBeCreatedOnCore(0, corePolicy, corePolicy->sharedCores[2]));
-    decrementCoreCount();
-    limitedTimeWait(
-        []() -> bool { return numActiveCores < 3 && !coreChangeActive; });
+    // Decrement test
+    EXPECT_EQ(3U, Arachne::numActiveCores);
+    setCoreCount(Arachne::numActiveCores - 1);
+    limitedTimeWait([]() -> bool { return numActiveCores < 3 ; });
     EXPECT_EQ(corePolicy->sharedCores.size(), 2U);
-    decrementCoreCount();
-    limitedTimeWait(
-        []() -> bool { return numActiveCores < 2 && !coreChangeActive; });
+    setCoreCount(Arachne::numActiveCores - 1);
+    limitedTimeWait([]() -> bool { return numActiveCores < 2; });
     EXPECT_EQ(corePolicy->sharedCores.size(), 1U);
+
+    // Increment test
+    EXPECT_EQ(1U, Arachne::numActiveCores);
+    setCoreCount(Arachne::numActiveCores + 1);
+    limitedTimeWait([]() -> bool { return numActiveCores > 1; });
+    EXPECT_EQ(corePolicy->sharedCores.size(), 2U);
+
     fflush(newStream);
     EXPECT_EQ(
-        "Attempting to decrease number of cores 3 --> 2\n"
-        "Attempting to decrease number of cores 2 --> 1\n",
+        "Attempting to change number of cores: 3 --> 2\n"
+        "Attempting to change number of cores: 2 --> 1\n"
+        "Attempting to change number of cores: 1 --> 2\n",
         std::string(str));
     free(str);
 }
