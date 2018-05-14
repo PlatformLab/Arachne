@@ -1426,8 +1426,6 @@ descheduleCore() {
     // Create a thread on the target core to handle the actual core release,
     // since we are currently borrowing an arbitrary context and should not
     // hold it for too long.
-    // If this creation fails, it implies that we are overloaded and should not
-    // ramp down.
     int coreId = -1;
     {
         std::lock_guard<std::mutex> guard(ownedCoresMutex);
@@ -1442,9 +1440,18 @@ descheduleCore() {
         corePolicy->coreUnavailable(coreId);
     }
     if (createThreadOnCore(coreId, releaseCore) == NullThread) {
-        corePolicy->coreAvailable(coreId);
         ARACHNE_LOG(WARNING, "Release core thread creation failed to %d!\n",
                     coreId);
+        // Since we failed to initiate the core release, Arachne still consider
+        // the core owned, as should the corePolicy.
+        corePolicy->coreAvailable(coreId);
+        {
+            std::lock_guard<std::mutex> guard(ownedCoresMutex);
+            ownedCores.push_back(coreId);
+        }
+        // Ensure that the request is attempted at some point in the future.
+        while (createThread(descheduleCore) == Arachne::NullThread)
+            ;
     }
 }
 
