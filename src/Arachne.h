@@ -310,10 +310,11 @@ struct ThreadContext {
     /// This will only change if a ThreadContext is migrated.
     uint8_t coreId;
 
-    /// Unique identifier for the core that this threadcontext lived on when
-    /// Arachne was first initialized.  This helps us determine whether the
-    /// thread was migrated, and where it was migrated from.
-    const uint8_t originalCoreId;
+    /// Unique identifier for the core that this threadcontext was most
+    /// recently initialized on. Initialization occurs as soon as a kernel
+    /// thread returns from blockUntilCoreAvailable(). This helps us determine
+    /// whether the thread was migrated, and where it was migrated from.
+    uint8_t originalCoreId;
 
     /// Specified by applications to indicate general properties of this thread
     /// (e.g. latency-sensitive foreground thread vs throughput-sensitive
@@ -366,7 +367,7 @@ struct ThreadContext {
     ThreadContext() = delete;
     ThreadContext(ThreadContext&) = delete;
 
-    explicit ThreadContext(uint8_t coreId, uint8_t idInCore);
+    explicit ThreadContext(uint8_t idInCore);
 };
 
 /**

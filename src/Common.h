@@ -94,6 +94,12 @@ struct Core {
     std::atomic<uint64_t>* localPinnedContexts;
 
     /**
+     * Setting a jth bit indicates that the priority of the thread living at
+     * index j is temporarily raised.
+     */
+    std::atomic<uint64_t>* publicPriorityMask;
+
+    /**
      * A bitmask in which set bits represent contexts that should run with
      * elevated priority.
      * Each call to dispatch() will examine this bitmask before searching other
