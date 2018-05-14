@@ -935,6 +935,7 @@ parseOptions(int* argcp, const char** argv) {
                 break;
             case 'p':
                 coreArbiterSocketPath = optionArgument;
+                break;
             case UNRECOGNIZED:
                 i++;
         }
