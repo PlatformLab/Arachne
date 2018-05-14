@@ -1443,6 +1443,14 @@ descheduleCore() {
         corePolicy->coreAvailable(coreId);
         ARACHNE_LOG(WARNING, "Release core thread creation failed to %d!\n",
                     coreId);
+
+        {
+            std::lock_guard<std::mutex> guard(ownedCoresMutex);
+            ownedCores.push_back(coreId);
+        }
+        // Ensure that the request is attempted at some point in the future.
+        while (createThread(descheduleCore) == Arachne::NullThread)
+            ;
     }
 }
 
