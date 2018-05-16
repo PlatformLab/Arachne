@@ -28,6 +28,7 @@
 #include <vector>
 
 #include "Common.h"
+#include "CoreArbiter/Semaphore.h"
 #include "CorePolicy.h"
 #include "Logger.h"
 #include "PerfStats.h"
@@ -74,8 +75,7 @@ extern std::vector<ThreadContext**> allThreadContexts;
 
 extern CorePolicy* corePolicy;
 
-extern std::atomic<bool>* coreIdle;
-
+extern std::vector<::Semaphore*> coreIdleSemaphores;
 /*
  * True means that the Core Load Estimator will not run; used only in unit
  * tests.
