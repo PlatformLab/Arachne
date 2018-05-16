@@ -82,9 +82,8 @@ uint32_t coreReleaseRequestCount = 0;
 volatile uint32_t maxNumCores;
 
 /**
- * Protect state related to changes in the number of cores, and prevents
- * multiple threads from simultaneously attempting to change the number of
- * cores.
+ * Protect coreReleaseRequestCount, and prevent multiple threads from
+ * attempting to deschedule the same core simultaneously.
  */
 SpinLock coreChangeMutex(false);
 
@@ -305,21 +304,18 @@ threadMain() {
         // result of a shutdown request.
         if (shutdown)
             break;
-        {
-            std::lock_guard<SpinLock> _(coreChangeMutex);
-            occupiedAndCount[core.kernelThreadId] = core.localOccupiedAndCount;
-            pinnedContexts[core.kernelThreadId] = core.localPinnedContexts;
-            allThreadContexts[core.kernelThreadId] = core.localThreadContexts;
-            publicPriorityMasks[core.kernelThreadId] = core.publicPriorityMask;
+        occupiedAndCount[core.kernelThreadId] = core.localOccupiedAndCount;
+        pinnedContexts[core.kernelThreadId] = core.localPinnedContexts;
+        allThreadContexts[core.kernelThreadId] = core.localThreadContexts;
+        publicPriorityMasks[core.kernelThreadId] = core.publicPriorityMask;
 
-            IdleTimeTracker::lastTotalCollectionTime = 0;
-            // Clean up state from the last time this thread ran. This should
-            // eventually be removed once we ensure that cleanup happens on
-            // descheduling.
-            *core.localOccupiedAndCount = {0, 0};
-            *core.publicPriorityMask = 0;
-            core.privatePriorityMask = 0;
-        }
+        IdleTimeTracker::lastTotalCollectionTime = 0;
+        // Clean up state from the last time this thread ran. This should
+        // eventually be removed once we ensure that cleanup happens on
+        // descheduling.
+        *core.localOccupiedAndCount = {0, 0};
+        *core.publicPriorityMask = 0;
+        core.privatePriorityMask = 0;
 
         // Correct the ThreadContext.coreId() here to match the current core.
         // We must do these operations before making cores available for
@@ -333,19 +329,16 @@ threadMain() {
             core.localThreadContexts[k]->initializeStack();
         }
 
-        {
-            std::lock_guard<SpinLock> _(coreChangeMutex);
-            // This marks the point at which new thread creations may begin.
-            corePolicy->coreAvailable(core.kernelThreadId);
-            numActiveCores++;
-            ARACHNE_LOG(DEBUG, "Number of cores increased from %d to %d\n",
-                        numActiveCores - 1, numActiveCores.load());
+        // This marks the point at which new thread creations may begin.
+        corePolicy->coreAvailable(core.kernelThreadId);
+        numActiveCores++;
+        ARACHNE_LOG(DEBUG, "Number of cores increased from %d to %d\n",
+                    numActiveCores - 1, numActiveCores.load());
 #if TIME_TRACE
-            TimeTrace::record("Core Count %d --> %d", numActiveCores - 1,
-                              numActiveCores.load());
+        TimeTrace::record("Core Count %d --> %d", numActiveCores - 1,
+                          numActiveCores.load());
 #endif
-            PerfStats::threadStats.numCoreIncrements++;
-        }
+        PerfStats::threadStats.numCoreIncrements++;
 
         // Correct statistics
         IdleTimeTracker::numThreadsRan = 0;
@@ -362,18 +355,18 @@ threadMain() {
         numActiveCores--;
         if (shutdown)
             break;
-        {
-            std::lock_guard<SpinLock> _(coreChangeMutex);
-            ARACHNE_LOG(DEBUG,
-                        "Number of cores decreased from %d to %d\n; Core %d "
-                        "going offline.",
-                        numActiveCores + 1, numActiveCores.load(),
-                        core.kernelThreadId);
+        ARACHNE_LOG(DEBUG,
+                    "Number of cores decreased from %d to %d\n; Core %d "
+                    "going offline.",
+                    numActiveCores + 1, numActiveCores.load(),
+                    core.kernelThreadId);
 #if TIME_TRACE
-            TimeTrace::record("Core Count %d --> %d", numActiveCores + 1,
-                              numActiveCores.load());
+        TimeTrace::record("Core Count %d --> %d", numActiveCores + 1,
+                          numActiveCores.load());
 #endif
 
+        {
+            std::lock_guard<SpinLock> _(coreChangeMutex);
             // Cleanup is completed, so we can carry on with the next core
             // release if needed.
             coreReleaseRequestCount--;
@@ -1458,15 +1451,15 @@ descheduleCore() {
 /**
  * This function tells the CoreArbiter the currently desired number of cores.
  */
-void setCoreCount(uint32_t desiredNumCores) {
+void
+setCoreCount(uint32_t desiredNumCores) {
     std::lock_guard<SpinLock> _(coreChangeMutex);
     if (desiredNumCores < minNumCores || desiredNumCores > maxNumCores)
         return;
 
     ARACHNE_LOG(NOTICE, "Attempting to change number of cores: %u --> %u\n",
-                    numActiveCores.load(), desiredNumCores);
-    std::vector<uint32_t> coreRequest(
-        {desiredNumCores, 0, 0, 0, 0, 0, 0, 0});
+                numActiveCores.load(), desiredNumCores);
+    std::vector<uint32_t> coreRequest({desiredNumCores, 0, 0, 0, 0, 0, 0, 0});
     coreArbiter->setRequestedCores(coreRequest);
 }
 
