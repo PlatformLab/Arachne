@@ -611,7 +611,10 @@ dispatch() {
 
     // Check for high priority threads.
     if (!core.privatePriorityMask) {
-        // Copy & paste from the public list.
+        // Snapshot the high-priority threads in a core-local data structure
+        // and process all of them before the next snapshot; this avoids cache
+        // contention every time the priority of a thread is raised, and
+        // ensures that one high priority thread cannot starve out another.
         core.privatePriorityMask = *core.publicPriorityMask;
         if (core.privatePriorityMask)
             *core.publicPriorityMask &= ~core.privatePriorityMask;
@@ -801,6 +804,9 @@ signal(ThreadId id) {
     // pay:
     //     1 cache invalidate other caches during the CAS.
     //     1 cache miss to read on the target core.
+    // This method uses CAS rather than a blind write to avoid accidentally
+    // signalling a thread that just exited, which might cause us to attempt to
+    // execute on an empty ThreadContext
     uint64_t oldWakeupTime = ThreadContext::BLOCKED;
     uint64_t newValue = 0L;
     oldWakeupTime = compareExchange(&id.context->wakeupTimeInCycles,

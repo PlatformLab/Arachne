@@ -311,6 +311,7 @@ struct ThreadContext {
 
     /// Unique identifier for the core that this thread currently lives on.
     /// This will only change if a ThreadContext is migrated.
+    /// Intended primarily for debugging.
     uint8_t coreId;
 
     /// Unique identifier for the core that this threadcontext was most
