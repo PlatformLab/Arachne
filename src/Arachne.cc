@@ -218,6 +218,7 @@ void checkForArbiterRequest();
 // undefined reference error.
 const uint64_t ThreadContext::BLOCKED = ~0L;
 const uint64_t ThreadContext::UNOCCUPIED = ~0L - 1;
+const uint8_t ThreadContext::CORE_UNASSIGNED = ~0L;
 const uint8_t MaskAndCount::EXCLUSIVE = maxThreadsPerCore * 2 + 1;
 
 /**
@@ -247,20 +248,20 @@ alignedAlloc(size_t size, size_t alignment) {
  * arbiter.
  */
 void
-initializeCore() {
-    core.localOccupiedAndCount =
+initializeCore(Core* core) {
+    core->localOccupiedAndCount =
         reinterpret_cast<std::atomic<Arachne::MaskAndCount>*>(
-            alignedAlloc(sizeof(MaskAndCount)));
-    memset(core.localOccupiedAndCount, 0, sizeof(std::atomic<MaskAndCount>));
+            alignedAlloc(sizeof(std::atomic<MaskAndCount>)));
+    memset(core->localOccupiedAndCount, 0, sizeof(std::atomic<MaskAndCount>));
 
-    core.localPinnedContexts = reinterpret_cast<std::atomic<uint64_t>*>(
+    core->localPinnedContexts = reinterpret_cast<std::atomic<uint64_t>*>(
         alignedAlloc(sizeof(uint64_t)));
-    // Initialized to pin context 0.
-    core.localPinnedContexts->store(1U);
+    // All cores initially poll for work on context 0's stack.
+    core->localPinnedContexts->store(1U);
 
-    core.publicPriorityMask = reinterpret_cast<std::atomic<uint64_t>*>(
+    core->publicPriorityMask = reinterpret_cast<std::atomic<uint64_t>*>(
         alignedAlloc(sizeof(std::atomic<uint64_t>)));
-    memset(core.publicPriorityMask, 0, sizeof(std::atomic<uint64_t>));
+    memset(core->publicPriorityMask, 0, sizeof(std::atomic<uint64_t>));
 
     // Allocate stacks and contexts
     ThreadContext** contexts = new ThreadContext*[maxThreadsPerCore];
@@ -269,25 +270,25 @@ initializeCore() {
             alignedAlloc(sizeof(ThreadContext)));
         new (contexts[k]) ThreadContext(k);
     }
-    core.localThreadContexts = contexts;
+    core->localThreadContexts = contexts;
 }
 
 /**
  * Release resources allocated during initializeCore().
  */
 void
-deinitializeCore() {
-    free(core.localOccupiedAndCount);
-    free(core.localPinnedContexts);
-    free(core.publicPriorityMask);
+deinitializeCore(Core* core) {
+    free(core->localOccupiedAndCount);
+    free(core->localPinnedContexts);
+    free(core->publicPriorityMask);
 
     for (int k = 0; k < maxThreadsPerCore; k++) {
-        free(core.localThreadContexts[k]->stack);
-        core.localThreadContexts[k]->joinLock.~SpinLock();
-        core.localThreadContexts[k]->joinCV.~ConditionVariable();
-        free(core.localThreadContexts[k]);
+        free(core->localThreadContexts[k]->stack);
+        core->localThreadContexts[k]->joinLock.~SpinLock();
+        core->localThreadContexts[k]->joinCV.~ConditionVariable();
+        free(core->localThreadContexts[k]);
     }
-    delete[] core.localThreadContexts;
+    delete[] core->localThreadContexts;
 }
 
 /**
@@ -298,7 +299,7 @@ threadMain() {
     if (initCore)
         initCore();
 
-    initializeCore();
+    initializeCore(&core);
     for (;;) {
         // Get kernelThreadId from coreArbiter
         core.kernelThreadId = coreArbiter->blockUntilCoreAvailable();
@@ -397,7 +398,7 @@ threadMain() {
         }
         PerfStats::threadStats.numCoreDecrements++;
     }
-    deinitializeCore();
+    deinitializeCore(&core);
 
     PerfStats::deregisterStats(&PerfStats::threadStats);
     coreArbiter->unregisterThread();
@@ -811,10 +812,10 @@ compareExchange(volatile uint64_t* target, uint64_t test, uint64_t newValue) {
  */
 void
 signal(ThreadId id) {
-    // Speculatively assume that that the read being signaled is in the BLOCKED
-    // state, and retry the CAS if it is not. This approach avoids first taking
-    // a cache miss to read and then performing a CAS in the case when the
-    // target thread is actually BLOCKED.
+    // Speculatively assume that that the thread being signaled is in the
+    // BLOCKED state, and retry the CAS if it is not. This approach avoids
+    // first taking a cache miss to read and then performing a CAS in the case
+    // when the target thread is actually BLOCKED.
     // Experiments show that this approach can save 40 ns compared to explicitly
     // reading wakeupTimeInCycles and then performing the CAS.
     //
@@ -986,7 +987,7 @@ ThreadContext::ThreadContext(uint8_t idInCore)
       generation(1),
       joinLock(),
       joinCV(),
-      coreId(~0),
+      coreId(CORE_UNASSIGNED),
       originalCoreId(coreId),
       idInCore(idInCore),
       threadInvocation(),
@@ -1187,7 +1188,7 @@ init(int* argcp, const char** argv) {
  */
 void
 testInit() {
-    initializeCore();
+    initializeCore(&core);
     for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
         // It is important to re-initialize stacks here because some of the
         // contexts may be in the middle of dispatch calls from
@@ -1207,7 +1208,7 @@ testInit() {
  */
 void
 testDestroy() {
-    deinitializeCore();
+    deinitializeCore(&core);
 }
 
 /**

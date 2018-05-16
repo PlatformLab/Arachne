@@ -306,6 +306,9 @@ struct ThreadContext {
     /// context shall wait on this CV.
     ConditionVariable joinCV;
 
+    // Value of coreId before this ThreadContext is assigned to a core.
+    static const uint8_t CORE_UNASSIGNED;
+
     /// Unique identifier for the core that this thread currently lives on.
     /// This will only change if a ThreadContext is migrated.
     uint8_t coreId;
