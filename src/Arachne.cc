@@ -154,7 +154,7 @@ std::vector<uint64_t*> lastTotalCollectionTime;
  * priority of the thread living at index j on core i is temporarily raised.
  * Values pointed to must be in separate cache lines for high performance.
  */
-std::vector<std::atomic<uint64_t>*> publicPriorityMasks;
+std::vector<std::atomic<uint64_t>*> allHighPriorityThreads;
 
 /**
  * An array of semaphores cores can park on to idle themselves.
@@ -247,9 +247,9 @@ initializeCore(Core* core) {
     // All cores initially poll for work on context 0's stack.
     core->localPinnedContexts->store(1U);
 
-    core->publicPriorityMask = reinterpret_cast<std::atomic<uint64_t>*>(
+    core->highPriorityThreads = reinterpret_cast<std::atomic<uint64_t>*>(
         alignedAlloc(sizeof(std::atomic<uint64_t>)));
-    memset(core->publicPriorityMask, 0, sizeof(std::atomic<uint64_t>));
+    memset(core->highPriorityThreads, 0, sizeof(std::atomic<uint64_t>));
 
     // Allocate stacks and contexts
     ThreadContext** contexts = new ThreadContext*[maxThreadsPerCore];
@@ -268,7 +268,7 @@ void
 deinitializeCore(Core* core) {
     free(core->localOccupiedAndCount);
     free(core->localPinnedContexts);
-    free(core->publicPriorityMask);
+    free(core->highPriorityThreads);
 
     for (int k = 0; k < maxThreadsPerCore; k++) {
         free(core->localThreadContexts[k]->stack);
@@ -307,14 +307,14 @@ threadMain() {
         occupiedAndCount[core.id] = core.localOccupiedAndCount;
         pinnedContexts[core.id] = core.localPinnedContexts;
         allThreadContexts[core.id] = core.localThreadContexts;
-        publicPriorityMasks[core.id] = core.publicPriorityMask;
+        allHighPriorityThreads[core.id] = core.highPriorityThreads;
 
         IdleTimeTracker::lastTotalCollectionTime = 0;
         // Clean up state from the last time this thread ran. This should
         // eventually be removed once we ensure that cleanup happens on
         // descheduling.
         *core.localOccupiedAndCount = {0, 0};
-        *core.publicPriorityMask = 0;
+        *core.highPriorityThreads = 0;
         core.privatePriorityMask = 0;
 
         // Correct the ThreadContext.coreId() here to match the current core.
@@ -525,7 +525,7 @@ schedulerMainLoop() {
         // Newborn threads should not have elevated priority, even if the
         // predecessors had leftover priority
         core.privatePriorityMask &= ~(1L << (core.loadedContext->idInCore));
-        *core.publicPriorityMask &= ~(1L << (core.loadedContext->idInCore));
+        *core.highPriorityThreads &= ~(1L << (core.loadedContext->idInCore));
         PerfStats::threadStats.numThreadsFinished++;
 
         core.loadedContext->joinCV.notifyAll();
@@ -615,9 +615,9 @@ dispatch() {
         // and process all of them before the next snapshot; this avoids cache
         // contention every time the priority of a thread is raised, and
         // ensures that one high priority thread cannot starve out another.
-        core.privatePriorityMask = *core.publicPriorityMask;
+        core.privatePriorityMask = *core.highPriorityThreads;
         if (core.privatePriorityMask)
-            *core.publicPriorityMask &= ~core.privatePriorityMask;
+            *core.highPriorityThreads &= ~core.privatePriorityMask;
     }
 
     // Run any high priority threads before searching the entire set of
@@ -823,7 +823,7 @@ signal(ThreadId id) {
     }
     // Raise the priority of the newly awakened thread.
     if (id.context->coreId != static_cast<uint8_t>(~0))
-        *publicPriorityMasks[id.context->coreId] |=
+        *allHighPriorityThreads[id.context->coreId] |=
             (1L << id.context->idInCore);
 }
 
@@ -866,7 +866,7 @@ waitForTermination() {
     allThreadContexts.clear();
     occupiedAndCount.clear();
     pinnedContexts.clear();
-    publicPriorityMasks.clear();
+    allHighPriorityThreads.clear();
     PerfUtils::Util::serialize();
     coreArbiter->reset();
     delete corePolicy;
@@ -1119,7 +1119,7 @@ init(int* argcp, const char** argv) {
     // Create enough data structures to account for every core in the system.
     occupiedAndCount.resize(numHardwareCores);
     pinnedContexts.resize(numHardwareCores);
-    publicPriorityMasks.resize(numHardwareCores);
+    allHighPriorityThreads.resize(numHardwareCores);
     allThreadContexts.resize(numHardwareCores);
     for (unsigned int i = 0; i < numHardwareCores; i++) {
         coreIdleSemaphores.push_back(new ::Semaphore);

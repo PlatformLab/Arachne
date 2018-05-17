@@ -417,7 +417,7 @@ struct MaskAndCount {
 
 extern std::vector<std::atomic<MaskAndCount>*> occupiedAndCount;
 
-extern std::vector<std::atomic<uint64_t>*> publicPriorityMasks;
+extern std::vector<std::atomic<uint64_t>*> allHighPriorityThreads;
 
 #ifdef ARACHNE_TEST
 extern std::deque<uint64_t> mockRandomValues;

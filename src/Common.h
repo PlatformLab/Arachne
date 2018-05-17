@@ -94,7 +94,7 @@ struct Core {
      * Setting a jth bit indicates that the priority of the thread living at
      * index j is temporarily raised.
      */
-    std::atomic<uint64_t>* publicPriorityMask;
+    std::atomic<uint64_t>* highPriorityThreads;
 
     /**
      * A bitmask in which set bits represent contexts that should run with

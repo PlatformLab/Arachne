@@ -571,7 +571,7 @@ TEST_F(ArachneTest, signal) {
     tempContext.idInCore = 0;
     Arachne::signal(ThreadId(&tempContext, 0));
     EXPECT_EQ(0U, tempContext.wakeupTimeInCycles);
-    publicPriorityMasks[coreId] = 0;
+    allHighPriorityThreads[coreId] = 0;
 }
 
 // This buffer does not need protection because the threads writing to it are
@@ -589,7 +589,7 @@ signalingThread(ThreadId toBeSignaled) {
     int coreId = corePolicy->getCores(0)[0];
     strcat(outputBuffer, "Thread 2 signaling.");
     signal(toBeSignaled);
-    EXPECT_EQ(1LU, *publicPriorityMasks[coreId]);
+    EXPECT_EQ(1LU, *allHighPriorityThreads[coreId]);
     completionCounter++;
 }
 void
@@ -905,7 +905,7 @@ TEST_F(ArachneTest, setCoreCount) {
     // Decrement test
     EXPECT_EQ(3U, Arachne::numActiveCores);
     setCoreCount(Arachne::numActiveCores - 1);
-    limitedTimeWait([]() -> bool { return numActiveCores < 3 ; });
+    limitedTimeWait([]() -> bool { return numActiveCores < 3; });
     EXPECT_EQ(corePolicy->sharedCores.size(), 2U);
     setCoreCount(Arachne::numActiveCores - 1);
     limitedTimeWait([]() -> bool { return numActiveCores < 2; });
