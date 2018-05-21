@@ -68,24 +68,12 @@ volatile uint32_t minNumCores;
 std::atomic<uint32_t> numActiveCores;
 
 /**
- * Number of requests to yield cores back to the arbiter that have not yet been
- * satisfied.
- */
-uint32_t coreReleaseRequestCount = 0;
-
-/**
  * The largest number of cores that Arachne is permitted to utilize.  It is an
  * invariant that maxNumCores >= numActiveCores, but if the user explicitly
  * sets both then numActiveCores will push maxNumCores up to satisfy the
  * invariant.
  */
 volatile uint32_t maxNumCores;
-
-/**
- * Protect coreReleaseRequestCount, and prevent multiple threads from
- * attempting to deschedule the same core simultaneously.
- */
-SpinLock coreChangeMutex(false);
 
 /**
  * Used to ensure that only one thread attempts to become exclusive or shared
@@ -107,18 +95,6 @@ int stackSize = 1024 * 1024;
  */
 std::vector<std::thread> kernelThreads;
 std::vector<void*> kernelThreadStacks;
-
-/**
- * The set of cores Arachne has been given by the CoreArbiter and not yet
- * returned. This is used to determine which core will be returned to the
- * CoreArbiter the next time Arachne is asked to.
- */
-std::vector<int> ownedCores;
-
-/**
- * Protect the data structure above.
- */
-std::mutex ownedCoresMutex;
 
 /**
  * Alert the kernel threads that they should exit immediately. This is used
@@ -296,10 +272,6 @@ threadMain() {
         // with a global index.
         lastTotalCollectionTime[core.id] =
             &IdleTimeTracker::lastTotalCollectionTime;
-        {
-            std::lock_guard<std::mutex> guard(ownedCoresMutex);
-            ownedCores.push_back(core.id);
-        }
         // Prevent the use of abandoned ThreadContext which occurred as a
         // result of a shutdown request.
         if (shutdown)
@@ -361,16 +333,6 @@ threadMain() {
         TimeTrace::record("Core Count %d --> %d", numActiveCores + 1,
                           numActiveCores.load());
 #endif
-
-        {
-            std::lock_guard<SpinLock> _(coreChangeMutex);
-            // Cleanup is completed, so we can carry on with the next core
-            // release if needed.
-            coreReleaseRequestCount--;
-            if (coreReleaseRequestCount) {
-                descheduleCore();
-            }
-        }
         PerfStats::threadStats.numCoreDecrements++;
     }
     deinitializeCore(&core);
@@ -544,8 +506,14 @@ yield() {
     if (!core.loadedContext)
         return;
     if (core.localOccupiedAndCount->load().numOccupied == 1 && !shutdown &&
-        !core.coreReadyForReturnToArbiter)
+        !core.coreReadyForReturnToArbiter) {
+        // Even if the current core is running a single Arachne thread, it must
+        // still check for the preemption by the core arbiter. This check is
+        // typically done in dispatch(), but we skip going through the dispatch
+        // loop as an optimization.
+        checkForArbiterRequest();
         return;
+    }
     // This thread is still runnable since it is merely yielding.
     core.loadedContext->wakeupTimeInCycles = 0L;
     dispatch();
@@ -1114,7 +1082,6 @@ init(int* argcp, const char** argv) {
         corePolicy = new DefaultCorePolicy(maxNumCores, !disableLoadEstimation);
     }
 
-    coreReleaseRequestCount = 0;
     lastTotalCollectionTime.resize(numHardwareCores);
     // Create enough data structures to account for every core in the system.
     occupiedAndCount.resize(numHardwareCores);
@@ -1411,42 +1378,28 @@ setErrorStream(FILE* stream) {
 }
 
 /*
- * If the Core Arbiter asks the Arachne runtime to yield a core, this function
- * shall begin the process of descheduling a core.
- *
- * The caller must hold the coreChangeMutex when making this call.
+ * If the Core Arbiter asks the Arachne runtime to yield the current core, this
+ * function shall begin the process of descheduling a core.
  */
 void
 descheduleCore() {
-    // Create a thread on the target core to handle the actual core release,
+    if (core.coreDeschedulingScheduled)
+        return;
+    // Create a thread on the this core to handle the actual core release,
     // since we are currently borrowing an arbitrary context and should not
     // hold it for too long.
-    int coreId = -1;
-    {
-        std::lock_guard<std::mutex> guard(ownedCoresMutex);
-        if (ownedCores.size() == 0) {
-            ARACHNE_LOG(
-                WARNING,
-                "Descheduling core failed due to lack of available cores!\n");
-            return;
-        }
-        coreId = ownedCores.back();
-        ownedCores.pop_back();
-        corePolicy->coreUnavailable(coreId);
-    }
+    int coreId = core.id;
+    core.coreDeschedulingScheduled = true;
+    corePolicy->coreUnavailable(coreId);
     if (createThreadOnCore(coreId, releaseCore) == NullThread) {
-        ARACHNE_LOG(WARNING, "Release core thread creation failed to %d!\n",
+        ARACHNE_LOG(WARNING,
+                    "Failed to create a thread on core %d for core release! "
+                    "Might be an exclusive core?\n",
                     coreId);
         // Since we failed to initiate the core release, Arachne still consider
         // the core owned, as should the corePolicy.
+        core.coreDeschedulingScheduled = false;
         corePolicy->coreAvailable(coreId);
-        {
-            std::lock_guard<std::mutex> guard(ownedCoresMutex);
-            ownedCores.push_back(coreId);
-        }
-        // Ensure that the request is attempted at some point in the future.
-        while (createThread(descheduleCore) == Arachne::NullThread)
-            ;
     }
 }
 
@@ -1455,7 +1408,6 @@ descheduleCore() {
  */
 void
 setCoreCount(uint32_t desiredNumCores) {
-    std::lock_guard<SpinLock> _(coreChangeMutex);
     if (desiredNumCores < minNumCores || desiredNumCores > maxNumCores)
         return;
 
@@ -1470,27 +1422,9 @@ setCoreCount(uint32_t desiredNumCores) {
  */
 void
 checkForArbiterRequest() {
-    if (!coreArbiter->mustReleaseCore())
-        return;
-    std::lock_guard<SpinLock> _(coreChangeMutex);
-    coreReleaseRequestCount++;
-
-    if (coreReleaseRequestCount >= numActiveCores) {
-        ARACHNE_LOG(ERROR,
-                    "Core Arbiter requested %u cores back, but Arachne only "
-                    "has %u cores.",
-                    coreReleaseRequestCount, numActiveCores.load());
-        coreReleaseRequestCount = numActiveCores;
-    }
-
-    // Deschedule a core iff we are the first thread to read that a
-    // core release is needed.
-    if (coreReleaseRequestCount == 1) {
-        // We must prevent future core changes here because we may have been
-        // asked to release core without first asking the arbiter to reduce our
-        // core count.
+    // The Core Arbiter wants us to release the core running this check.
+    if (coreArbiter->mustReleaseCore())
         descheduleCore();
-    }
 }
 
 /**

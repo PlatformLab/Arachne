@@ -58,6 +58,12 @@ struct Core {
     bool coreReadyForReturnToArbiter;
 
     /**
+     * True means that this core has already been scheduled for descheduling,
+     * after the core arbiter requested it back.
+     */
+    bool coreDeschedulingScheduled;
+
+    /**
      * This pointer allows fast access to the current kernel thread's
      * localThreadContexts without computing an offset from the global
      * allThreadContexts vector on each access.
