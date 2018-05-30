@@ -288,6 +288,7 @@ threadMain() {
         *core.localOccupiedAndCount = {0, 0};
         *core.highPriorityThreads = 0;
         core.privatePriorityMask = 0;
+        core.coreDeschedulingScheduled = false;
 
         // Correct the ThreadContext.coreId() here to match the current core.
         // We must do these operations before making cores available for
