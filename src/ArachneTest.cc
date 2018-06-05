@@ -159,7 +159,7 @@ lockTaker(L* mutex) {
 }
 
 TEST_F(ArachneTest, SpinLock_lockUnlock) {
-    EXPECT_EQ(NULL, core.loadedContext);
+    ThreadContext* loadedContext = core.loadedContext;
     flag = 0;
     mutex.lock();
     EXPECT_NE(Arachne::NullThread,
@@ -169,7 +169,7 @@ TEST_F(ArachneTest, SpinLock_lockUnlock) {
     EXPECT_EQ(1, flag);
     usleep(1);
     EXPECT_EQ(1, flag);
-    EXPECT_EQ(NULL, mutex.owner);
+    EXPECT_EQ(loadedContext, mutex.owner);
     mutex.unlock();
     limitedTimeWait([]() -> bool { return !flag; });
     EXPECT_EQ(0, flag);
@@ -182,7 +182,6 @@ lockContender(SpinLock& lock) {
 }
 
 TEST_F(ArachneTest, SpinLock_printWarning) {
-    Arachne::testInit();
     char* str;
     size_t size;
     FILE* newStream = open_memstream(&str, &size);
@@ -194,7 +193,6 @@ TEST_F(ArachneTest, SpinLock_printWarning) {
     sleep(1E9 + 5000);
     lock.unlock();
     join(contender);
-    Arachne::testDestroy();
 
     fflush(newStream);
     setErrorStream(stderr);
@@ -826,7 +824,6 @@ waiter() {
 }
 
 TEST_F(ArachneTest, ConditionVariable_notifyOne) {
-    Arachne::testInit();
     numWaitedOn = 0;
     int coreId = corePolicy->getCores(0)[0];
     createThreadOnCore(coreId, waiter);
@@ -846,7 +843,6 @@ TEST_F(ArachneTest, ConditionVariable_notifyOne) {
     mutex.unlock();
     limitedTimeWait([]() -> bool { return numWaitedOn != 1; });
     EXPECT_EQ(0, numWaitedOn);
-    Arachne::testDestroy();
 }
 
 TEST_F(ArachneTest, ConditionVariable_notifyAll) {

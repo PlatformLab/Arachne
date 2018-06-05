@@ -135,7 +135,6 @@ funcCreateTest(void* arg) {
 }
 
 TEST_F(ArachneTest, CWrapper_createThread) {
-    Arachne::testInit();
     arachne_thread_id threadId;
     unsigned arg = 0;
     int ret = ::arachne_thread_create(&threadId, funcCreateTest,
@@ -144,7 +143,6 @@ TEST_F(ArachneTest, CWrapper_createThread) {
 
     ::arachne_thread_join(&threadId);
     EXPECT_EQ(0xDEADBEEF, arg);
-    Arachne::testDestroy();
 }
 
 }  // namespace Arachne

@@ -16,8 +16,10 @@
 #ifndef ARACHNE_PERFSTATS_H
 #define ARACHNE_PERFSTATS_H
 
+#include <memory>
 #include <vector>
 
+#include "CorePolicy.h"
 #include "SpinLock.h"
 
 namespace Arachne {
@@ -37,6 +39,10 @@ struct PerfStats {
     /// Time (in cycles) when the statistics were gathered (only
     /// present in aggregate statistics, not in thread-local instances).
     uint64_t collectionTime;
+
+    // The core that this PerfStats structure belongs to.
+    // -1 means that this structures belongs to no core.
+    int coreId;
 
     /// Conversion factor from collectionTime to seconds (only present
     /// in aggregate statistics, not in thread-local instances).
@@ -70,23 +76,29 @@ struct PerfStats {
     // bitmask.
     uint64_t numContendedCreations;
 
-    /// Used to protect the registeredStats vector.
+    /// Used to protect the allCoreStats and coreStatsHeld vectors.
     static SpinLock mutex;
 
-    /// Keeps track of all the PerfStat structures that have been passed
-    /// to registerStats (e.g. the different thread-local structures for
-    /// each thread). This allows us to find all of the structures to
-    /// aggregate their statistics in collectStats.
-    static std::vector<PerfStats*> registeredStats;
+    /// Hold pointers to all the PerfStat structures for all cores. This allows
+    /// us to find any subset of the structures to aggregate their statistics
+    /// in collectStats. This vector exists in addition to allUniqueCoreStats
+    /// because collectStats must be able to read stats that are currently
+    /// being updated.
+    static std::vector<PerfStats*> allCoreStats;
+
+    /// Holds onto the unique_ptrs for perfStats associated with each core,
+    /// when they are not being used by actual threads. This prevents deletion
+    /// of perfStats when cores are relinquished.
+    static std::vector<std::unique_ptr<PerfStats> > allUniqueCoreStats;
 
     /// The following thread-local variable is used to access the
     /// statistics for the current thread.
-    static thread_local PerfStats threadStats;
+    static thread_local std::unique_ptr<PerfStats> threadStats;
 
-    explicit PerfStats(bool shouldRegister = false);
-    static void registerStats(PerfStats* stats);
-    static void deregisterStats(PerfStats* stats);
-    static void collectStats(PerfStats* total);
+    explicit PerfStats(int coreId = -1);
+    static std::unique_ptr<PerfStats> getStats(int coreId);
+    static void releaseStats(std::unique_ptr<PerfStats> perfStats);
+    static void collectStats(PerfStats* total, CorePolicy::CoreList coreList);
 };
 }  // namespace Arachne
 

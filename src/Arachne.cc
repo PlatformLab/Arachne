@@ -268,14 +268,20 @@ threadMain() {
         // Get id from coreArbiter
         core.id = coreArbiter->blockUntilCoreAvailable();
 
+        // Associate this thread's PerfStats pointer with the proper value for
+        // the core this thread is executing on.
+        PerfStats::threadStats = PerfStats::getStats(core.id);
+
         // Register the address of our IdleTimeTracker::lastTotalCollectionTime
         // with a global index.
         lastTotalCollectionTime[core.id] =
             &IdleTimeTracker::lastTotalCollectionTime;
         // Prevent the use of abandoned ThreadContext which occurred as a
         // result of a shutdown request.
-        if (shutdown)
+        if (shutdown) {
+            PerfStats::releaseStats(std::move(PerfStats::threadStats));
             break;
+        }
         occupiedAndCount[core.id] = core.localOccupiedAndCount;
         pinnedContexts[core.id] = core.localPinnedContexts;
         allThreadContexts[core.id] = core.localThreadContexts;
@@ -310,7 +316,7 @@ threadMain() {
         TimeTrace::record("Core Count %d --> %d", numActiveCores - 1,
                           numActiveCores.load());
 #endif
-        PerfStats::threadStats.numCoreIncrements++;
+        PerfStats::threadStats->numCoreIncrements++;
 
         // Correct statistics
         IdleTimeTracker::numThreadsRan = 0;
@@ -324,8 +330,11 @@ threadMain() {
         // to the schedulerMainLoop.
         swapcontext(&core.loadedContext->sp, &kernelThreadStacks[core.id]);
         numActiveCores--;
-        if (shutdown)
+        if (shutdown) {
+            // Avoid leaking PerfStats across shutdowns.
+            PerfStats::releaseStats(std::move(PerfStats::threadStats));
             break;
+        }
         ARACHNE_LOG(DEBUG,
                     "Number of cores decreased from %d to %d\n; Core %d "
                     "going offline.",
@@ -334,11 +343,14 @@ threadMain() {
         TimeTrace::record("Core Count %d --> %d", numActiveCores + 1,
                           numActiveCores.load());
 #endif
-        PerfStats::threadStats.numCoreDecrements++;
+        PerfStats::threadStats->numCoreDecrements++;
+
+        // Release the PerfStats associated with this core, since we are about
+        // to give up this core.
+        PerfStats::releaseStats(std::move(PerfStats::threadStats));
     }
     deinitializeCore(&core);
 
-    PerfStats::deregisterStats(&PerfStats::threadStats);
     coreArbiter->unregisterThread();
 }
 
@@ -489,7 +501,7 @@ schedulerMainLoop() {
         // predecessors had leftover priority
         core.privatePriorityMask &= ~(1L << (core.loadedContext->idInCore));
         *core.highPriorityThreads &= ~(1L << (core.loadedContext->idInCore));
-        PerfStats::threadStats.numThreadsFinished++;
+        PerfStats::threadStats->numThreadsFinished++;
 
         core.loadedContext->joinCV.notifyAll();
     }
@@ -677,7 +689,7 @@ dispatch() {
                             &core.loadedContext->sp);
             }
 
-            PerfStats::threadStats.weightedLoadedCycles +=
+            PerfStats::threadStats->weightedLoadedCycles +=
                 IdleTimeTracker::numThreadsRan *
                 (dispatchIterationStartCycles -
                  IdleTimeTracker::lastDispatchIterationStart);
@@ -822,6 +834,7 @@ join(ThreadId id) {
  */
 void
 waitForTermination() {
+    mainThreadDestroy();
     for (size_t i = 0; i < kernelThreads.size(); i++) {
         kernelThreads[i].join();
     }
@@ -1118,22 +1131,21 @@ init(int* argcp, const char** argv) {
     while (numActiveCores != minNumCores)
         usleep(1);
 
+    mainThreadInit();
     // Only consider Arachne initialized if we've successfully parsed options
     // allocated all resources, and connected to the CoreArbiter
     initialized = true;
 }
 
 /**
- * This function should be invoked in unit test setup to make Arachne
- * functions callable from the unit test, which is not an Arachne thread.
- *
- * This function sets up just enough state to allow the current thread to
- * execute unit tests which call Arachne functions.
- * We assume that the unit tests are run from the main kernel thread which
- * will never swap out when running the dispatch() loop.
+ * Set up just enough state to allow the current thread to invoke Arachne
+ * functions without being on an Arachne core. It is automatically invoked in
+ * the caller of Arachne::init(). This function sets up ThreadContexts,
+ * occupiedAndCount, and a thread-local copy of PerfStats, all of which must be
+ * destroyed by mainThreadDestroy().
  */
 void
-testInit() {
+mainThreadInit() {
     initializeCore(&core);
     for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
         // It is important to re-initialize stacks here because some of the
@@ -1146,15 +1158,16 @@ testInit() {
     core.loadedContext = *core.localThreadContexts;
     core.loadedContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
     *core.localOccupiedAndCount = {1, 1};
+    PerfStats::threadStats = std::unique_ptr<PerfStats>(new PerfStats());
 }
 
 /**
- * This function should be invoked in unit test teardown to clean up the state
- * that makes Arachne functions callable from the unit test.
+ * Tear down the state set up by mainThreadInit().
  */
 void
-testDestroy() {
+mainThreadDestroy() {
     deinitializeCore(&core);
+    PerfStats::threadStats = NULL;
 }
 
 /**
@@ -1330,16 +1343,18 @@ IdleTimeTracker::IdleTimeTracker() {
 void
 IdleTimeTracker::updatePerfStats() {
     uint64_t currentTime = Cycles::rdtsc();
-    PerfStats::threadStats.totalCycles += currentTime - lastTotalCollectionTime;
-    PerfStats::threadStats.idleCycles += currentTime - dispatchStartCycles;
+    PerfStats::threadStats->totalCycles +=
+        currentTime - lastTotalCollectionTime;
+    PerfStats::threadStats->idleCycles += currentTime - dispatchStartCycles;
     lastTotalCollectionTime = currentTime;
     dispatchStartCycles = currentTime;
 }
 
 IdleTimeTracker::~IdleTimeTracker() {
     uint64_t currentTime = Cycles::rdtsc();
-    PerfStats::threadStats.totalCycles += currentTime - lastTotalCollectionTime;
-    PerfStats::threadStats.idleCycles += currentTime - dispatchStartCycles;
+    PerfStats::threadStats->totalCycles +=
+        currentTime - lastTotalCollectionTime;
+    PerfStats::threadStats->idleCycles += currentTime - dispatchStartCycles;
     lastTotalCollectionTime = currentTime;
 }
 

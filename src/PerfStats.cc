@@ -15,65 +15,73 @@
 
 #include <string.h>
 #include <algorithm>
+#include <thread>
 
+#include "Logger.h"
 #include "PerfStats.h"
 
 namespace Arachne {
 
 SpinLock PerfStats::mutex(false);
-std::vector<PerfStats*> PerfStats::registeredStats;
-thread_local PerfStats PerfStats::threadStats(true);
+std::vector<PerfStats*> PerfStats::allCoreStats;
+std::vector<std::unique_ptr<PerfStats> > PerfStats::allUniqueCoreStats;
+thread_local std::unique_ptr<PerfStats> PerfStats::threadStats;
 
-// This constructor will automatically register a PerfStats structure
-// if `true` is passed.
-PerfStats::PerfStats(bool shouldRegister) {
-    if (shouldRegister)
-        registerStats(this);
+// Constructor initializes all elements to 0
+PerfStats::PerfStats(int coreId) {
+    memset(this, 0, sizeof(*this));
+    this->coreId = coreId;
 }
 
 /**
- * This method must be called to make a PerfStats structure "known" so that
- * its contents will be considered by collectStats. Typically this method
- * is invoked once for the thread-local structure associated with each
- * thread. This method is idempotent and thread-safe, so it is safe to
- * invoke it multiple times for the same PerfStats.
+ * This method must be called obtain the PerfStats structure belonging to a
+ * core. Typically this method is invoked once each time a kernel thread
+ * acquires a core. This method is thread-safe but only one thread will obtain a
+ * non-NULL value if multiple threads invoke it with the same coreId. It is an
+ * error to invoke this method with the same coreId from a second kernel thread
+ * until the first one has called releaseStats with the same coreId.
  *
- * \param stats
- *      PerfStats structure to remember for usage by collectStats. If this
- *      is the first time this structure has been registered, all of its
- *      counters will be initialized.
+ * \return
+ *      The PerfStats structure associated with the given core. It is a
+ *      unique_ptr to make it easier to find bugs associated with reuse of
+ *      PerfStats structures by different threads.
+ * \param coreId
+ *      Identifier for the core for which to obtain a PerfStats structure.
  */
-void
-PerfStats::registerStats(PerfStats* stats) {
+std::unique_ptr<PerfStats>
+PerfStats::getStats(int coreId) {
     std::lock_guard<SpinLock> lock(mutex);
-
-    // First see if this structure is already registered; if so,
-    // there is nothing for us to do.
-    for (PerfStats* registered : registeredStats) {
-        if (registered == stats) {
-            return;
-        }
+    // Initialize at least the slots for each core if they were not previously
+    // allocated.
+    if (allCoreStats.empty()) {
+        allCoreStats.resize(std::thread::hardware_concurrency(), NULL);
+        allUniqueCoreStats.resize(std::thread::hardware_concurrency());
     }
 
-    // This is a new structure; add it to our list, and reset its contents.
-    memset(stats, 0, sizeof(*stats));
-    registeredStats.push_back(stats);
+    // Initialize the current core if it is not already initialized
+    if (!allCoreStats[coreId]) {
+        allCoreStats[coreId] = new PerfStats(coreId);
+        allUniqueCoreStats[coreId] =
+            std::unique_ptr<PerfStats>(allCoreStats[coreId]);
+    }
+
+    return std::move(allUniqueCoreStats[coreId]);
 }
 
 /**
- * This method can be called to deregister a PerfStats structure that has been
- * registered using registerStats. It is a no-op if the stat is already
- * deregistered.
+ * This method can be called to release a PerfStats structure that was
+ * previously granted by getStats().
+ * It is a no-op if the coreId was not previously granted.
  *
- * \param stats
- *      PerfStats structure to drop from usage by collectStats.
+ * \param perfStats
+ *      PerfStats structure to release; previously obtained from getStats.
  */
 void
-PerfStats::deregisterStats(PerfStats* stats) {
+PerfStats::releaseStats(std::unique_ptr<PerfStats> perfStats) {
     std::lock_guard<SpinLock> lock(mutex);
-    registeredStats.erase(
-        std::remove(registeredStats.begin(), registeredStats.end(), stats),
-        registeredStats.end());
+
+    // Take back ownership of the perfStats for this core.
+    allUniqueCoreStats[perfStats->coreId] = std::move(perfStats);
 }
 
 /**
@@ -89,12 +97,24 @@ PerfStats::deregisterStats(PerfStats* stats) {
  *      PerfStat structures; any existing contents are overwritten.
  */
 void
-PerfStats::collectStats(PerfStats* total) {
+PerfStats::collectStats(PerfStats* total, CorePolicy::CoreList coreList) {
     std::lock_guard<SpinLock> lock(mutex);
     memset(total, 0, sizeof(*total));
     total->collectionTime = Cycles::rdtsc();
     total->cyclesPerSecond = Cycles::perSecond();
-    for (PerfStats* stats : registeredStats) {
+    for (size_t i = 0; i < coreList.size(); i++) {
+        if (static_cast<uint32_t>(coreList[i]) >= allCoreStats.size()) {
+            ARACHNE_LOG(ERROR,
+                        "PerfStats::collectStats called with coreId %d, while "
+                        "allCoreStats.size() is %zu\n",
+                        coreList[i], allCoreStats.size());
+            abort();
+        }
+        PerfStats* stats = allCoreStats[coreList[i]];
+        // Skip over stats which are not allocated.
+        if (!stats) {
+            continue;
+        }
         // Note: the order of the statements below should match the
         // declaration order in PerfStats.h.
         total->idleCycles += stats->idleCycles;

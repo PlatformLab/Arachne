@@ -151,7 +151,7 @@ DefaultCorePolicy::adjustCores() {
             continue;
         }
         Lock guard(lock);
-        int estimate = loadEstimator.estimate(sharedCores.size());
+        int estimate = loadEstimator.estimate(sharedCores);
         if (estimate == 0)
             continue;
         if (estimate == -1) {

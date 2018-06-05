@@ -25,18 +25,22 @@ CoreLoadEstimator::~CoreLoadEstimator() {}
 /**
  * Returns -1,0,1 to suggest whether the core count should decrease,
  * stay the same, or increase respectively.
+ *
+ * \param coreList
+ *    The list of cores over which to perform the estimation.
  */
 int
-CoreLoadEstimator::estimate(int curActiveCores) {
+CoreLoadEstimator::estimate(CorePolicy::CoreList coreList) {
     Lock guard(lock);
+    int curActiveCores = coreList.size();
     // Use collectionTime as a proxy to tell whether PerfStats have been
     // previously recorded.
     if (previousStats.collectionTime == 0) {
-        Arachne::PerfStats::collectStats(&previousStats);
+        Arachne::PerfStats::collectStats(&previousStats, coreList);
         return 0;
     }
     Arachne::PerfStats currentStats;
-    Arachne::PerfStats::collectStats(&currentStats);
+    Arachne::PerfStats::collectStats(&currentStats, coreList);
 
     // Evaluate idle time precentage multiplied by number of cores to
     // determine whether we need to decrease the number of cores.

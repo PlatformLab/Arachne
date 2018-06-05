@@ -18,6 +18,7 @@
 
 #include <stdint.h>
 #include <string.h>
+#include "CorePolicy.h"
 #include "PerfStats.h"
 
 namespace Arachne {
@@ -31,7 +32,7 @@ class CoreLoadEstimator {
   public:
     CoreLoadEstimator();
     ~CoreLoadEstimator();
-    int estimate(int currentNumCores);
+    int estimate(CorePolicy::CoreList coreList);
     void clearHistory();
     void setLoadFactorThreshold(double loadFactorThreshold);
     void setMaxUtilization(double maxUtilization);

@@ -38,13 +38,6 @@ arachne_init(int* argcp, const char** argv) {
     // Capture the exception threw by Arachne::init
     try {
         Arachne::init(argcp, argv);
-
-        // Manually register thread local perf stats in C wrapper
-        // Reason: The main thread in C is controlled by C, and it doesn't run
-        // constructors for thread locals, which means the stats is not
-        // registered. This can cause incorrect aggregated data due to missing
-        // records in the main thread perf stats.
-        Arachne::PerfStats::registerStats(&Arachne::PerfStats::threadStats);
     } catch (const CoreArbiter::CoreArbiterClient::ClientException& e) {
         retval = -1;
         errno = ECONNREFUSED;  // Set errno to "Connection refused"
@@ -157,8 +150,7 @@ arachne_set_maxutil(double maxutil) {
  */
 void
 arachne_set_loadfactor(double loadfactor) {
-    reinterpret_cast<Arachne::DefaultCorePolicy*>(
-        Arachne::getCorePolicy())
+    reinterpret_cast<Arachne::DefaultCorePolicy*>(Arachne::getCorePolicy())
         ->getEstimator()
         ->setLoadFactorThreshold(loadfactor);
 }

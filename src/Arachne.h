@@ -87,10 +87,6 @@ extern bool disableLoadEstimation;
  * Most of the functions in this API, with the exception of Arachne::init(),
  * Arachne::shutDown(), Arachne::waitForTermination(), and
  * Arachne::createThread(), should only be called from within Arachne threads.
- *
- * In order to allow unit tests in non-Arachne threads to run,
- * Arachne::testInit() should be called once before all unit tests run, and
- * Arachne::testDestroy() should be called once after all unit tests finish.
  * @{
  */
 /**
@@ -149,8 +145,8 @@ void join(ThreadId id);
 ThreadId getThreadId();
 
 void setErrorStream(FILE* ptr);
-void testInit();
-void testDestroy();
+void mainThreadInit();
+void mainThreadDestroy();
 
 /**
  * A resource which blocks the current thread until it is available.
@@ -557,9 +553,9 @@ createThreadOnCore(uint32_t coreId, _Callable&& __f, _Args&&... __args) {
     uint32_t generation = allThreadContexts[coreId][index]->generation;
     threadContext->wakeupTimeInCycles = 0;
 
-    PerfStats::threadStats.numThreadsCreated++;
+    PerfStats::threadStats->numThreadsCreated++;
     if (failureCount)
-        PerfStats::threadStats.numContendedCreations++;
+        PerfStats::threadStats->numContendedCreations++;
 
     return ThreadId(threadContext, generation);
 }
