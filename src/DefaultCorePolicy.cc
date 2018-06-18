@@ -56,6 +56,7 @@ DefaultCorePolicy::coreAvailable(int myCoreId) {
         }
         coreAdjustmentThreadStarted = true;
     }
+    loadEstimator.clearHistory();
 }
 
 /**
@@ -67,6 +68,7 @@ DefaultCorePolicy::coreUnavailable(int coreId) {
     int index = sharedCores.find(coreId);
     if (index != -1) {
         sharedCores.remove(index);
+        loadEstimator.clearHistory();
         return;
     }
     ARACHNE_LOG(ERROR,
