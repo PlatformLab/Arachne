@@ -3,7 +3,7 @@ CC ?= gcc
 CXXFLAGS=-g -Wall -Werror -Wformat=2 -Wextra -Wwrite-strings \
 -Wno-unused-parameter -Wmissing-format-attribute -Wno-non-template-friend \
 -Woverloaded-virtual -Wcast-qual -Wcast-align -Wconversion -fomit-frame-pointer \
--std=c++11 -fPIC -O3
+-std=c++11 -fPIC -O3 $(EXTRA_CXXFLAGS)
 CFLAGS=-g -Wall -Werror -Wformat=2 -Wextra -Wwrite-strings \
 -Wno-unused-parameter -Wmissing-format-attribute \
 -Wcast-align -Wconversion -fomit-frame-pointer \
