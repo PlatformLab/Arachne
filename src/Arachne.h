@@ -456,7 +456,7 @@ random(void) {
 // refinement. This function is defined here to facilitate testing; defining it
 // in the CC file causes the compiler to generate an independent version of the
 // random() function above.
-static int
+static int  __attribute__ ((unused))
 chooseCore(const CorePolicy::CoreList& coreList) {
     uint32_t index1 = static_cast<uint32_t>(random()) % coreList.size();
     uint32_t index2 = static_cast<uint32_t>(random()) % coreList.size();

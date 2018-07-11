@@ -14,6 +14,7 @@
  */
 
 #include <thread>
+#include <functional>
 #include "PerfUtils/Cycles.h"
 #include "gtest/gtest.h"
 

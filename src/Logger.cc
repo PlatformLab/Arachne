@@ -15,7 +15,6 @@
 
 #include "Logger.h"
 #include <execinfo.h>
-#include "Arachne.h"
 
 namespace Arachne {
 
