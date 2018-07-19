@@ -19,7 +19,7 @@
 namespace Arachne {
 
 CoreLoadEstimator::CoreLoadEstimator()
-    : lock(false), utilizationThresholds(std::thread::hardware_concurrency()) {}
+    : lock("CoreLoadEstimator", false), utilizationThresholds(std::thread::hardware_concurrency()) {}
 CoreLoadEstimator::~CoreLoadEstimator() {}
 
 /**

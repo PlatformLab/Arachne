@@ -35,7 +35,7 @@ extern std::vector<uint64_t*> lastTotalCollectionTime;
 DefaultCorePolicy::DefaultCorePolicy(int maxNumCores, bool estimateLoad)
     : maxNumCores(maxNumCores),
       loadEstimator(),
-      lock(false),
+      lock("DefaultCorePolicy", false),
       sharedCores(maxNumCores),
       exclusiveCores(maxNumCores),
       coreAdjustmentShouldRun(estimateLoad),
