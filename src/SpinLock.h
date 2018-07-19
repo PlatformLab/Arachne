@@ -52,7 +52,6 @@ class SpinLock {
         : locked(false), name(name), shouldYield(shouldYield) {}
     explicit SpinLock(bool shouldYield = true)
         : locked(false),
-          owner(NULL),
           name("unnamed"),
           shouldYield(shouldYield) {}
     ~SpinLock() {}
