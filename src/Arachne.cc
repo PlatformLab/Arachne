@@ -200,7 +200,7 @@ alignedAlloc(size_t size, size_t alignment) {
     int result = posix_memalign(&temp, alignment, size);
     if (result != 0) {
         ARACHNE_LOG(ERROR, "posix_memalign returned %s", strerror(result));
-        exit(1);
+        abort();
     }
     assert((reinterpret_cast<uint64_t>(temp) & (alignment - 1)) == 0);
     return temp;
@@ -1523,7 +1523,7 @@ migrateThreadsFromCore() {
                 corePolicy->getCores(threadClass);
             if (outputCores.size() == 0) {
                 ARACHNE_LOG(ERROR, "No available cores to migrate threads to.");
-                exit(1);
+                abort();
             }
             int coreId = chooseCore(outputCores);
 

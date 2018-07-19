@@ -52,7 +52,7 @@ DefaultCorePolicy::coreAvailable(int myCoreId) {
         if (Arachne::createThread(&DefaultCorePolicy::adjustCores, this) ==
             Arachne::NullThread) {
             ARACHNE_LOG(ERROR, "Failed to create thread to adjustCores!");
-            exit(1);
+            abort();
         }
         coreAdjustmentThreadStarted = true;
     }
