@@ -401,7 +401,7 @@ struct MaskAndCount {
     /// 1 means this context is in use by a live thread.
     uint64_t occupied : 56;
     /// The number of 1 bits in occupied.
-    uint8_t numOccupied : 8;
+    uint64_t numOccupied : 8;
     /**
      * Initial value of numOccupied for cores that are exclusive to a thread.
      * This value is sufficiently high that when other threads exit and
@@ -509,7 +509,7 @@ createThreadOnCore(uint32_t coreId, _Callable&& __f, _Args&&... __args) {
         if (slotMap.numOccupied >= maxThreadsPerCore) {
             ARACHNE_LOG(VERBOSE,
                         "createThread failure, coreId = %u, "
-                        "numOccupied = %d\n",
+                        "numOccupied = %ld\n",
                         coreId, slotMap.numOccupied);
             return NullThread;
         }
@@ -520,7 +520,7 @@ createThreadOnCore(uint32_t coreId, _Callable&& __f, _Args&&... __args) {
             ARACHNE_LOG(WARNING,
                         "createThread failed after passing numOccupied"
                         " check, coreId = %u,"
-                        " numOccupied = %d\n",
+                        " numOccupied = %ld\n",
                         coreId, slotMap.numOccupied);
             return NullThread;
         }
