@@ -1077,6 +1077,8 @@ init(int* argcp, const char** argv) {
     volatile uint32_t numHardwareCores = std::thread::hardware_concurrency();
     // CoreArbiter reserves 1 core to run non-Arachne threads.
     volatile uint32_t hardwareCoresAvailable = numHardwareCores - 1;
+    if (!useCoreArbiter)
+        hardwareCoresAvailable++;
     if (minNumCores == 0)
         minNumCores = 1;
     if (maxNumCores == 0)
