@@ -791,7 +791,7 @@ signal(ThreadId id) {
     oldWakeupTime = compareExchange(&id.context->wakeupTimeInCycles,
                                     oldWakeupTime, newValue);
 
-    // The original value was not BLOCKED, so we try again wtih the true
+    // The original value was not BLOCKED, so we try again with the true
     // original value, unless the target is already runnable or UNOCCUPIED.
     // This typically happens if the target thread was sleeping rather than
     // blocked.
