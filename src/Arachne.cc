@@ -606,49 +606,47 @@ dispatch() {
     if (core.privatePriorityMask) {
         // This position is one-indexed with zero meaning that no bits were
         // set.
-        int firstSetBit = ffsll(core.privatePriorityMask);
-        if (firstSetBit) {
-            firstSetBit--;
-            core.privatePriorityMask &= ~(1L << (firstSetBit));
+        int firstSetBit = ffsll(core.privatePriorityMask) - 1;
 
-            ThreadContext* targetContext =
-                core.localThreadContexts[firstSetBit];
+        core.privatePriorityMask &= ~(1L << (firstSetBit));
 
-            // Verify wakeup and occupied.
-            if (targetContext->wakeupTimeInCycles == 0) {
-                if (targetContext == core.loadedContext) {
-                    core.loadedContext->wakeupTimeInCycles =
-                        ThreadContext::BLOCKED;
-                    IdleTimeTracker::numThreadsRan++;
+        ThreadContext* targetContext =
+            core.localThreadContexts[firstSetBit];
 
-                    // It is necessary to update core.highestOccupiedContext
-                    // here because two simultaneous returns from these
-                    // priority checks (the higher index blocking and the lower
-                    // index exiting) can result in a gap that cannot be
-                    // bridged by the core.highestOccupiedContext increment
-                    // mechanism below.
-                    core.highestOccupiedContext =
-                        std::max(core.highestOccupiedContext,
-                                 core.loadedContext->idInCore);
-                    return;
-                }
-                void** saved = &core.loadedContext->sp;
-                core.loadedContext = targetContext;
-
-                // Flush the idle cycle counter before a context switch because
-                // switching to a fresh (previously unused) context will cause
-                // dispatch to be called from the top again before this
-                // invocation returns. This is problematic because it resets
-                // dispatchStartCycles (used for computing idle cycles) but not
-                // lastTotalCollectionTime (used for computing total cycles).
-                idleTimeTracker.updatePerfStats();
-                swapcontext(&core.loadedContext->sp, saved);
-                originalContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
+        // Verify wakeup and occupied.
+        if (targetContext->wakeupTimeInCycles == 0) {
+            if (targetContext == core.loadedContext) {
+                core.loadedContext->wakeupTimeInCycles =
+                    ThreadContext::BLOCKED;
                 IdleTimeTracker::numThreadsRan++;
-                Arachne::core.highestOccupiedContext = std::max(
-                    core.highestOccupiedContext, core.loadedContext->idInCore);
+
+                // It is necessary to update core.highestOccupiedContext
+                // here because two simultaneous returns from these
+                // priority checks (the higher index blocking and the lower
+                // index exiting) can result in a gap that cannot be
+                // bridged by the core.highestOccupiedContext increment
+                // mechanism below.
+                core.highestOccupiedContext =
+                    std::max(core.highestOccupiedContext,
+                             core.loadedContext->idInCore);
                 return;
             }
+            void** saved = &core.loadedContext->sp;
+            core.loadedContext = targetContext;
+
+            // Flush the idle cycle counter before a context switch because
+            // switching to a fresh (previously unused) context will cause
+            // dispatch to be called from the top again before this
+            // invocation returns. This is problematic because it resets
+            // dispatchStartCycles (used for computing idle cycles) but not
+            // lastTotalCollectionTime (used for computing total cycles).
+            idleTimeTracker.updatePerfStats();
+            swapcontext(&core.loadedContext->sp, saved);
+            originalContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
+            IdleTimeTracker::numThreadsRan++;
+            Arachne::core.highestOccupiedContext = std::max(
+                core.highestOccupiedContext, core.loadedContext->idInCore);
+            return;
         }
     }
     // Find a thread to switch to
