@@ -55,7 +55,7 @@ struct Core {
      * True means Arachne has finished migrating threads off this core and it's
      * now safe to call blockUntilCoreAvailable.
      */
-    bool coreReadyForReturnToArbiter;
+    bool coreReadyForReturnToArbiter = false;
 
     /**
      * True means that this core has already been scheduled for descheduling,
