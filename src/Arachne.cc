@@ -800,10 +800,12 @@ signal(ThreadId id) {
         compareExchange(&id.context->wakeupTimeInCycles, oldWakeupTime,
                         newValue);
     }
-    // Raise the priority of the newly awakened thread.
-    if (id.context->coreId != static_cast<uint8_t>(~0))
+    // Raise the priority of the newly awakened thread except the UNOCCUPIED.
+    if (oldWakeupTime != ThreadContext::UNOCCUPIED &&
+        id.context->coreId != static_cast<uint8_t>(~0)) {
         *allHighPriorityThreads[id.context->coreId] |=
             (1L << id.context->idInCore);
+    }
 }
 
 /**
