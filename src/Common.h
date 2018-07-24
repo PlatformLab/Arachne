@@ -125,7 +125,7 @@ struct Core {
      * core. Additional occupied contexts are immediately above this context
      * and have no unoccupied contexts between them.
      */
-    uint8_t highestOccupiedContext;
+    int8_t highestOccupiedContext;
 };
 
 void* alignedAlloc(size_t size, size_t alignment = CACHE_LINE_SIZE);

@@ -295,6 +295,7 @@ threadMain() {
         *core.highPriorityThreads = 0;
         core.privatePriorityMask = 0;
         core.coreDeschedulingScheduled = false;
+        core.highestOccupiedContext = -1;
 
         // Correct the ThreadContext.coreId() here to match the current core.
         // We must do these operations before making cores available for
@@ -494,7 +495,7 @@ schedulerMainLoop() {
         // so subtract the return value of 63 to get a zero-based bit index
         core.highestOccupiedContext =
             occupiedOrPinned == 0
-                ? 0
+                ? -1
                 : static_cast<uint8_t>(63 - __builtin_clzll(occupiedOrPinned));
 
         // Newborn threads should not have elevated priority, even if the
@@ -625,7 +626,7 @@ dispatch() {
                 // bridged by the core.highestOccupiedContext increment
                 // mechanism below.
                 core.highestOccupiedContext = std::max(
-                    core.highestOccupiedContext, core.loadedContext->idInCore);
+                    core.highestOccupiedContext, static_cast<int8_t>(core.loadedContext->idInCore));
                 return;
             }
             void** saved = &core.loadedContext->sp;
@@ -642,7 +643,7 @@ dispatch() {
             originalContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
             IdleTimeTracker::numThreadsRan++;
             Arachne::core.highestOccupiedContext = std::max(
-                core.highestOccupiedContext, core.loadedContext->idInCore);
+                core.highestOccupiedContext, static_cast<int8_t>(core.loadedContext->idInCore));
             return;
         }
     }
@@ -658,7 +659,7 @@ dispatch() {
         // At this point, it is guaranteed that it is safe to read the context
         // information.
         ThreadContext* currentContext = core.localThreadContexts[currentIndex];
-        if (currentIndex > core.highestOccupiedContext) {
+        if (static_cast<int8_t>(currentIndex) > core.highestOccupiedContext) {
             // Check whether we need to increment core.highestOccupiedContext or
             // reset currentIndex.
             if (currentContext->wakeupTimeInCycles !=
