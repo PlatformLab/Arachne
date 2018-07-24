@@ -658,7 +658,7 @@ dispatch() {
         // At this point, it is guaranteed that it is safe to read the context
         // information.
         ThreadContext* currentContext = core.localThreadContexts[currentIndex];
-        if (currentIndex == core.highestOccupiedContext + 1) {
+        if (currentIndex > core.highestOccupiedContext) {
             // Check whether we need to increment core.highestOccupiedContext or
             // reset currentIndex.
             if (currentContext->wakeupTimeInCycles !=
