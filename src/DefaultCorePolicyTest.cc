@@ -13,8 +13,8 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 
-#include <thread>
 #include <functional>
+#include <thread>
 #include "PerfUtils/Cycles.h"
 #include "gtest/gtest.h"
 

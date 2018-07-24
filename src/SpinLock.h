@@ -51,9 +51,7 @@ class SpinLock {
     explicit SpinLock(const char* name, bool shouldYield = true)
         : locked(false), name(name), shouldYield(shouldYield) {}
     explicit SpinLock(bool shouldYield = true)
-        : locked(false),
-          name("unnamed"),
-          shouldYield(shouldYield) {}
+        : locked(false), name("unnamed"), shouldYield(shouldYield) {}
     ~SpinLock() {}
 
     /** Repeatedly try to acquire this resource until success. */

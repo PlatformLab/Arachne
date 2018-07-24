@@ -610,14 +610,12 @@ dispatch() {
 
         core.privatePriorityMask &= ~(1L << (firstSetBit));
 
-        ThreadContext* targetContext =
-            core.localThreadContexts[firstSetBit];
+        ThreadContext* targetContext = core.localThreadContexts[firstSetBit];
 
         // Verify wakeup and occupied.
         if (targetContext->wakeupTimeInCycles == 0) {
             if (targetContext == core.loadedContext) {
-                core.loadedContext->wakeupTimeInCycles =
-                    ThreadContext::BLOCKED;
+                core.loadedContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
                 IdleTimeTracker::numThreadsRan++;
 
                 // It is necessary to update core.highestOccupiedContext
@@ -626,9 +624,8 @@ dispatch() {
                 // index exiting) can result in a gap that cannot be
                 // bridged by the core.highestOccupiedContext increment
                 // mechanism below.
-                core.highestOccupiedContext =
-                    std::max(core.highestOccupiedContext,
-                             core.loadedContext->idInCore);
+                core.highestOccupiedContext = std::max(
+                    core.highestOccupiedContext, core.loadedContext->idInCore);
                 return;
             }
             void** saved = &core.loadedContext->sp;
