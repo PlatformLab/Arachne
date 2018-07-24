@@ -650,7 +650,7 @@ dispatch() {
     // Find a thread to switch to
     uint8_t currentIndex = core.nextCandidateIndex;
 
-    for (;; currentIndex++) {
+    while (true) {
         // Ensure that we do not go out of bounds.
         if (currentIndex == maxThreadsPerCore) {
             currentIndex = 0;
@@ -667,8 +667,7 @@ dispatch() {
                 core.highestOccupiedContext++;
             } else {
                 currentIndex = 0;
-                // Reload the currentContext since we have reset currentIndex.
-                currentContext = core.localThreadContexts[currentIndex];
+                continue;
             }
         }
         if (currentIndex == 0) {
@@ -722,6 +721,8 @@ dispatch() {
             IdleTimeTracker::numThreadsRan++;
             return;
         }
+
+        currentIndex++;
     }
 }
 
