@@ -649,13 +649,12 @@ dispatch() {
     }
     // Find a thread to switch to
     uint8_t currentIndex = core.nextCandidateIndex;
+    // Ensure that we do not go out of bounds.
+    if (currentIndex == maxThreadsPerCore) {
+        currentIndex = 0;
+    }
 
     while (true) {
-        // Ensure that we do not go out of bounds.
-        if (currentIndex == maxThreadsPerCore) {
-            currentIndex = 0;
-        }
-
         // At this point, it is guaranteed that it is safe to read the context
         // information.
         ThreadContext* currentContext = core.localThreadContexts[currentIndex];
@@ -722,7 +721,10 @@ dispatch() {
             return;
         }
 
-        currentIndex++;
+        // Ensure that we do not go out of bounds.
+        if (++currentIndex == maxThreadsPerCore) {
+            currentIndex = 0;
+        }
     }
 }
 
