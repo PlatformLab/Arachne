@@ -177,4 +177,27 @@ DefaultCorePolicy::adjustCores() {
         setCoreCount(Arachne::numActiveCores + 1);
     }
 }
+
+/**
+ * Select a reasonably unloaded core from coreList using randomness with
+ * refinement. This function is defined here to facilitate testing; defining it
+ * in the CC file causes the compiler to generate an independent version of the
+ * random() function above.
+ */
+int
+DefaultCorePolicy::chooseCore(const CorePolicy::CoreList& coreList) {
+    uint32_t index1 = static_cast<uint32_t>(random()) % coreList.size();
+    uint32_t index2 = static_cast<uint32_t>(random()) % coreList.size();
+    while (index2 == index1 && coreList.size() > 1)
+        index2 = static_cast<uint32_t>(random()) % coreList.size();
+
+    int choice1 = coreList.get(index1);
+    int choice2 = coreList.get(index2);
+
+    if (occupiedAndCount[choice1]->load().numOccupied <
+        occupiedAndCount[choice2]->load().numOccupied)
+        return choice1;
+    return choice2;
+}
+
 }  // namespace Arachne

@@ -36,6 +36,7 @@ class DefaultCorePolicy : public CorePolicy {
     void disableLoadEstimation();
     void enableLoadEstimation();
     CoreLoadEstimator* getEstimator();
+    int chooseCore(const CoreList& coreList);
 
     /**
      * Applications using this CorePolicy must create threads using one of

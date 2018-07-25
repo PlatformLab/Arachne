@@ -452,26 +452,6 @@ random(void) {
     return z;
 }
 
-// Select a reasonably unloaded core from coreList using randomness with
-// refinement. This function is defined here to facilitate testing; defining it
-// in the CC file causes the compiler to generate an independent version of the
-// random() function above.
-static int __attribute__((unused))
-chooseCore(const CorePolicy::CoreList& coreList) {
-    uint32_t index1 = static_cast<uint32_t>(random()) % coreList.size();
-    uint32_t index2 = static_cast<uint32_t>(random()) % coreList.size();
-    while (index2 == index1 && coreList.size() > 1)
-        index2 = static_cast<uint32_t>(random()) % coreList.size();
-
-    int choice1 = coreList.get(index1);
-    int choice2 = coreList.get(index2);
-
-    if (occupiedAndCount[choice1]->load().numOccupied <
-        occupiedAndCount[choice2]->load().numOccupied)
-        return choice1;
-    return choice2;
-}
-
 /**
  * Spawn a thread with main function f invoked with the given args on the
  * kernel thread with id = coreId
@@ -560,8 +540,6 @@ createThreadOnCore(uint32_t coreId, _Callable&& __f, _Args&&... __args) {
     return ThreadId(threadContext, generation);
 }
 
-int chooseCore(const CorePolicy::CoreList& coreList);
-
 ////////////////////////////////////////////////////////////////////////////////
 // The ends the private section of the thread library.
 ////////////////////////////////////////////////////////////////////////////////
@@ -593,7 +571,7 @@ createThreadWithClass(int threadClass, _Callable&& __f, _Args&&... __args) {
     CorePolicy::CoreList coreList = corePolicy->getCores(threadClass);
     if (coreList.size() == 0)
         return Arachne::NullThread;
-    uint32_t kId = static_cast<uint32_t>(chooseCore(coreList));
+    uint32_t kId = static_cast<uint32_t>(corePolicy->chooseCore(coreList));
     auto threadId = createThreadOnCore(kId, __f, __args...);
     if (threadId != NullThread) {
         threadId.context->threadClass = threadClass;

@@ -161,6 +161,14 @@ class CorePolicy {
      */
     virtual CoreList getCores(int threadClass) = 0;
 
+    /**
+     * Select a reasonably unloaded core from coreList using randomness with
+     * refinement. This function is defined here to facilitate testing; defining it
+     * in the CC file causes the compiler to generate an independent version of the
+     * random() function above.
+     */
+    virtual int chooseCore(const CoreList& coreList) = 0;
+
     virtual ~CorePolicy() {}
 };
 

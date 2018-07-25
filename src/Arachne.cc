@@ -1524,7 +1524,7 @@ migrateThreadsFromCore() {
                 ARACHNE_LOG(ERROR, "No available cores to migrate threads to.");
                 abort();
             }
-            int coreId = chooseCore(outputCores);
+            int coreId = corePolicy->chooseCore(outputCores);
 
             bool success = false;
             uint8_t index;
