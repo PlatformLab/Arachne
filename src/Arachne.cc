@@ -697,7 +697,7 @@ dispatch() {
         // Decide whether we can run the current thread.
         if (dispatchIterationStartCycles >=
             currentContext->wakeupTimeInCycles) {
-            core.nextCandidateIndex = static_cast<uint8_t>(currentIndex + 1);
+            core.nextCandidateIndex = currentIndex + 1;
 
             if (currentContext == core.loadedContext) {
                 core.loadedContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
