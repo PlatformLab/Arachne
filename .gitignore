@@ -6,3 +6,4 @@ obj/
 lib/
 *.rej
 *.patch
+*.swp
