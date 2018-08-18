@@ -72,6 +72,8 @@ void dispatch();
 extern std::function<void()> initCore;
 
 extern std::vector<ThreadContext**> allThreadContexts;
+extern std::vector<WaitFreeQueue*> allReadyThreads;
+extern std::vector<WaitFreeQueue*> allHighPriorityThreads;
 
 extern CorePolicy* corePolicy;
 
@@ -127,7 +129,6 @@ void init(int* argcp = NULL, const char** argv = NULL);
 void shutDown();
 void waitForTermination();
 void yield();
-void sleep(uint64_t ns);
 
 void idleCore(int coreId);
 void unidleCore(int coreId);
@@ -140,7 +141,6 @@ void setCorePolicy(CorePolicy* arachneCorePolicy);
 CorePolicy* getCorePolicy();
 
 void block();
-void signal(ThreadId id);
 void join(ThreadId id);
 ThreadId getThreadId();
 
@@ -189,8 +189,6 @@ class ConditionVariable {
     void notifyAll();
     template <typename LockType>
     void wait(LockType& lock);
-    template <typename LockType>
-    void waitFor(LockType& lock, uint64_t ns);
 
   private:
     // Ordered collection of threads that are waiting on this condition
@@ -335,33 +333,10 @@ struct ThreadContext {
 
     /// \cond SuppressDoxygen
     struct alignas(CACHE_LINE_SIZE) {
-        char data[CACHE_LINE_SIZE - 8];
-        /// This variable holds the minimum value of the cycle counter for which
-        /// this thread can run.
-        /// 0 is a signal that this thread should run at the next opportunity.
-        /// ~0 is used as an infinitely large time: a sleeping thread will not
-        /// awaken as long as wakeupTimeInCycles has this value.
-        /// This variable lives here to share a cache line with the thread
-        /// invocation, thereby removing a cache miss for thread creation.
-        volatile uint64_t wakeupTimeInCycles;
+        char data[CACHE_LINE_SIZE];
     }
     /// \endcond
     threadInvocation;
-
-    /**
-     * This is the value for wakeupTimeInCycles when a live thread is blocked.
-     */
-    static const uint64_t BLOCKED;
-
-    /**
-     * This is the value for wakeupTimeInCycles when a ThreadContext is not
-     * hosting a thread.
-     */
-    static const uint64_t UNOCCUPIED;
-
-    /// This reference is for convenience and always points at
-    /// threadInvocation->wakeupTimeInCycles.
-    volatile uint64_t& wakeupTimeInCycles;
 
     void initializeStack();
     ThreadContext() = delete;
@@ -412,8 +387,6 @@ struct MaskAndCount {
 };
 
 extern std::vector<std::atomic<MaskAndCount>*> occupiedAndCount;
-
-extern std::vector<std::atomic<uint64_t>*> allHighPriorityThreads;
 
 #ifdef ARACHNE_TEST
 extern std::deque<uint64_t> mockRandomValues;
@@ -551,7 +524,7 @@ createThreadOnCore(uint32_t coreId, _Callable&& __f, _Args&&... __args) {
     // in the microbenchmark. One speculation is that we can get better ILP by
     // not using the same variable for both.
     uint32_t generation = allThreadContexts[coreId][index]->generation;
-    threadContext->wakeupTimeInCycles = 0;
+    allReadyThreads[coreId]->enqueue(threadContext);
 
     PerfStats::threadStats->numThreadsCreated++;
     if (failureCount)
@@ -644,30 +617,6 @@ ConditionVariable::wait(LockType& lock) {
 #if TIME_TRACE
     TimeTrace::record("About to acquire lock after waking up");
 #endif
-    lock.lock();
-}
-
-/**
- * Block the current thread until the condition variable is notified or at
- * least ns nanoseconds has passed.
- *
- * \param lock
- *     The mutex associated with this condition variable; must be held by
- *     caller before calling wait. This function releases the mutex before
- *     blocking, and re-acquires it before returning to the user.
- * \param ns
- *     The time in nanoseconds this thread should wait before returning in the
- *     absence of a signal.
- */
-template <typename LockType>
-void
-ConditionVariable::waitFor(LockType& lock, uint64_t ns) {
-    core.loadedContext->wakeupTimeInCycles =
-        Cycles::rdtsc() + Cycles::fromNanoseconds(ns);
-    blockedThreads.push_back(
-        ThreadId(core.loadedContext, core.loadedContext->generation));
-    lock.unlock();
-    dispatch();
     lock.lock();
 }
 

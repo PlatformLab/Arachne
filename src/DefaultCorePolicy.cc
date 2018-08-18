@@ -146,35 +146,38 @@ DefaultCorePolicy::getExclusiveCore() {
  */
 void
 DefaultCorePolicy::adjustCores() {
-    while (true) {
-        Arachne::sleep(measurementPeriod);
-        if (!coreAdjustmentShouldRun.load()) {
-            loadEstimator.clearHistory();
-            continue;
-        }
-        Lock guard(lock);
-        int estimate = loadEstimator.estimate(sharedCores);
-        if (estimate == 0)
-            continue;
-        if (estimate == -1) {
-            if (sharedCores.size() > 1)
-                setCoreCount(Arachne::numActiveCores - 1);
-            continue;
-        }
-        // Estimator believes we need more cores.
-        // First, see if any exclusive cores are available for turning back to
-        // shared. Note that this transition might race with an exclusive thread
-        // creation that just received an exclusive core, but such a race is
-        // safe as long as it results only in the failure of the exclusive
-        // thread creation.
-        int coreId = findAndClaimUnusedCore(&exclusiveCores);
-        if (coreId != -1) {
-            sharedCores.add(coreId);
-            continue;
-        }
-
-        // Then try to incrementCoreCount the traditional way.
-        setCoreCount(Arachne::numActiveCores + 1);
-    }
+    //    while (true) {
+    //        Arachne::sleep(measurementPeriod);
+    //        if (!coreAdjustmentShouldRun.load()) {
+    //            loadEstimator.clearHistory();
+    //            continue;
+    //        }
+    //        Lock guard(lock);
+    //        int estimate = loadEstimator.estimate(sharedCores);
+    //        if (estimate == 0)
+    //            continue;
+    //        if (estimate == -1) {
+    //            if (sharedCores.size() > 1)
+    //                setCoreCount(Arachne::numActiveCores - 1);
+    //            continue;
+    //        }
+    //        // Estimator believes we need more cores.
+    //        // First, see if any exclusive cores are available for turning
+    //        back to
+    //        // shared. Note that this transition might race with an exclusive
+    //        thread
+    //        // creation that just received an exclusive core, but such a race
+    //        is
+    //        // safe as long as it results only in the failure of the exclusive
+    //        // thread creation.
+    //        int coreId = findAndClaimUnusedCore(&exclusiveCores);
+    //        if (coreId != -1) {
+    //            sharedCores.add(coreId);
+    //            continue;
+    //        }
+    //
+    //        // Then try to incrementCoreCount the traditional way.
+    //        setCoreCount(Arachne::numActiveCores + 1);
+    //    }
 }
 }  // namespace Arachne

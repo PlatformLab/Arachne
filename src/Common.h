@@ -19,6 +19,7 @@
 #include <stdint.h>
 #include <stdlib.h>
 #include <atomic>
+#include "WaitFreeQueue.h"
 
 // This file exists to resolve circular dependencies.
 
@@ -71,6 +72,16 @@ struct Core {
     ThreadContext** localThreadContexts;
 
     /**
+     * Runnable threads are placed on this queue.
+     */
+    WaitFreeQueue* readyThreads;
+
+    /**
+     * Threads in this queue are examined before those in the readyQueue.
+     */
+    WaitFreeQueue* highPriorityThreads;
+
+    /**
      * The unique identifier given by the Linux kernel for this core.
      */
     int id = -1;
@@ -95,37 +106,6 @@ struct Core {
      * thread exit.
      */
     std::atomic<uint64_t>* localPinnedContexts;
-
-    /**
-     * Setting a jth bit indicates that the priority of the thread living at
-     * index j is temporarily raised.
-     */
-    std::atomic<uint64_t>* highPriorityThreads;
-
-    /**
-     * A bitmask in which set bits represent contexts that should run with
-     * elevated priority.
-     * Each call to dispatch() will examine this bitmask before searching other
-     * contexts. When reducing the number of cores, this value (if nonzero)
-     * should be cleared, since all non-terminated threads on this core will be
-     * migrated away from this thread.
-     */
-    uint64_t privatePriorityMask;
-
-    /**
-     * This variable holds the index into the current kernel thread's
-     * localThreadContexts that it will check first the next time it looks for
-     * a thread to run. It is used to implement round-robin scheduling of
-     * Arachne threads.
-     */
-    uint8_t nextCandidateIndex = 0;
-
-    /**
-     * This is the highest-indexed context known to be occupied on a given
-     * core. Additional occupied contexts are immediately above this context
-     * and have no unoccupied contexts between them.
-     */
-    uint8_t highestOccupiedContext;
 };
 
 void* alignedAlloc(size_t size, size_t alignment = CACHE_LINE_SIZE);

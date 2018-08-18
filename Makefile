@@ -20,8 +20,9 @@ BIN_DIR = bin
 # Depenencies
 PERFUTILS=../PerfUtils
 COREARBITER=../CoreArbiter
-INCLUDE=-I$(PERFUTILS)/include -I$(COREARBITER)/include -I$(SRC_DIR)
-LIBS=$(COREARBITER)/lib/libCoreArbiter.a $(PERFUTILS)/lib/libPerfUtils.a -lpcrecpp -pthread
+WAIT_FREE_QUEUE=../waitfree-mpsc-queue
+INCLUDE=-I$(PERFUTILS)/include -I$(COREARBITER)/include -I$(WAIT_FREE_QUEUE) -I$(SRC_DIR)
+LIBS=$(COREARBITER)/lib/libCoreArbiter.a $(PERFUTILS)/lib/libPerfUtils.a $(WAIT_FREE_QUEUE)/libmpscq.a -lpcrecpp -pthread
 CLIBS=$(LIBS) -lstdc++
 
 # Stuff needed for make check

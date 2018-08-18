@@ -108,6 +108,11 @@ volatile bool shutdown;
 std::vector<ThreadContext**> allThreadContexts;
 
 /**
+ * The collection of run queues for each core.
+ */
+std::vector<WaitFreeQueue*> allReadyThreads;
+
+/**
  * Each element points at the occupiedAndCount belonging to the core with the
  * coreId equal to its index.
  */
@@ -130,7 +135,7 @@ std::vector<uint64_t*> lastTotalCollectionTime;
  * priority of the thread living at index j on core i is temporarily raised.
  * Values pointed to must be in separate cache lines for high performance.
  */
-std::vector<std::atomic<uint64_t>*> allHighPriorityThreads;
+std::vector<WaitFreeQueue*> allHighPriorityThreads;
 
 /**
  * An array of semaphores cores can park on to idle themselves.
@@ -180,8 +185,6 @@ void checkForArbiterRequest();
 // scoped inside their respective structures, but gtest macros try to take
 // their address, and supplying their values inside the declaration causes an
 // undefined reference error.
-const uint64_t ThreadContext::BLOCKED = ~0L;
-const uint64_t ThreadContext::UNOCCUPIED = ~0L - 1;
 const uint8_t ThreadContext::CORE_UNASSIGNED = ~0L;
 const uint8_t MaskAndCount::EXCLUSIVE = maxThreadsPerCore * 2 + 1;
 
@@ -223,9 +226,8 @@ initializeCore(Core* core) {
     // All cores initially poll for work on context 0's stack.
     core->localPinnedContexts->store(1U);
 
-    core->highPriorityThreads = reinterpret_cast<std::atomic<uint64_t>*>(
-        alignedAlloc(sizeof(std::atomic<uint64_t>)));
-    memset(core->highPriorityThreads, 0, sizeof(std::atomic<uint64_t>));
+    core->readyThreads = new WaitFreeQueue(maxThreadsPerCore);
+    core->highPriorityThreads = new WaitFreeQueue(maxThreadsPerCore);
 
     // Allocate stacks and contexts
     ThreadContext** contexts = new ThreadContext*[maxThreadsPerCore];
@@ -244,7 +246,7 @@ void
 deinitializeCore(Core* core) {
     free(core->localOccupiedAndCount);
     free(core->localPinnedContexts);
-    free(core->highPriorityThreads);
+    delete core->highPriorityThreads;
 
     for (int k = 0; k < maxThreadsPerCore; k++) {
         free(core->localThreadContexts[k]->stack);
@@ -286,14 +288,22 @@ threadMain() {
         pinnedContexts[core.id] = core.localPinnedContexts;
         allThreadContexts[core.id] = core.localThreadContexts;
         allHighPriorityThreads[core.id] = core.highPriorityThreads;
+        allReadyThreads[core.id] = core.readyThreads;
 
         IdleTimeTracker::lastTotalCollectionTime = 0;
         // Clean up state from the last time this thread ran. This should
         // eventually be removed once we ensure that cleanup happens on
         // descheduling.
         *core.localOccupiedAndCount = {0, 0};
-        *core.highPriorityThreads = 0;
-        core.privatePriorityMask = 0;
+
+        // There should be no runnable threads in this queue.
+        if (!core.highPriorityThreads->empty()) {
+            ARACHNE_LOG(
+                ERROR,
+                "Core started with tasks remaining in highPriorityThreads!");
+            abort();
+        }
+
         core.coreDeschedulingScheduled = false;
 
         // Correct the ThreadContext.coreId() here to match the current core.
@@ -428,9 +438,6 @@ schedulerMainLoop() {
             &core.loadedContext->threadInvocation)
             ->runThread();
         // The thread has exited.
-        // Cancel any wakeups the thread may have scheduled for itself before
-        // exiting.
-        core.loadedContext->wakeupTimeInCycles = ThreadContext::UNOCCUPIED;
 
         // The positioning of this lock is rather subtle, and makes the
         // following three operations atomic.
@@ -480,27 +487,8 @@ schedulerMainLoop() {
                 oldSlotMap, slotMap);
         } while (!success);
 
-        // Reset highestOccupiedContext based on value of occupied flag, which
-        // we just CASed in, and the pinned context mask, which we just set.
-        // It is necessary to consider pinMask because it forces other cores
-        // attempting to migrate threads to this core to target contexts at
-        // slots above the pinned context, even if the pinned context is
-        // unocupied, which creates a gap between highestOccupiedContext and
-        // the next occupied context.
-        uint64_t occupiedOrPinned = slotMap.occupied | pinMask;
-
-        // The result of __builtin_clzll is undefined if occupied is 0.
-        // The function __builtin_clzll returns the number leading 0-bits,
-        // so subtract the return value of 63 to get a zero-based bit index
-        core.highestOccupiedContext =
-            occupiedOrPinned == 0
-                ? 0
-                : static_cast<uint8_t>(63 - __builtin_clzll(occupiedOrPinned));
-
         // Newborn threads should not have elevated priority, even if the
         // predecessors had leftover priority
-        core.privatePriorityMask &= ~(1L << (core.loadedContext->idInCore));
-        *core.highPriorityThreads &= ~(1L << (core.loadedContext->idInCore));
         PerfStats::threadStats->numThreadsFinished++;
 
         core.loadedContext->joinCV.notifyAll();
@@ -528,18 +516,7 @@ yield() {
         return;
     }
     // This thread is still runnable since it is merely yielding.
-    core.loadedContext->wakeupTimeInCycles = 0L;
-    dispatch();
-}
-
-/**
- * Sleep for at least ns nanoseconds. The amount of additional delay may be
- * impacted by other threads' activities such as blocking and yielding.
- */
-void
-sleep(uint64_t ns) {
-    core.loadedContext->wakeupTimeInCycles =
-        Cycles::rdtsc() + Cycles::fromNanoseconds(ns);
+    core.readyThreads->enqueue(core.loadedContext);
     dispatch();
 }
 
@@ -570,10 +547,6 @@ dispatch() {
     NestedDispatchDetector detector;
     IdleTimeTracker idleTimeTracker;
     Core& core = Arachne::core;
-    // Cache the original context so that we can survive across migrations to
-    // other kernel threads, since core.loadedContext is not reloaded correctly
-    // from TLS after switching back to this context.
-    ThreadContext* originalContext = core.loadedContext;
     if (unlikely(*reinterpret_cast<uint64_t*>(core.loadedContext->stack) !=
                  STACK_CANARY)) {
         ARACHNE_LOG(ERROR,
@@ -591,41 +564,51 @@ dispatch() {
     uint64_t dispatchIterationStartCycles = Cycles::rdtsc();
 
     // Check for high priority threads.
-    if (!core.privatePriorityMask) {
-        // Snapshot the high-priority threads in a core-local data structure
-        // and process all of them before the next snapshot; this avoids cache
-        // contention every time the priority of a thread is raised, and
-        // ensures that one high priority thread cannot starve out another.
-        core.privatePriorityMask = *core.highPriorityThreads;
-        if (core.privatePriorityMask)
-            *core.highPriorityThreads &= ~core.privatePriorityMask;
-    }
-
     // Run any high priority threads before searching the entire set of
     // contexts for runnable threads.
-    if (core.privatePriorityMask) {
-        // This position is one-indexed with zero meaning that no bits were
-        // set.
-        int firstSetBit = ffsll(core.privatePriorityMask) - 1;
+    if (!core.highPriorityThreads->empty()) {
+        ThreadContext* targetContext;
+        if (!core.highPriorityThreads->dequeue(
+                reinterpret_cast<void**>(&targetContext))) {
+            ARACHNE_LOG(ERROR,
+                        "Failed to get a thread from highPriorityThreads when "
+                        "it was non-empty!");
+            abort();
+        }
 
-        core.privatePriorityMask &= ~(1L << (firstSetBit));
+        if (targetContext == core.loadedContext) {
+            IdleTimeTracker::numThreadsRan++;
+            return;
+        }
+        void** saved = &core.loadedContext->sp;
+        core.loadedContext = targetContext;
 
-        ThreadContext* targetContext = core.localThreadContexts[firstSetBit];
+        // Flush the idle cycle counter before a context switch because
+        // switching to a fresh (previously unused) context will cause
+        // dispatch to be called from the top again before this
+        // invocation returns. This is problematic because it resets
+        // dispatchStartCycles (used for computing idle cycles) but not
+        // lastTotalCollectionTime (used for computing total cycles).
+        idleTimeTracker.updatePerfStats();
+        swapcontext(&core.loadedContext->sp, saved);
+        IdleTimeTracker::numThreadsRan++;
+        return;
+    }
 
-        // Verify wakeup and occupied.
-        if (targetContext->wakeupTimeInCycles == 0) {
+    // Find a thread to switch to
+    while (true) {
+        dispatchIterationStartCycles = Cycles::rdtsc();
+        if (!core.readyThreads->empty()) {
+            ThreadContext* targetContext;
+            if (!core.readyThreads->dequeue(
+                    reinterpret_cast<void**>(&targetContext))) {
+                ARACHNE_LOG(ERROR,
+                            "Failed to get a thread from readyThreads when it "
+                            "was non-empty!");
+                abort();
+            }
             if (targetContext == core.loadedContext) {
-                core.loadedContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
                 IdleTimeTracker::numThreadsRan++;
-
-                // It is necessary to update core.highestOccupiedContext
-                // here because two simultaneous returns from these
-                // priority checks (the higher index blocking and the lower
-                // index exiting) can result in a gap that cannot be
-                // bridged by the core.highestOccupiedContext increment
-                // mechanism below.
-                core.highestOccupiedContext = std::max(
-                    core.highestOccupiedContext, core.loadedContext->idInCore);
                 return;
             }
             void** saved = &core.loadedContext->sp;
@@ -639,88 +622,31 @@ dispatch() {
             // lastTotalCollectionTime (used for computing total cycles).
             idleTimeTracker.updatePerfStats();
             swapcontext(&core.loadedContext->sp, saved);
-            originalContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
-            IdleTimeTracker::numThreadsRan++;
-            Arachne::core.highestOccupiedContext = std::max(
-                core.highestOccupiedContext, core.loadedContext->idInCore);
-            return;
-        }
-    }
-    // Find a thread to switch to
-    uint8_t currentIndex = core.nextCandidateIndex;
-
-    for (;; currentIndex++) {
-        // Ensure that we do not go out of bounds.
-        if (currentIndex == maxThreadsPerCore) {
-            currentIndex = 0;
-        }
-
-        // At this point, it is guaranteed that it is safe to read the context
-        // information.
-        ThreadContext* currentContext = core.localThreadContexts[currentIndex];
-        if (currentIndex == core.highestOccupiedContext + 1) {
-            // Check whether we need to increment core.highestOccupiedContext or
-            // reset currentIndex.
-            if (currentContext->wakeupTimeInCycles !=
-                ThreadContext::UNOCCUPIED) {
-                core.highestOccupiedContext++;
-            } else {
-                currentIndex = 0;
-                // Reload the currentContext since we have reset currentIndex.
-                currentContext = core.localThreadContexts[currentIndex];
-            }
-        }
-        if (currentIndex == 0) {
-            // Update stats and check for arbiter preemption; done once per
-            // cycle over all contexts on this core.
-            checkForArbiterRequest();
-            dispatchIterationStartCycles = Cycles::rdtsc();
-            // Flush counters to keep times up to date
-            idleTimeTracker.updatePerfStats();
-
-            // Check for termination
-            if (shutdown) {
-                swapcontext(&kernelThreadStacks[core.id],
-                            &core.loadedContext->sp);
-            }
-
-            PerfStats::threadStats->weightedLoadedCycles +=
-                IdleTimeTracker::numThreadsRan *
-                (dispatchIterationStartCycles -
-                 IdleTimeTracker::lastDispatchIterationStart);
-
-            IdleTimeTracker::numThreadsRan = 0;
-            IdleTimeTracker::lastDispatchIterationStart =
-                dispatchIterationStartCycles;
-        }
-
-        // Decide whether we can run the current thread.
-        if (dispatchIterationStartCycles >=
-            currentContext->wakeupTimeInCycles) {
-            core.nextCandidateIndex = currentIndex + 1;
-
-            if (currentContext == core.loadedContext) {
-                core.loadedContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
-                IdleTimeTracker::numThreadsRan++;
-                return;
-            }
-            void** saved = &core.loadedContext->sp;
-            core.loadedContext = currentContext;
-
-            // Flush the idle cycle counter before a context switch because
-            // switching to a fresh (previously unused) context will cause
-            // dispatch to be called from the top again before this
-            // invocation returns. This is problematic because it resets
-            // dispatchStartCycles (used for computing idle cycles) but not
-            // lastTotalCollectionTime (used for computing total cycles).
-            idleTimeTracker.updatePerfStats();
-            swapcontext(&core.loadedContext->sp, saved);
             // After the old context is swapped out above, this line executes
             // in the new context.
-            originalContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
             IdleTimeTracker::numThreadsRan++;
             return;
         }
+
+        // Update stats and check for arbiter preemption
+        checkForArbiterRequest();
+        dispatchIterationStartCycles = Cycles::rdtsc();
+        // Flush counters to keep times up to date
+        idleTimeTracker.updatePerfStats();
+
+        // Check for termination
+        if (shutdown) {
+            swapcontext(&kernelThreadStacks[core.id], &core.loadedContext->sp);
+        }
+
+        PerfStats::threadStats->weightedLoadedCycles +=
+            IdleTimeTracker::numThreadsRan *
+            (dispatchIterationStartCycles -
+             IdleTimeTracker::lastDispatchIterationStart);
+
+        IdleTimeTracker::numThreadsRan = 0;
+        IdleTimeTracker::lastDispatchIterationStart =
+            dispatchIterationStartCycles;
     }
 }
 
@@ -751,58 +677,6 @@ compareExchange(volatile uint64_t* target, uint64_t test, uint64_t newValue) {
                          : "=r"(newValue), "=m"(*target), "=a"(test)
                          : "0"(newValue), "2"(test));
     return test;
-}
-
-/**
- * Make the thread referred to by ThreadId runnable.
- * If one thread exits and another is created between the check and the setting
- * of the wakeup flag, this signal will result in a spurious wake-up.
- * If this method is invoked on a currently running thread, it will have the
- * effect of causing the thread to immediately unblock the next time it blocks.
- *
- * \param id
- *     The id of the thread to signal.
- */
-void
-signal(ThreadId id) {
-    // Speculatively assume that that the thread being signaled is in the
-    // BLOCKED state, and retry the CAS if it is not. This approach avoids
-    // first taking a cache miss to read and then performing a CAS in the case
-    // when the target thread is actually BLOCKED.
-    // Experiments show that this approach can save 40 ns compared to explicitly
-    // reading wakeupTimeInCycles and then performing the CAS.
-    //
-    // When explicitly reading, we pay:
-    //     1 cache miss to read on the signaler core.
-    //     1 cache invalidate other caches during the CAS.
-    //     1 cache miss to read on the target core.
-    // Under the CAS-first approach, if the wakeupTimeInCycles == BLOCKED, we
-    // pay:
-    //     1 cache invalidate other caches during the CAS.
-    //     1 cache miss to read on the target core.
-    // This method uses CAS rather than a blind write to avoid accidentally
-    // signalling a thread that just exited, which might cause us to attempt to
-    // execute on an empty ThreadContext
-    uint64_t oldWakeupTime = ThreadContext::BLOCKED;
-    uint64_t newValue = 0L;
-    oldWakeupTime = compareExchange(&id.context->wakeupTimeInCycles,
-                                    oldWakeupTime, newValue);
-
-    // The original value was not BLOCKED, so we try again with the true
-    // original value, unless the target is already runnable or UNOCCUPIED.
-    // This typically happens if the target thread was sleeping rather than
-    // blocked.
-    if (oldWakeupTime != ThreadContext::BLOCKED &&
-        oldWakeupTime != ThreadContext::UNOCCUPIED && oldWakeupTime != 0L) {
-        compareExchange(&id.context->wakeupTimeInCycles, oldWakeupTime,
-                        newValue);
-    }
-    // Raise the priority of the newly awakened thread except the UNOCCUPIED.
-    if (oldWakeupTime != ThreadContext::UNOCCUPIED &&
-        id.context->coreId != static_cast<uint8_t>(~0)) {
-        *allHighPriorityThreads[id.context->coreId] |=
-            (1L << id.context->idInCore);
-    }
 }
 
 /**
@@ -949,9 +823,7 @@ ThreadContext::ThreadContext(uint8_t idInCore)
       coreId(CORE_UNASSIGNED),
       originalCoreId(coreId),
       idInCore(idInCore),
-      threadInvocation(),
-      wakeupTimeInCycles(threadInvocation.wakeupTimeInCycles) {
-    wakeupTimeInCycles = ThreadContext::UNOCCUPIED;
+      threadInvocation() {
     // Allocate memory here so we can error-check the return value of malloc.
     stack = alignedAlloc(stackSize, PAGE_SIZE);
     if (stack == NULL) {
@@ -1101,6 +973,7 @@ init(int* argcp, const char** argv) {
     pinnedContexts.resize(numHardwareCores);
     allHighPriorityThreads.resize(numHardwareCores);
     allThreadContexts.resize(numHardwareCores);
+    allReadyThreads.resize(numHardwareCores);
     for (unsigned int i = 0; i < numHardwareCores; i++) {
         coreIdleSemaphores.push_back(new ::Semaphore);
     }
@@ -1155,7 +1028,6 @@ mainThreadInit() {
         core.localThreadContexts[k]->initializeStack();
     }
     core.loadedContext = *core.localThreadContexts;
-    core.loadedContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
     *core.localOccupiedAndCount = {1, 1};
     PerfStats::threadStats = std::unique_ptr<PerfStats>(new PerfStats());
 }
@@ -1239,7 +1111,8 @@ SleepLock::unlock() {
         return;
     }
     owner = blockedThreads.front().context;
-    signal(blockedThreads.front());
+    allHighPriorityThreads[owner->coreId]->enqueue(
+        blockedThreads.front().context);
     blockedThreads.pop_front();
     blockedThreadsLock.unlock();
 }
@@ -1259,7 +1132,8 @@ ConditionVariable::notifyOne() {
         return;
     ThreadId awakenedThread = blockedThreads.front();
     blockedThreads.pop_front();
-    signal(awakenedThread);
+    allHighPriorityThreads[awakenedThread.context->coreId]->enqueue(
+        awakenedThread.context);
 }
 
 /**
@@ -1480,8 +1354,7 @@ preventCreationsToCore(int coreId) {
             // There is no race with completions here because no other thread
             // can be running on this core since we are running.
             if (((targetOccupiedAndCount.occupied >> i) & 1) &&
-                core.localThreadContexts[i]->wakeupTimeInCycles ==
-                    ThreadContext::UNOCCUPIED) {
+                !core.readyThreads->contains(core.localThreadContexts[i])) {
                 pendingCreation = true;
                 break;
             }
