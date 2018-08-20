@@ -561,50 +561,50 @@ dispatch() {
     // threads.
     checkForArbiterRequest();
 
-    uint64_t dispatchIterationStartCycles = Cycles::rdtsc();
-
-    // Check for high priority threads.
-    // Run any high priority threads before searching the entire set of
-    // contexts for runnable threads.
-    if (!core.highPriorityThreads->empty()) {
-        ThreadContext* targetContext;
-        if (!core.highPriorityThreads->dequeue(
-                reinterpret_cast<void**>(&targetContext))) {
-            ARACHNE_LOG(ERROR,
-                        "Failed to get a thread from highPriorityThreads when "
-                        "it was non-empty!");
-            abort();
-        }
-
-        if (targetContext == core.loadedContext) {
-            IdleTimeTracker::numThreadsRan++;
-            return;
-        }
-        void** saved = &core.loadedContext->sp;
-        core.loadedContext = targetContext;
-
-        // Flush the idle cycle counter before a context switch because
-        // switching to a fresh (previously unused) context will cause
-        // dispatch to be called from the top again before this
-        // invocation returns. This is problematic because it resets
-        // dispatchStartCycles (used for computing idle cycles) but not
-        // lastTotalCollectionTime (used for computing total cycles).
-        idleTimeTracker.updatePerfStats();
-        swapcontext(&core.loadedContext->sp, saved);
-        IdleTimeTracker::numThreadsRan++;
-        return;
-    }
 
     // Find a thread to switch to
     while (true) {
-        dispatchIterationStartCycles = Cycles::rdtsc();
+        uint64_t dispatchIterationStartCycles = Cycles::rdtsc();
+
+        // Check for high priority threads.
+        // Run any high priority threads before searching the entire set of
+        // contexts for runnable threads.
+        if (!core.highPriorityThreads->empty()) {
+            ThreadContext* targetContext;
+            if (!core.highPriorityThreads->dequeue(
+                        reinterpret_cast<void**>(&targetContext))) {
+                ARACHNE_LOG(ERROR,
+                        "Failed to get a thread from highPriorityThreads when "
+                        "it was non-empty!");
+                abort();
+            }
+
+            if (targetContext == core.loadedContext) {
+                IdleTimeTracker::numThreadsRan++;
+                return;
+            }
+            void** saved = &core.loadedContext->sp;
+            core.loadedContext = targetContext;
+
+            // Flush the idle cycle counter before a context switch because
+            // switching to a fresh (previously unused) context will cause
+            // dispatch to be called from the top again before this
+            // invocation returns. This is problematic because it resets
+            // dispatchStartCycles (used for computing idle cycles) but not
+            // lastTotalCollectionTime (used for computing total cycles).
+            idleTimeTracker.updatePerfStats();
+            swapcontext(&core.loadedContext->sp, saved);
+            IdleTimeTracker::numThreadsRan++;
+            return;
+        }
+
         if (!core.readyThreads->empty()) {
             ThreadContext* targetContext;
             if (!core.readyThreads->dequeue(
-                    reinterpret_cast<void**>(&targetContext))) {
+                        reinterpret_cast<void**>(&targetContext))) {
                 ARACHNE_LOG(ERROR,
-                            "Failed to get a thread from readyThreads when it "
-                            "was non-empty!");
+                        "Failed to get a thread from readyThreads when it "
+                        "was non-empty!");
                 abort();
             }
             if (targetContext == core.loadedContext) {
