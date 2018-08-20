@@ -25,7 +25,9 @@ class WaitFreeQueue {
     bool enqueue(void* item) { return mpscq_enqueue(internalQueue, item); }
 
     bool dequeue(void** item) {
-        *item = mpscq_dequeue(internalQueue);
+        do {
+            *item = mpscq_dequeue(internalQueue);
+        } while (*item == NULL && !empty());
         return *item != NULL;
     }
 
