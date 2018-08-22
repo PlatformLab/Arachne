@@ -82,6 +82,12 @@ struct Core {
     WaitFreeQueue* highPriorityThreads;
 
     /**
+     * Points to either readyThreads or highPriorityThreads, depending on which
+     * queue the most recent ThreadContext came out of.
+     */
+    WaitFreeQueue* lastQueue;
+
+    /**
      * The unique identifier given by the Linux kernel for this core.
      */
     int id = -1;

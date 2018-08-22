@@ -561,92 +561,93 @@ dispatch() {
     // threads.
     checkForArbiterRequest();
 
-
     // Find a thread to switch to
     while (true) {
         uint64_t dispatchIterationStartCycles = Cycles::rdtsc();
 
-        // Check for high priority threads.
-        // Run any high priority threads before searching the entire set of
-        // contexts for runnable threads.
         if (!core.highPriorityThreads->empty()) {
-            ThreadContext* targetContext;
-            if (!core.highPriorityThreads->dequeue(
-                        reinterpret_cast<void**>(&targetContext))) {
-                ARACHNE_LOG(ERROR,
-                        "Failed to get a thread from highPriorityThreads when "
-                        "it was non-empty!");
-                abort();
-            }
+            core.lastQueue = core.highPriorityThreads;
+        } else if (!core.readyThreads->empty()) {
+            core.lastQueue = core.readyThreads;
+        } else {
+            // Neither queue contains any threads to run, do maintenance part of
+            // loop.
 
-            if (targetContext == core.loadedContext) {
-                IdleTimeTracker::numThreadsRan++;
-                return;
-            }
-            void** saved = &core.loadedContext->sp;
-            core.loadedContext = targetContext;
-
-            // Flush the idle cycle counter before a context switch because
-            // switching to a fresh (previously unused) context will cause
-            // dispatch to be called from the top again before this
-            // invocation returns. This is problematic because it resets
-            // dispatchStartCycles (used for computing idle cycles) but not
-            // lastTotalCollectionTime (used for computing total cycles).
+            // Update stats and check for arbiter preemption
+            checkForArbiterRequest();
+            dispatchIterationStartCycles = Cycles::rdtsc();
+            // Flush counters to keep times up to date
             idleTimeTracker.updatePerfStats();
-            swapcontext(&core.loadedContext->sp, saved);
-            IdleTimeTracker::numThreadsRan++;
-            return;
+
+            // Check for termination
+            if (shutdown) {
+                swapcontext(&kernelThreadStacks[core.id],
+                            &core.loadedContext->sp);
+            }
+
+            PerfStats::threadStats->weightedLoadedCycles +=
+                IdleTimeTracker::numThreadsRan *
+                (dispatchIterationStartCycles -
+                 IdleTimeTracker::lastDispatchIterationStart);
+
+            IdleTimeTracker::numThreadsRan = 0;
+            IdleTimeTracker::lastDispatchIterationStart =
+                dispatchIterationStartCycles;
+            continue;
         }
 
-        if (!core.readyThreads->empty()) {
-            ThreadContext* targetContext;
-            if (!core.readyThreads->dequeue(
-                        reinterpret_cast<void**>(&targetContext))) {
-                ARACHNE_LOG(ERROR,
-                        "Failed to get a thread from readyThreads when it "
+        // If we reached this point, one of the queues had a thread to run.
+        ThreadContext* targetContext;
+        if (!core.lastQueue->peek(reinterpret_cast<void**>(&targetContext))) {
+            ARACHNE_LOG(ERROR,
+                        "Failed to get a thread from lastQueue when it "
                         "was non-empty!");
+            abort();
+        }
+        if (targetContext == core.loadedContext) {
+            IdleTimeTracker::numThreadsRan++;
+            if (!core.lastQueue->dequeue(
+                    reinterpret_cast<void**>(&targetContext))) {
+                ARACHNE_LOG(ERROR, "Failed to dequeue current context!");
                 abort();
             }
-            if (targetContext == core.loadedContext) {
-                IdleTimeTracker::numThreadsRan++;
-                return;
-            }
-            void** saved = &core.loadedContext->sp;
-            core.loadedContext = targetContext;
-
-            // Flush the idle cycle counter before a context switch because
-            // switching to a fresh (previously unused) context will cause
-            // dispatch to be called from the top again before this
-            // invocation returns. This is problematic because it resets
-            // dispatchStartCycles (used for computing idle cycles) but not
-            // lastTotalCollectionTime (used for computing total cycles).
-            idleTimeTracker.updatePerfStats();
-            swapcontext(&core.loadedContext->sp, saved);
-            // After the old context is swapped out above, this line executes
-            // in the new context.
-            IdleTimeTracker::numThreadsRan++;
             return;
         }
+        void** saved = &core.loadedContext->sp;
+        core.loadedContext = targetContext;
 
-        // Update stats and check for arbiter preemption
-        checkForArbiterRequest();
-        dispatchIterationStartCycles = Cycles::rdtsc();
-        // Flush counters to keep times up to date
+        // Flush the idle cycle counter before a context switch because
+        // switching to a fresh (previously unused) context will cause
+        // dispatch to be called from the top again before this
+        // invocation returns. This is problematic because it resets
+        // dispatchStartCycles (used for computing idle cycles) but not
+        // lastTotalCollectionTime (used for computing total cycles).
         idleTimeTracker.updatePerfStats();
-
-        // Check for termination
-        if (shutdown) {
-            swapcontext(&kernelThreadStacks[core.id], &core.loadedContext->sp);
+        if (core.lastQueue->empty()) {
+            ARACHNE_LOG(ERROR,
+                        "Invariant Violated: No ready threads before invoking "
+                        "swapcontext");
+            abort();
         }
-
-        PerfStats::threadStats->weightedLoadedCycles +=
-            IdleTimeTracker::numThreadsRan *
-            (dispatchIterationStartCycles -
-             IdleTimeTracker::lastDispatchIterationStart);
-
-        IdleTimeTracker::numThreadsRan = 0;
-        IdleTimeTracker::lastDispatchIterationStart =
-            dispatchIterationStartCycles;
+        swapcontext(&core.loadedContext->sp, saved);
+        // After the old context is swapped out above, this line executes
+        // in the new context.
+        IdleTimeTracker::numThreadsRan++;
+        if (core.lastQueue->empty()) {
+            ARACHNE_LOG(ERROR,
+                        "Invariant Violated: No ready threads after returning "
+                        "from swapcontext");
+            abort();
+        }
+        if (!core.lastQueue->dequeue(
+                reinterpret_cast<void**>(&targetContext))) {
+            ARACHNE_LOG(ERROR,
+                        "Failed to dequeue after returning from context! "
+                        "NumElements = %zu",
+                        core.lastQueue->size());
+            abort();
+        }
+        return;
     }
 }
 
