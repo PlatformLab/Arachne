@@ -31,6 +31,13 @@ class WaitFreeQueue {
         return *item != NULL;
     }
 
+    bool peek(void** item) {
+        do {
+            *item = mpscq_peek(internalQueue);
+        } while (*item == NULL && !empty());
+        return *item != NULL;
+    }
+
     bool contains(void* item) { return mpscq_contains(internalQueue, item); }
 
     size_t size() { return mpscq_count(internalQueue); }
