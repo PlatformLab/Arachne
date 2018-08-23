@@ -464,6 +464,10 @@ schedulerMainLoop() {
         uint64_t pinMask = 1 << core.loadedContext->idInCore;
         core.localPinnedContexts->store(pinMask);
 
+        // Clear the initialized bit before clearing the occupied mask.
+        core.loadedContext->threadInvocation.initialized.store(
+            false, std::memory_order_release);
+
         // The code below clears the occupied flag for the current
         // ThreadContext.
         //
@@ -825,6 +829,7 @@ ThreadContext::ThreadContext(uint8_t idInCore)
       originalCoreId(coreId),
       idInCore(idInCore),
       threadInvocation() {
+    threadInvocation.initialized.store(false);
     // Allocate memory here so we can error-check the return value of malloc.
     stack = alignedAlloc(stackSize, PAGE_SIZE);
     if (stack == NULL) {
@@ -1355,7 +1360,8 @@ preventCreationsToCore(int coreId) {
             // There is no race with completions here because no other thread
             // can be running on this core since we are running.
             if (((targetOccupiedAndCount.occupied >> i) & 1) &&
-                !core.readyThreads->contains(core.localThreadContexts[i])) {
+                !core.localThreadContexts[i]->threadInvocation.initialized.load(
+                    std::memory_order_acquire)) {
                 pendingCreation = true;
                 break;
             }

@@ -333,7 +333,8 @@ struct ThreadContext {
 
     /// \cond SuppressDoxygen
     struct alignas(CACHE_LINE_SIZE) {
-        char data[CACHE_LINE_SIZE];
+        char data[CACHE_LINE_SIZE - sizeof(std::atomic<bool>)];
+        std::atomic<bool> initialized;
     }
     /// \endcond
     threadInvocation;
@@ -524,6 +525,8 @@ createThreadOnCore(uint32_t coreId, _Callable&& __f, _Args&&... __args) {
     // in the microbenchmark. One speculation is that we can get better ILP by
     // not using the same variable for both.
     uint32_t generation = allThreadContexts[coreId][index]->generation;
+    threadContext->threadInvocation.initialized.store(
+        true, std::memory_order_release);
     allReadyThreads[coreId]->enqueue(threadContext);
 
     PerfStats::threadStats->numThreadsCreated++;
