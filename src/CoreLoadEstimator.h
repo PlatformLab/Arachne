@@ -68,7 +68,7 @@ class CoreLoadEstimator {
      * We will attempt to increase the number of cores if the load factor
      * increases beyond this threshold.
      */
-    double loadFactorThreshold = 1.0;
+    double loadFactorThreshold = 1.5;
 
     /*
      * We will attempt to increase the number of cores if the utilization
@@ -88,12 +88,12 @@ class CoreLoadEstimator {
      * wait to ramp down until the load gets a bit below the point at
      * which we ramped up).
      */
-    double idleCoreFractionHysteresis = 0.2;
+    double idleCoreFractionHysteresis = 0.09;
 
     /*
      * Core utilizations below this threshold are considered effectively 0.
      */
-    double zeroCoreUtilizationThreshold = 1e-3;
+    double zeroCoreUtilizationThreshold = 0.01;
 
     /*
      * Do not ramp down if the fraction of occupied threadContext slots is
