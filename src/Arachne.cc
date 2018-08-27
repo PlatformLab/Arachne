@@ -810,7 +810,8 @@ signal(ThreadId id) {
  * execution.
  *
  * \param id
- *     The id of the thread to join.
+ *     The id of the thread to join. This id must be a valid return value from
+ *     Arachne::createThread, and must not be equal to Arachne::NullThread.
  */
 void
 join(ThreadId id) {
