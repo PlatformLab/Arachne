@@ -18,6 +18,7 @@
 
 #include <memory>
 #include <vector>
+#include <unordered_map>
 
 #include "CorePolicy.h"
 #include "SpinLock.h"
@@ -99,6 +100,9 @@ struct PerfStats {
     static std::unique_ptr<PerfStats> getStats(int coreId);
     static void releaseStats(std::unique_ptr<PerfStats> perfStats);
     static void collectStats(PerfStats* total, CorePolicy::CoreList coreList);
+    static void collectCoreStats(
+            std::unordered_map<int, PerfStats>* allPerfStats,
+            CorePolicy::CoreList coreList);
 };
 }  // namespace Arachne
 

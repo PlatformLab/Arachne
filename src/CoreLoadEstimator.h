@@ -107,6 +107,11 @@ class CoreLoadEstimator {
      * Stats collected during the previous execution of estimate.
      */
     Arachne::PerfStats previousStats;
+
+    /**
+     * Individual core stats collected during previous execution of estimate.
+     */
+    std::unordered_map<int, PerfStats> previousCoreToPerfStats;
 };
 
 }  // namespace Arachne
