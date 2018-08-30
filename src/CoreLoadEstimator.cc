@@ -16,6 +16,8 @@
 
 #include <thread>
 
+#define COLLECT_CORE_STATS 1
+
 namespace Arachne {
 
 extern thread_local bool isEstimatorCore;
@@ -40,10 +42,18 @@ CoreLoadEstimator::estimate(CorePolicy::CoreList coreList) {
     // previously recorded.
     if (previousStats.collectionTime == 0) {
         Arachne::PerfStats::collectStats(&previousStats, coreList);
+#if COLLECT_CORE_STATS
+        Arachne::PerfStats::collectCoreStats(&previousCoreToPerfStats,
+                                             coreList);
+#endif
         return 0;
     }
     Arachne::PerfStats currentStats;
+    std::unordered_map<int, Arachne::PerfStats> coreToPerfStats;
     Arachne::PerfStats::collectStats(&currentStats, coreList);
+#if COLLECT_CORE_STATS
+    Arachne::PerfStats::collectCoreStats(&coreToPerfStats, coreList);
+#endif
 
     // Evaluate idle time precentage multiplied by number of cores to
     // determine whether we need to decrease the number of cores.
@@ -90,6 +100,55 @@ CoreLoadEstimator::estimate(CorePolicy::CoreList coreList) {
                         "averageloadFactor = %lf, loadFactorThreshold = %lf\n",
                         curActiveCores, totalUtilizedCores, localThreshold,
                         averageLoadFactor, loadFactorThreshold);
+
+#if COLLECT_CORE_STATS
+            FILE* estimationLog = fopen("/tmp/ArachneEstimationLog.log", "w");
+            if (!estimationLog) {
+                ARACHNE_LOG(
+                    ERROR,
+                    "Cannot open file for writing ArachneEstimationLog\n");
+                abort();
+            }
+            // Dump all delta statistics on all cores in core list along with
+            // rdtsc at collection time.
+            fputs("BEGIN ESTIMATION STATS DUMP\n", estimationLog);
+            fprintf(estimationLog,
+                    "TimeInCycles = %lu, curActiveCores = %d,"
+                    " totalUtilizedCores = %lf, localThreshold = %lf, "
+                    "averageloadFactor = %lf, loadFactorThreshold = %lf\n",
+                    currentStats.collectionTime, curActiveCores,
+                    totalUtilizedCores, localThreshold, averageLoadFactor,
+                    loadFactorThreshold);
+            fputs(
+                "CoreId,IdleCycles,TotalCycles,WeightedLoadedCycles,LoadFactor,"
+                "Utilization\n",
+                estimationLog);
+            for (auto it : coreToPerfStats) {
+                int coreId = it.first;
+                PerfStats cur = it.second;
+                PerfStats prev = previousCoreToPerfStats[coreId];
+
+                // Calculate
+                uint64_t idleCycles = cur.idleCycles - prev.idleCycles;
+                uint64_t totalCycles = cur.totalCycles - prev.totalCycles;
+                uint64_t weightedLoadedCycles =
+                    cur.weightedLoadedCycles - prev.weightedLoadedCycles;
+                double coreLoadFactor =
+                    static_cast<double>(weightedLoadedCycles) /
+                    static_cast<double>(totalCycles);
+                double utilization =
+                    static_cast<double>(totalCycles - idleCycles) /
+                    static_cast<double>(totalCycles);
+
+                fprintf(estimationLog, "%d,%lu,%lu,%lu,%lf,%lf\n", coreId,
+                        idleCycles, totalCycles, weightedLoadedCycles,
+                        coreLoadFactor, utilization);
+            }
+            fputs("END ESTIMATION STATS DUMP\n", estimationLog);
+            fclose(estimationLog);
+#endif
+
+            previousCoreToPerfStats = coreToPerfStats;
             return 1;
         }
         localThreshold = std::max(zeroCoreUtilizationThreshold, localThreshold);
@@ -100,8 +159,10 @@ CoreLoadEstimator::estimate(CorePolicy::CoreList coreList) {
                         "averageloadFactor = %lf, loadFactorThreshold = %lf\n",
                         curActiveCores, totalUtilizedCores, localThreshold,
                         averageLoadFactor, loadFactorThreshold);
+            previousCoreToPerfStats = coreToPerfStats;
             return -1;
         }
+        previousCoreToPerfStats = coreToPerfStats;
         return 0;
     } else if (estimationStrategy == UTILIZATION) {
         ARACHNE_LOG(DEBUG,

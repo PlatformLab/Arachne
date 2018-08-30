@@ -127,4 +127,19 @@ PerfStats::collectStats(PerfStats* total, CorePolicy::CoreList coreList) {
         total->numContendedCreations += stats->numContendedCreations;
     }
 }
+
+void
+PerfStats::collectCoreStats(
+        std::unordered_map<int, PerfStats>* allPerfStats,
+        CorePolicy::CoreList coreList) {
+    allPerfStats->clear();
+    std::lock_guard<SpinLock> lock(mutex);
+    for (size_t i = 0; i < coreList.size(); i++) {
+        PerfStats* stats = allCoreStats[coreList[i]];
+        if (!stats) {
+            continue;
+        }
+        (*allPerfStats)[coreList[i]] = *stats;
+    }
+}
 }  // namespace Arachne
