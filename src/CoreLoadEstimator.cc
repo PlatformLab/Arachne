@@ -100,7 +100,7 @@ CoreLoadEstimator::estimate(CorePolicy::CoreList coreList) {
                         averageLoadFactor, loadFactorThreshold);
 
 #if COLLECT_CORE_STATS
-            FILE* estimationLog = fopen("/tmp/ArachneEstimationLog.log", "w");
+            FILE* estimationLog = fopen("/tmp/ArachneEstimationLog.log", "a");
             if (!estimationLog) {
                 ARACHNE_LOG(
                     ERROR,
