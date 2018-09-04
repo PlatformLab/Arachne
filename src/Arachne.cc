@@ -1522,7 +1522,10 @@ migrateThreadsFromCore() {
             CorePolicy::CoreList outputCores =
                 corePolicy->getCores(threadClass);
             if (outputCores.size() == 0) {
-                ARACHNE_LOG(ERROR, "No available cores to migrate threads to.");
+                ARACHNE_LOG(ERROR,
+                            "No available cores to migrate threads to for "
+                            "threadclass %d.",
+                            threadClass);
                 abort();
             }
             int coreId = chooseCore(outputCores);
@@ -1694,7 +1697,7 @@ findAndClaimUnusedCore(CorePolicy::CoreList* cores) {
     for (uint32_t i = 0; i < cores->size(); i++) {
         int coreId = cores->get(i);
         MaskAndCount slotMap = *occupiedAndCount[coreId];
-        if (slotMap.numOccupied == maxThreadsPerCore - 1) {
+        if (slotMap.occupied == 0) {
             // Attempt to reclaim this core with a CAS. Only move back
             // to sharedCores if we succeed.
             MaskAndCount oldSlotMap = slotMap;

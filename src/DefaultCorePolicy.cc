@@ -127,16 +127,20 @@ DefaultCorePolicy::getEstimator() {
 int
 DefaultCorePolicy::getExclusiveCore() {
     Lock guard(lock);
-    // Take the oldest core to be an exclusive core, so it is relinquished last.
-    // No cores available, return failure.
-    if (sharedCores.size() == 0) {
-        return -1;
+    // Attempt to pick up an exclusive core whose host thread has expired.
+    int coreId = findAndClaimUnusedCore(&exclusiveCores);
+    if (coreId == -1) {
+        // Take the oldest core to be an exclusive core, so it is relinquished
+        // last. No cores available, return failure.
+        if (sharedCores.size() == 0) {
+            return -1;
+        }
+        coreId = sharedCores[0];
+        sharedCores.remove(0);
     }
-    int newExclusiveCore = sharedCores[0];
-    exclusiveCores.add(newExclusiveCore);
-    sharedCores.remove(0);
-    prepareForExclusiveUse(newExclusiveCore);
-    return newExclusiveCore;
+    exclusiveCores.add(coreId);
+    prepareForExclusiveUse(coreId);
+    return coreId;
 }
 
 /**
