@@ -472,6 +472,8 @@ chooseCore(const CorePolicy::CoreList& coreList) {
     return choice2;
 }
 
+void checkConsistency(std::atomic<MaskAndCount>* occupiedAndCount, ThreadContext** contexts, int coreId);
+
 /**
  * Spawn a thread with main function f invoked with the given args on the
  * kernel thread with id = coreId
@@ -533,17 +535,14 @@ createThreadOnCore(uint32_t coreId, _Callable&& __f, _Args&&... __args) {
         slotMap.numOccupied++;
         threadContext = allThreadContexts[coreId][index];
 
-        // The second clause handles the exclusive core case.
-        if (__builtin_popcountll(slotMap.occupied) != slotMap.numOccupied && slotMap.numOccupied != maxThreadsPerCore) {
-            ARACHNE_LOG(ERROR, "Bottom of createThread %d has numOccupied %lu not matching occupied %lu\n",
-                    coreId, slotMap.numOccupied, slotMap.occupied);
-            abort();
-        }
 //        fprintf(stderr, "createThreadOnCore: Wrote %lu %lu to core %d\n",
 //                slotMap.occupied,
 //                slotMap.numOccupied, coreId);
         success = occupiedAndCount[coreId]->compare_exchange_strong(oldSlotMap,
                                                                     slotMap);
+        if (success) {
+            checkConsistency(occupiedAndCount[coreId], allThreadContexts[coreId], coreId);
+        }
 
 
         if (!success) {

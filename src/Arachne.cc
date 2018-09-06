@@ -458,6 +458,7 @@ schedulerMainLoop() {
 
         // Check that the current thread executing as the corresponding bit
         // occupied.
+        checkConsistency(core.localOccupiedAndCount, core.localThreadContexts, core.id);
         if (!(core.localOccupiedAndCount->load().occupied & (1L << core.loadedContext->idInCore))) {
             ARACHNE_LOG(ERROR, "Returned from dispatch with an empty context!\n");
             abort();
@@ -492,7 +493,7 @@ schedulerMainLoop() {
         core.loadedContext->generation++;
 
         // Pin the current context before clearing the occupied bit.
-        uint64_t pinMask = 1 << core.loadedContext->idInCore;
+        uint64_t pinMask = 1L << core.loadedContext->idInCore;
         core.localPinnedContexts->store(pinMask);
 
         // The code below clears the occupied flag for the current
@@ -517,16 +518,14 @@ schedulerMainLoop() {
             slotMap.occupied = slotMap.occupied &
                                ~(1L << core.loadedContext->idInCore) &
                                0x00FFFFFFFFFFFFFF;
-            if (__builtin_popcountll(slotMap.occupied) != slotMap.numOccupied && slotMap.numOccupied != 112) {
-                ARACHNE_LOG(ERROR, "Bottom of schedulerMainLoop %d has numOccupied %lu not matching occupied %lu\n",
-                        core.id, slotMap.numOccupied, slotMap.occupied);
-                abort();
-            }
 //            fprintf(stderr, "schedulerMainLoop: Wrote %lu %lu to core %d\n",
 //                    slotMap.occupied,
 //                    slotMap.numOccupied, core.id);
             success = core.localOccupiedAndCount->compare_exchange_strong(
                 oldSlotMap, slotMap);
+            if (success) {
+                checkConsistency(core.localOccupiedAndCount, core.localThreadContexts, core.id);
+            }
 
         } while (!success);
 
@@ -1566,6 +1565,8 @@ migrateThreadsFromCore() {
     // Migrate off all threads other than the current one.  Round robin among
     // cores because these are likely long-running threads.
 
+    // Track how many times we've failed to migrate.
+    int failureCount = 0;
     for (uint8_t i = 0; i < maxThreadsPerCore; i++) {
         if (core.localThreadContexts[i] == core.loadedContext) {
             // Skip over ourselves
@@ -1616,17 +1617,14 @@ migrateThreadsFromCore() {
                 success = occupiedAndCount[coreId]->compare_exchange_strong(
                     oldSlotMap, slotMap);
                 // Check consistency of target core.
-                if (__builtin_popcountll(slotMap.occupied) != slotMap.numOccupied) {
-                    ARACHNE_LOG(ERROR, "Target of migration %d has numOccupied %lu not matching occupied %lu\n",
-                            coreId, slotMap.numOccupied, slotMap.occupied);
-                    abort();
-                }
+                if (success)
+                    checkConsistency(occupiedAndCount[coreId], allThreadContexts[coreId], coreId);
             } while (!success);
 
             if (success) {
                 // Now that we have found a slot, we can clear our bit.
                 blockedOccupiedAndCount.occupied &=
-                    ~(1 << i) & 0x00FFFFFFFFFFFFFF;
+                    ~(1L << i) & 0x00FFFFFFFFFFFFFF;
 
                 // TODO: Swap with above and update idInCore to the new values
                 allThreadContexts[coreId][index]->idInCore = i;
@@ -1641,7 +1639,7 @@ migrateThreadsFromCore() {
                 // transferred thread and the target core's occupiedAndCount,
                 // verifying that the relevant bit is set in the target core's
                 // occupiedAndCount.
-                if ((occupiedAndCount[coreId]->load().occupied & (1 << index)) == 0) {
+                if ((occupiedAndCount[coreId]->load().occupied & (1L << index)) == 0) {
                     ARACHNE_LOG(ERROR, "Migration: Inconsistency between occupiedAndCount and newly emplaced index!");
                     abort();
                 }
@@ -1652,15 +1650,18 @@ migrateThreadsFromCore() {
                     allThreadContexts[coreId][index];
                 allThreadContexts[coreId][index] = core.localThreadContexts[i];
                 core.localThreadContexts[i] = contextToMigrate;
-
-
-
+                failureCount = 0;
             } else {
                 ARACHNE_LOG(
-                    ERROR,
+                    WARNING,
                     "Failed to find a core to migrate thread of class %d.",
                     threadClass);
-                abort();
+                // Try again.
+                failureCount++;
+                if (failureCount >= 10) {
+                    abort();
+                }
+                i--;
             }
         }
     }
@@ -1687,12 +1688,7 @@ migrateThreadsFromCore() {
 //            blockedOccupiedAndCount.numOccupied, core.id);
     *core.localOccupiedAndCount = blockedOccupiedAndCount;
 
-    if (__builtin_popcountll(blockedOccupiedAndCount.occupied) != blockedOccupiedAndCount.numOccupied &&
-            blockedOccupiedAndCount.numOccupied != MaskAndCount::EXCLUSIVE) {
-        ARACHNE_LOG(ERROR, "Target of migration %d has numOccupied %lu not matching occupied %lu\n",
-                core.id, blockedOccupiedAndCount.numOccupied, blockedOccupiedAndCount.occupied);
-        abort();
-    }
+    checkConsistency(core.localOccupiedAndCount, core.localThreadContexts, core.id);
 }
 
 /**
@@ -1804,5 +1800,33 @@ findAndClaimUnusedCore(CorePolicy::CoreList* cores) {
     }
     return -1;
 }
+
+// This function is used for debugging. It verifies that occupiedAndCount is
+// internally consistent, and that any thread whose wakeupTimeInCycles is not
+// UNOCCUPIED has a corresponding set bit in occupiedAndCount.
+void checkConsistency(std::atomic<MaskAndCount>* occupiedAndCount, ThreadContext** contexts, int coreId) {
+    // We check greater than here to handle the special cases where numOccupied
+    // can take on large values.
+    MaskAndCount localOccupiedAndCount = occupiedAndCount->load();
+    if (__builtin_popcountll(localOccupiedAndCount.occupied) > localOccupiedAndCount.numOccupied) {
+        fprintf(stderr, "Bottom of createThread %d has numOccupied %lu not matching occupied %lu\n",
+                coreId, localOccupiedAndCount.numOccupied, localOccupiedAndCount.occupied);
+        abort();
+    }
+//    for (int i = 0; i < maxThreadsPerCore; i++) {
+//        uint32_t preReadGeneration = contexts[i]->generation;
+//        MaskAndCount localOccupiedAndCount = occupiedAndCount->load();
+//        uint64_t wakeupTimeInCycles = contexts[i]->wakeupTimeInCycles;
+//        uint32_t postReadGeneration = contexts[i]->generation;
+//
+//        if (wakeupTimeInCycles != ThreadContext::UNOCCUPIED &&
+//                ((localOccupiedAndCount.occupied  & (1L << i)) == 0) &&
+//                preReadGeneration == postReadGeneration) {
+//            fprintf(stderr, "Thread %d on core %d is occupied, but occupiedAndCount bit is clear", contexts[i]->idInCore, coreId);
+//            abort();
+//        }
+//    }
+}
+
 
 }  // namespace Arachne
