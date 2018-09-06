@@ -472,8 +472,6 @@ chooseCore(const CorePolicy::CoreList& coreList) {
     return choice2;
 }
 
-void checkConsistency(std::atomic<MaskAndCount>* occupiedAndCount, ThreadContext** contexts, int coreId);
-
 /**
  * Spawn a thread with main function f invoked with the given args on the
  * kernel thread with id = coreId
@@ -534,17 +532,8 @@ createThreadOnCore(uint32_t coreId, _Callable&& __f, _Args&&... __args) {
             (slotMap.occupied | (1L << index)) & 0x00FFFFFFFFFFFFFF;
         slotMap.numOccupied++;
         threadContext = allThreadContexts[coreId][index];
-
-//        fprintf(stderr, "createThreadOnCore: Wrote %lu %lu to core %d\n",
-//                slotMap.occupied,
-//                slotMap.numOccupied, coreId);
         success = occupiedAndCount[coreId]->compare_exchange_strong(oldSlotMap,
                                                                     slotMap);
-        if (success) {
-            checkConsistency(occupiedAndCount[coreId], allThreadContexts[coreId], coreId);
-        }
-
-
         if (!success) {
             failureCount++;
         }
@@ -563,10 +552,6 @@ createThreadOnCore(uint32_t coreId, _Callable&& __f, _Args&&... __args) {
     // not using the same variable for both.
     uint32_t generation = allThreadContexts[coreId][index]->generation;
 
-    if ((occupiedAndCount[coreId]->load().occupied & (1 << index)) == 0) {
-        ARACHNE_LOG(ERROR, "createThread: Inconsistency between occupiedAndCount and newly emplaced index!");
-        abort();
-    }
     threadContext->wakeupTimeInCycles = 0;
 
     PerfStats::threadStats->numThreadsCreated++;
