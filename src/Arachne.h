@@ -539,9 +539,9 @@ createThreadOnCore(uint32_t coreId, _Callable&& __f, _Args&&... __args) {
                     coreId, slotMap.numOccupied, slotMap.occupied);
             abort();
         }
-        fprintf(stderr, "createThreadOnCore: Wrote %lu %lu to core %d\n",
-                slotMap.occupied,
-                slotMap.numOccupied, coreId);
+//        fprintf(stderr, "createThreadOnCore: Wrote %lu %lu to core %d\n",
+//                slotMap.occupied,
+//                slotMap.numOccupied, coreId);
         success = occupiedAndCount[coreId]->compare_exchange_strong(oldSlotMap,
                                                                     slotMap);
 

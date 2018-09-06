@@ -301,7 +301,7 @@ threadMain() {
         }
 
 
-        fprintf(stderr, "threadMain: Wrote 0 0 to core %d\n", core.id);
+//        fprintf(stderr, "threadMain: Wrote 0 0 to core %d\n", core.id);
         *core.localOccupiedAndCount = {0, 0};
         *core.highPriorityThreads = 0;
         core.privatePriorityMask = 0;
@@ -522,9 +522,9 @@ schedulerMainLoop() {
                         core.id, slotMap.numOccupied, slotMap.occupied);
                 abort();
             }
-            fprintf(stderr, "schedulerMainLoop: Wrote %lu %lu to core %d\n",
-                    slotMap.occupied,
-                    slotMap.numOccupied, core.id);
+//            fprintf(stderr, "schedulerMainLoop: Wrote %lu %lu to core %d\n",
+//                    slotMap.occupied,
+//                    slotMap.numOccupied, core.id);
             success = core.localOccupiedAndCount->compare_exchange_strong(
                 oldSlotMap, slotMap);
 
@@ -1517,9 +1517,9 @@ preventCreationsToCore(int coreId) {
         targetOccupiedAndCount = *occupiedAndCount[coreId];
         blockedOccupiedAndCount = targetOccupiedAndCount;
         blockedOccupiedAndCount.numOccupied = MaskAndCount::EXCLUSIVE;
-        fprintf(stderr, "preventCreationsToCore: Wrote %lu %lu to core %d\n",
-                blockedOccupiedAndCount.occupied,
-                blockedOccupiedAndCount.numOccupied, coreId);
+//        fprintf(stderr, "preventCreationsToCore: Wrote %lu %lu to core %d\n",
+//                blockedOccupiedAndCount.occupied,
+//                blockedOccupiedAndCount.numOccupied, coreId);
 
         success = occupiedAndCount[coreId]->compare_exchange_strong(
             targetOccupiedAndCount, blockedOccupiedAndCount);
@@ -1610,9 +1610,9 @@ migrateThreadsFromCore() {
                 slotMap.occupied =
                     (slotMap.occupied | (1L << index)) & 0x00FFFFFFFFFFFFFF;
                 slotMap.numOccupied++;
-                    fprintf(stderr, "migrateThreadsFromCore: Wrote %lu %lu to core %d\n",
-                                        slotMap.occupied,
-                                        slotMap.numOccupied, coreId);
+//                    fprintf(stderr, "migrateThreadsFromCore: Wrote %lu %lu to core %d\n",
+//                                        slotMap.occupied,
+//                                        slotMap.numOccupied, coreId);
                 success = occupiedAndCount[coreId]->compare_exchange_strong(
                     oldSlotMap, slotMap);
                 // Check consistency of target core.
@@ -1682,9 +1682,9 @@ migrateThreadsFromCore() {
     // At this point, creations should have already been blocked, and
     // completions cannot occur because we are running, so we can just directly
     // assign.
-    fprintf(stderr, "migrateThreadsFromCore: Wrote %lu %lu to core %d\n",
-            blockedOccupiedAndCount.occupied,
-            blockedOccupiedAndCount.numOccupied, core.id);
+//    fprintf(stderr, "migrateThreadsFromCore: Wrote %lu %lu to core %d\n",
+//            blockedOccupiedAndCount.occupied,
+//            blockedOccupiedAndCount.numOccupied, core.id);
     *core.localOccupiedAndCount = blockedOccupiedAndCount;
 
     if (__builtin_popcountll(blockedOccupiedAndCount.occupied) != blockedOccupiedAndCount.numOccupied &&
@@ -1769,7 +1769,7 @@ prepareForExclusiveUse(int coreId) {
     // Prepare this core for scheduling exclusively.
     // By setting numOccupied to one less than the maximium number of threads
     // per core, we ensure that only one thread gets scheduled onto this core.
-    fprintf(stderr, "prepareForExclusiveUse: Wrote 0 55 to core %d\n", coreId);
+//    fprintf(stderr, "prepareForExclusiveUse: Wrote 0 55 to core %d\n", coreId);
     *occupiedAndCount[coreId] = {0, maxThreadsPerCore - 1};
 }
 
@@ -1787,16 +1787,16 @@ findAndClaimUnusedCore(CorePolicy::CoreList* cores) {
             // to sharedCores if we succeed.
             MaskAndCount oldSlotMap = slotMap;
             slotMap.numOccupied = maxThreadsPerCore;
-            fprintf(stderr, "findAndClaimUnusedCore: Wrote %lu %lu to core %d\n",
-                    slotMap.occupied,
-                    slotMap.numOccupied, coreId);
+//            fprintf(stderr, "findAndClaimUnusedCore: Wrote %lu %lu to core %d\n",
+//                    slotMap.occupied,
+//                    slotMap.numOccupied, coreId);
 
             if (occupiedAndCount[coreId]->compare_exchange_strong(oldSlotMap,
                                                                   slotMap)) {
                 cores->remove(i);
                 *lastTotalCollectionTime[coreId] = 0;
-                fprintf(stderr, "findAndClaimUnusedCore: Wrote 0 0 to core %d\n",
-                        coreId);
+//                fprintf(stderr, "findAndClaimUnusedCore: Wrote 0 0 to core %d\n",
+//                        coreId);
                 *occupiedAndCount[coreId] = {0, 0};
                 return coreId;
             }
