@@ -292,6 +292,16 @@ threadMain() {
         // Clean up state from the last time this thread ran. This should
         // eventually be removed once we ensure that cleanup happens on
         // descheduling.
+        // Verify that there are no runnable threads from the past (there
+        // should not be any).
+        for (int i = 0; i < maxThreadsPerCore; i++) {
+            if (core.localThreadContexts[i]->wakeupTimeInCycles != ThreadContext::UNOCCUPIED) {
+                ARACHNE_LOG(ERROR, "Discovered leftover context at index %d on core %d\n", i, core.id);
+            }
+        }
+
+
+        fprintf(stderr, "threadMain: Wrote 0 0 to core %d\n", core.id);
         *core.localOccupiedAndCount = {0, 0};
         *core.highPriorityThreads = 0;
         core.privatePriorityMask = 0;
@@ -445,6 +455,13 @@ schedulerMainLoop() {
         // No thread to execute yet. This call will not return until we have
         // been assigned a new Arachne thread.
         dispatch();
+
+        // Check that the current thread executing as the corresponding bit
+        // occupied.
+        if (!(core.localOccupiedAndCount->load().occupied & (1L << core.loadedContext->idInCore))) {
+            ARACHNE_LOG(ERROR, "Returned from dispatch with an empty context!\n");
+            abort();
+        }
         reinterpret_cast<ThreadInvocationEnabler*>(
             &core.loadedContext->threadInvocation)
             ->runThread();
@@ -490,15 +507,27 @@ schedulerMainLoop() {
         do {
             slotMap = *core.localOccupiedAndCount;
             MaskAndCount oldSlotMap = slotMap;
-            if (slotMap.numOccupied == 0)
+            if (slotMap.numOccupied == 0) {
+                ARACHNE_LOG(ERROR, "Bottom of schedulerMainLoop %d detected numOccupied %lu not matching occupied %lu\n",
+                        core.id, slotMap.numOccupied, slotMap.occupied);
                 abort();
+            }
             slotMap.numOccupied--;
 
             slotMap.occupied = slotMap.occupied &
                                ~(1L << core.loadedContext->idInCore) &
                                0x00FFFFFFFFFFFFFF;
+            if (__builtin_popcountll(slotMap.occupied) != slotMap.numOccupied && slotMap.numOccupied != 112) {
+                ARACHNE_LOG(ERROR, "Bottom of schedulerMainLoop %d has numOccupied %lu not matching occupied %lu\n",
+                        core.id, slotMap.numOccupied, slotMap.occupied);
+                abort();
+            }
+            fprintf(stderr, "schedulerMainLoop: Wrote %lu %lu to core %d\n",
+                    slotMap.occupied,
+                    slotMap.numOccupied, core.id);
             success = core.localOccupiedAndCount->compare_exchange_strong(
                 oldSlotMap, slotMap);
+
         } while (!success);
 
         // Reset highestOccupiedContext based on value of occupied flag, which
@@ -1475,6 +1504,8 @@ preventCreationsToCore(int coreId) {
 
     // It is an error if the core we are migrating to is already exclusive.
     if (originalMask.numOccupied > maxThreadsPerCore) {
+        ARACHNE_LOG(ERROR, "Failed to preventCreationsToCore on core %d due to high occupancy of %lu, with occupied = %lu\n",
+                coreId, originalMask.numOccupied, originalMask.occupied);
         abort();
     }
 
@@ -1486,6 +1517,10 @@ preventCreationsToCore(int coreId) {
         targetOccupiedAndCount = *occupiedAndCount[coreId];
         blockedOccupiedAndCount = targetOccupiedAndCount;
         blockedOccupiedAndCount.numOccupied = MaskAndCount::EXCLUSIVE;
+        fprintf(stderr, "preventCreationsToCore: Wrote %lu %lu to core %d\n",
+                blockedOccupiedAndCount.occupied,
+                blockedOccupiedAndCount.numOccupied, coreId);
+
         success = occupiedAndCount[coreId]->compare_exchange_strong(
             targetOccupiedAndCount, blockedOccupiedAndCount);
     } while (!success);
@@ -1575,14 +1610,42 @@ migrateThreadsFromCore() {
                 slotMap.occupied =
                     (slotMap.occupied | (1L << index)) & 0x00FFFFFFFFFFFFFF;
                 slotMap.numOccupied++;
+                    fprintf(stderr, "migrateThreadsFromCore: Wrote %lu %lu to core %d\n",
+                                        slotMap.occupied,
+                                        slotMap.numOccupied, coreId);
                 success = occupiedAndCount[coreId]->compare_exchange_strong(
                     oldSlotMap, slotMap);
+                // Check consistency of target core.
+                if (__builtin_popcountll(slotMap.occupied) != slotMap.numOccupied) {
+                    ARACHNE_LOG(ERROR, "Target of migration %d has numOccupied %lu not matching occupied %lu\n",
+                            coreId, slotMap.numOccupied, slotMap.occupied);
+                    abort();
+                }
             } while (!success);
 
             if (success) {
                 // Now that we have found a slot, we can clear our bit.
                 blockedOccupiedAndCount.occupied &=
                     ~(1 << i) & 0x00FFFFFFFFFFFFFF;
+
+                // TODO: Swap with above and update idInCore to the new values
+                allThreadContexts[coreId][index]->idInCore = i;
+                core.localThreadContexts[i]->idInCore = index;
+
+                allThreadContexts[coreId][index]->coreId =
+                    static_cast<uint8_t>(core.id);
+                core.localThreadContexts[i]->coreId =
+                    static_cast<uint8_t>(coreId);
+
+                // TODO: Perform a consistency check between the newly
+                // transferred thread and the target core's occupiedAndCount,
+                // verifying that the relevant bit is set in the target core's
+                // occupiedAndCount.
+                if ((occupiedAndCount[coreId]->load().occupied & (1 << index)) == 0) {
+                    ARACHNE_LOG(ERROR, "Migration: Inconsistency between occupiedAndCount and newly emplaced index!");
+                    abort();
+                }
+
                 // At this point we've reserved a spot on the target, and now
                 // we swap.
                 ThreadContext* contextToMigrate =
@@ -1590,14 +1653,8 @@ migrateThreadsFromCore() {
                 allThreadContexts[coreId][index] = core.localThreadContexts[i];
                 core.localThreadContexts[i] = contextToMigrate;
 
-                // Update idInCore to a consistent value
-                allThreadContexts[coreId][index]->idInCore = index;
-                core.localThreadContexts[i]->idInCore = i;
 
-                allThreadContexts[coreId][index]->coreId =
-                    static_cast<uint8_t>(coreId);
-                core.localThreadContexts[i]->coreId =
-                    static_cast<uint8_t>(core.id);
+
             } else {
                 ARACHNE_LOG(
                     ERROR,
@@ -1625,7 +1682,17 @@ migrateThreadsFromCore() {
     // At this point, creations should have already been blocked, and
     // completions cannot occur because we are running, so we can just directly
     // assign.
+    fprintf(stderr, "migrateThreadsFromCore: Wrote %lu %lu to core %d\n",
+            blockedOccupiedAndCount.occupied,
+            blockedOccupiedAndCount.numOccupied, core.id);
     *core.localOccupiedAndCount = blockedOccupiedAndCount;
+
+    if (__builtin_popcountll(blockedOccupiedAndCount.occupied) != blockedOccupiedAndCount.numOccupied &&
+            blockedOccupiedAndCount.numOccupied != MaskAndCount::EXCLUSIVE) {
+        ARACHNE_LOG(ERROR, "Target of migration %d has numOccupied %lu not matching occupied %lu\n",
+                core.id, blockedOccupiedAndCount.numOccupied, blockedOccupiedAndCount.occupied);
+        abort();
+    }
 }
 
 /**
@@ -1702,6 +1769,7 @@ prepareForExclusiveUse(int coreId) {
     // Prepare this core for scheduling exclusively.
     // By setting numOccupied to one less than the maximium number of threads
     // per core, we ensure that only one thread gets scheduled onto this core.
+    fprintf(stderr, "prepareForExclusiveUse: Wrote 0 55 to core %d\n", coreId);
     *occupiedAndCount[coreId] = {0, maxThreadsPerCore - 1};
 }
 
@@ -1719,10 +1787,16 @@ findAndClaimUnusedCore(CorePolicy::CoreList* cores) {
             // to sharedCores if we succeed.
             MaskAndCount oldSlotMap = slotMap;
             slotMap.numOccupied = maxThreadsPerCore;
+            fprintf(stderr, "findAndClaimUnusedCore: Wrote %lu %lu to core %d\n",
+                    slotMap.occupied,
+                    slotMap.numOccupied, coreId);
+
             if (occupiedAndCount[coreId]->compare_exchange_strong(oldSlotMap,
                                                                   slotMap)) {
                 cores->remove(i);
                 *lastTotalCollectionTime[coreId] = 0;
+                fprintf(stderr, "findAndClaimUnusedCore: Wrote 0 0 to core %d\n",
+                        coreId);
                 *occupiedAndCount[coreId] = {0, 0};
                 return coreId;
             }

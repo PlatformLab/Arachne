@@ -3,11 +3,11 @@ CC ?= gcc
 CXXFLAGS=-g -Wall -Werror -Wformat=2 -Wextra -Wwrite-strings \
 -Wno-unused-parameter -Wmissing-format-attribute -Wno-non-template-friend \
 -Woverloaded-virtual -Wcast-qual -Wcast-align -fomit-frame-pointer \
--std=c++11 -fPIC -O3 -DCORE_TRACE $(EXTRA_CXXFLAGS)
+-std=c++11 -fPIC -O0 -DCORE_TRACE $(EXTRA_CXXFLAGS)
 CFLAGS=-g -Wall -Werror -Wformat=2 -Wextra -Wwrite-strings \
 -Wno-unused-parameter -Wmissing-format-attribute \
 -Wcast-align -Wconversion -fomit-frame-pointer \
--std=gnu99 -fPIC -O3 -DCORE_TRACE
+-std=gnu99 -fPIC -O0 -DCORE_TRACE
 
 # Output directories
 OBJECT_DIR = obj

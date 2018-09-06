@@ -532,8 +532,20 @@ createThreadOnCore(uint32_t coreId, _Callable&& __f, _Args&&... __args) {
             (slotMap.occupied | (1L << index)) & 0x00FFFFFFFFFFFFFF;
         slotMap.numOccupied++;
         threadContext = allThreadContexts[coreId][index];
+
+        // The second clause handles the exclusive core case.
+        if (__builtin_popcountll(slotMap.occupied) != slotMap.numOccupied && slotMap.numOccupied != maxThreadsPerCore) {
+            ARACHNE_LOG(ERROR, "Bottom of createThread %d has numOccupied %lu not matching occupied %lu\n",
+                    coreId, slotMap.numOccupied, slotMap.occupied);
+            abort();
+        }
+        fprintf(stderr, "createThreadOnCore: Wrote %lu %lu to core %d\n",
+                slotMap.occupied,
+                slotMap.numOccupied, coreId);
         success = occupiedAndCount[coreId]->compare_exchange_strong(oldSlotMap,
                                                                     slotMap);
+
+
         if (!success) {
             failureCount++;
         }
@@ -551,6 +563,11 @@ createThreadOnCore(uint32_t coreId, _Callable&& __f, _Args&&... __args) {
     // in the microbenchmark. One speculation is that we can get better ILP by
     // not using the same variable for both.
     uint32_t generation = allThreadContexts[coreId][index]->generation;
+
+    if ((occupiedAndCount[coreId]->load().occupied & (1 << index)) == 0) {
+        ARACHNE_LOG(ERROR, "createThread: Inconsistency between occupiedAndCount and newly emplaced index!");
+        abort();
+    }
     threadContext->wakeupTimeInCycles = 0;
 
     PerfStats::threadStats->numThreadsCreated++;
