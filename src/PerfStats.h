@@ -77,6 +77,9 @@ struct PerfStats {
     // bitmask.
     uint64_t numContendedCreations;
 
+    // Number of times the dispatch method was called.
+    uint64_t numDispatches;
+
     /// Used to protect the allCoreStats and coreStatsHeld vectors.
     static SpinLock mutex;
 

@@ -69,6 +69,12 @@ CoreLoadEstimator::estimate(CorePolicy::CoreList coreList) {
         currentStats.weightedLoadedCycles - previousStats.weightedLoadedCycles;
     double averageLoadFactor = static_cast<double>(weightedLoadedCycles) /
                                static_cast<double>(totalCycles);
+
+    // Compute the number of dispatches as an approximation to preemption by
+    // the kernel.
+    uint64_t numDispatches =
+        currentStats.numDispatches - previousStats.numDispatches;
+
     previousStats = currentStats;
 
     if (estimationStrategy == LOAD_FACTOR) {
@@ -113,13 +119,14 @@ CoreLoadEstimator::estimate(CorePolicy::CoreList coreList) {
             fprintf(estimationLog,
                     "TimeInCycles = %lu, curActiveCores = %d,"
                     " totalUtilizedCores = %lf, localThreshold = %lf, "
-                    "averageloadFactor = %lf, loadFactorThreshold = %lf\n",
+                    "averageloadFactor = %lf, loadFactorThreshold = %lf, "
+                    "numDispatches = %lu\n",
                     currentStats.collectionTime, curActiveCores,
                     totalUtilizedCores, localThreshold, averageLoadFactor,
-                    loadFactorThreshold);
+                    loadFactorThreshold, numDispatches);
             fputs(
                 "CoreId,IdleCycles,TotalCycles,WeightedLoadedCycles,LoadFactor,"
-                "Utilization\n",
+                "Utilization,NumDispatches\n",
                 estimationLog);
             for (auto it : coreToPerfStats) {
                 int coreId = it.first;
@@ -137,10 +144,11 @@ CoreLoadEstimator::estimate(CorePolicy::CoreList coreList) {
                 double utilization =
                     static_cast<double>(totalCycles - idleCycles) /
                     static_cast<double>(totalCycles);
+                uint64_t numDispatches = cur.numDispatches - prev.numDispatches;
 
-                fprintf(estimationLog, "%d,%lu,%lu,%lu,%lf,%lf\n", coreId,
+                fprintf(estimationLog, "%d,%lu,%lu,%lu,%lf,%lf,%lu\n", coreId,
                         idleCycles, totalCycles, weightedLoadedCycles,
-                        coreLoadFactor, utilization);
+                        coreLoadFactor, utilization, numDispatches);
             }
             fputs("END ESTIMATION STATS DUMP\n", estimationLog);
             fclose(estimationLog);
