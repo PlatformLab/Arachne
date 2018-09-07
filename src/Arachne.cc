@@ -469,8 +469,13 @@ schedulerMainLoop() {
         do {
             slotMap = *core.localOccupiedAndCount;
             MaskAndCount oldSlotMap = slotMap;
-            if (slotMap.numOccupied == 0)
+            if (slotMap.numOccupied == 0) {
+                ARACHNE_LOG(ERROR,
+                            "Thread Exit on Core %d: Detected numOccupied == 0 "
+                            "occupied %lu\n",
+                            core.id, slotMap.occupied);
                 abort();
+            }
             slotMap.numOccupied--;
 
             slotMap.occupied = slotMap.occupied &
@@ -1455,6 +1460,10 @@ preventCreationsToCore(int coreId) {
 
     // It is an error if the core we are migrating to is already exclusive.
     if (originalMask.numOccupied > maxThreadsPerCore) {
+        ARACHNE_LOG(ERROR,
+                    "preventCreationsToCore: Occupied = %lu, numOccupied = %lu "
+                    "on core %d\n",
+                    originalMask.occupied, originalMask.numOccupied, coreId);
         abort();
     }
 
