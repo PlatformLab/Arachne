@@ -454,7 +454,7 @@ schedulerMainLoop() {
         core.loadedContext->generation++;
 
         // Pin the current context before clearing the occupied bit.
-        uint64_t pinMask = 1 << core.loadedContext->idInCore;
+        uint64_t pinMask = 1L << core.loadedContext->idInCore;
         core.localPinnedContexts->store(pinMask);
 
         // The code below clears the occupied flag for the current
@@ -1565,7 +1565,7 @@ migrateThreadsFromCore() {
             if (success) {
                 // Now that we have found a slot, we can clear our bit.
                 blockedOccupiedAndCount.occupied &=
-                    ~(1 << i) & 0x00FFFFFFFFFFFFFF;
+                    ~(1L << i) & 0x00FFFFFFFFFFFFFF;
                 // At this point we've reserved a spot on the target, and now
                 // we swap.
                 ThreadContext* contextToMigrate =
