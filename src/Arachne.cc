@@ -1588,8 +1588,10 @@ migrateThreadsFromCore() {
 
             if (success) {
                 // Now that we have found a slot, we can clear our bit.
+                fprintf(stderr, "Migration: Core = %d i = %d Old value of occupied = %lu\n", core.id, i, blockedOccupiedAndCount.occupied);
                 blockedOccupiedAndCount.occupied &=
-                    (~(1L << i)) & 0x00FFFFFFFFFFFFFF;
+                    (~(1 << i)) & 0x00FFFFFFFFFFFFFF;
+                fprintf(stderr, "Migration: Core = %d i = %d New value of occupied = %lu\n", core.id, i, blockedOccupiedAndCount.occupied);
 
                 // TODO: Swap with above and update idInCore to the new values
                 allThreadContexts[coreId][index]->idInCore = i;
