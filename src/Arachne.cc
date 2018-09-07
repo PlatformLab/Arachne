@@ -1575,21 +1575,23 @@ migrateThreadsFromCore() {
                 // Now that we have found a slot, we can clear our bit.
                 blockedOccupiedAndCount.occupied &=
                     ~(1L << i) & 0x00FFFFFFFFFFFFFF;
+
                 // At this point we've reserved a spot on the target, and now
-                // we swap.
+                // we swap the contexts. We correct the idInCore before
+                // swapping, to ensure that the correct slot is cleared in
+                // occupiedAndCount on the target core.
+                allThreadContexts[coreId][index]->idInCore = i;
+                core.localThreadContexts[i]->idInCore = index;
+
+                allThreadContexts[coreId][index]->coreId =
+                    static_cast<uint8_t>(core.id);
+                core.localThreadContexts[i]->coreId =
+                    static_cast<uint8_t>(coreId);
+
                 ThreadContext* contextToMigrate =
                     allThreadContexts[coreId][index];
                 allThreadContexts[coreId][index] = core.localThreadContexts[i];
                 core.localThreadContexts[i] = contextToMigrate;
-
-                // Update idInCore to a consistent value
-                allThreadContexts[coreId][index]->idInCore = index;
-                core.localThreadContexts[i]->idInCore = i;
-
-                allThreadContexts[coreId][index]->coreId =
-                    static_cast<uint8_t>(coreId);
-                core.localThreadContexts[i]->coreId =
-                    static_cast<uint8_t>(core.id);
             } else {
                 ARACHNE_LOG(
                     ERROR,
