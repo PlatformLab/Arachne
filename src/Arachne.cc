@@ -103,6 +103,12 @@ std::vector<void*> kernelThreadStacks;
 volatile bool shutdown;
 
 /**
+ * Constrol the maximum number of times we will try to migrate a context when
+ * performing migration before admitting defeat.
+ */
+const int MAX_MIGRATION_RETRIES = 10;
+
+/**
  * The collection of possibly runnable contexts for each kernel thread.
  */
 std::vector<ThreadContext**> allThreadContexts;
@@ -1519,7 +1525,7 @@ migrateThreadsFromCore() {
 
     // Migrate off all threads other than the current one.  Round robin among
     // cores because these are likely long-running threads.
-
+    int failureCount = 0;
     for (uint8_t i = 0; i < maxThreadsPerCore; i++) {
         if (core.localThreadContexts[i] == core.loadedContext) {
             // Skip over ourselves
@@ -1594,10 +1600,14 @@ migrateThreadsFromCore() {
                 core.localThreadContexts[i] = contextToMigrate;
             } else {
                 ARACHNE_LOG(
-                    ERROR,
+                    WARNING,
                     "Failed to find a core to migrate thread of class %d.",
                     threadClass);
-                abort();
+                failureCount++;
+                if (failureCount >= MAX_MIGRATION_RETRIES) {
+                    abort();
+                }
+                i--;
             }
         }
     }
