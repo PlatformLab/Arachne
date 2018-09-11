@@ -74,7 +74,7 @@ estimates CPU load and adjusts the number of cores accordingly.
 
 4. Link your application against Arachne.
 
-        g++ -std=c++11 -o MyApp -IArachne MyApp.cc  -Larachne-all/Arachne -lArachne -Larachne-all/PerfUtils -lPerfUtils -pthread
+        g++ -std=c++11 -o MyApp MyApp.cc  -Iarachne-all/Arachne/include -Iarachne-all/CoreArbiter/include  -Iarachne-all/PerfUtils/include -Larachne-all/Arachne/lib -lArachne -Larachne-all/CoreArbiter/lib -lCoreArbiter -Larachne-all/PerfUtils/lib/ -lPerfUtils  -lpcrecpp -pthread
 
 ## User Threading vs Kernel Threadpool
 
