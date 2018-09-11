@@ -35,7 +35,12 @@ OBJECT_NAMES := Arachne.o Logger.o PerfStats.o DefaultCorePolicy.o CoreLoadEstim
 
 OBJECTS = $(patsubst %,$(OBJECT_DIR)/%,$(OBJECT_NAMES))
 HEADERS= $(shell find $(SRC_DIR) $(WRAPPER_DIR) -name '*.h')
+
+ifeq ($(MAKECMDGOALS),clean)
+DEP=
+else
 DEP=$(OBJECTS:.o=.d)
+endif # ($(MAKECMDGOALS),clean)
 
 install: $(OBJECT_DIR)/libArachne.a
 	mkdir -p $(LIB_DIR) $(INCLUDE_DIR)
