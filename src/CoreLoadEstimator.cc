@@ -158,7 +158,7 @@ CoreLoadEstimator::estimate(CorePolicy::CoreList coreList) {
                 uint64_t numDispatches = cur.numDispatches - prev.numDispatches;
                 uint64_t numDispatchIterations = cur.numDispatchIterations - prev.numDispatchIterations;
 
-                if (curActiveCores >= 4 && coreLoadFactor > utilization * 5 && !dumpedTimeTrace) {
+                if (curActiveCores >= 4 && utilization < 0.5 && coreLoadFactor > utilization * 5 && !dumpedTimeTrace) {
                     TimeTrace::record("CoreEstimationKey%u", static_cast<uint32_t>(currentStats.collectionTime));
                     TimeTrace::setOutputFileName("/tmp/ArachneEstimationTimeTrace.log");
                     TimeTrace::print();
