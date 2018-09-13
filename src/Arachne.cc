@@ -549,8 +549,17 @@ yield() {
  */
 void
 sleep(uint64_t ns) {
+    sleepForCycles(Cycles::fromNanoseconds(ns));
+}
+
+/**
+ * Sleep for at least cycles cycles. The amount of additional delay may be
+ * impacted by other threads' activities such as blocking and yielding.
+ */
+void
+sleepForCycles(uint64_t cycles) {
     core.loadedContext->wakeupTimeInCycles =
-        Cycles::rdtsc() + Cycles::fromNanoseconds(ns);
+        Cycles::rdtsc() + cycles;
     dispatch();
 }
 

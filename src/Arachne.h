@@ -128,6 +128,7 @@ void shutDown();
 void waitForTermination();
 void yield();
 void sleep(uint64_t ns);
+void sleepForCycles(uint64_t cycles);
 
 void idleCore(int coreId);
 void unidleCore(int coreId);
