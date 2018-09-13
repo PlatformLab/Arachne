@@ -20,6 +20,7 @@
 
 namespace Arachne {
 
+extern std::vector<int> allKernelThreadIds;
 CoreLoadEstimator::CoreLoadEstimator()
     : lock("CoreLoadEstimator", false),
       utilizationThresholds(std::thread::hardware_concurrency()) {}
@@ -125,7 +126,8 @@ CoreLoadEstimator::estimate(CorePolicy::CoreList coreList) {
                     totalUtilizedCores, localThreshold, averageLoadFactor,
                     loadFactorThreshold, numDispatches);
             fputs(
-                "CoreId,IdleCycles,TotalCycles,WeightedLoadedCycles,LoadFactor,"
+                "KernelThreadId,CoreId,IdleCycles,TotalCycles,"
+                "WeightedLoadedCycles,LoadFactor,"
                 "Utilization,NumDispatches\n",
                 estimationLog);
             for (auto it : coreToPerfStats) {
@@ -146,9 +148,10 @@ CoreLoadEstimator::estimate(CorePolicy::CoreList coreList) {
                     static_cast<double>(totalCycles);
                 uint64_t numDispatches = cur.numDispatches - prev.numDispatches;
 
-                fprintf(estimationLog, "%d,%lu,%lu,%lu,%lf,%lf,%lu\n", coreId,
-                        idleCycles, totalCycles, weightedLoadedCycles,
-                        coreLoadFactor, utilization, numDispatches);
+                fprintf(estimationLog, "%d,%d,%lu,%lu,%lu,%lf,%lf,%lu\n",
+                        allKernelThreadIds[coreId], coreId, idleCycles,
+                        totalCycles, weightedLoadedCycles, coreLoadFactor,
+                        utilization, numDispatches);
             }
             fputs("END ESTIMATION STATS DUMP\n", estimationLog);
             fclose(estimationLog);

@@ -76,6 +76,12 @@ struct Core {
     int id = -1;
 
     /**
+      * A unique identifier assigned by Arachne for the kernel thread that this
+      * structure is associated with.
+      */
+    int kernelThreadId = -1;
+
+    /**
      * This is the context of the thread that a given core is currently
      * executing. If the core is not executing a context, it polls for threads
      * to execute using this context's stack.

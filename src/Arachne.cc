@@ -139,6 +139,12 @@ std::vector<uint64_t*> lastTotalCollectionTime;
 std::vector<std::atomic<uint64_t>*> allHighPriorityThreads;
 
 /**
+  * Track the kernel thread ids associated with each core, for use in
+  * debugging.
+  */
+std::vector<int> allKernelThreadIds;
+
+/**
  * An array of semaphores cores can park on to idle themselves.
  * Indices correspond to individual core IDs.
  */
@@ -219,6 +225,10 @@ alignedAlloc(size_t size, size_t alignment) {
  */
 void
 initializeCore(Core* core) {
+    // Assign a kernel thread ID that is independent of the CoreId.
+    static std::atomic<int> nextKernelThreadId(0);
+    core->kernelThreadId = nextKernelThreadId.fetch_add(1);
+
     core->localOccupiedAndCount =
         reinterpret_cast<std::atomic<Arachne::MaskAndCount>*>(
             alignedAlloc(sizeof(std::atomic<MaskAndCount>)));
@@ -292,6 +302,7 @@ threadMain() {
         pinnedContexts[core.id] = core.localPinnedContexts;
         allThreadContexts[core.id] = core.localThreadContexts;
         allHighPriorityThreads[core.id] = core.highPriorityThreads;
+        allKernelThreadIds[core.id] = core.kernelThreadId;
 
         IdleTimeTracker::lastTotalCollectionTime = 0;
         // Clean up state from the last time this thread ran. This should
@@ -859,6 +870,7 @@ waitForTermination() {
     occupiedAndCount.clear();
     pinnedContexts.clear();
     allHighPriorityThreads.clear();
+    allKernelThreadIds.clear();
     PerfUtils::Util::serialize();
     coreArbiter->reset();
     delete corePolicy;
@@ -1114,6 +1126,7 @@ init(int* argcp, const char** argv) {
     pinnedContexts.resize(numHardwareCores);
     allHighPriorityThreads.resize(numHardwareCores);
     allThreadContexts.resize(numHardwareCores);
+    allKernelThreadIds.resize(numHardwareCores);
     for (unsigned int i = 0; i < numHardwareCores; i++) {
         coreIdleSemaphores.push_back(new ::Semaphore);
     }
