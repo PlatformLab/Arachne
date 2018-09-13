@@ -80,6 +80,9 @@ struct PerfStats {
     // Number of times the dispatch method was called.
     uint64_t numDispatches;
 
+    // Number of times the dispatch loop checked context 0.
+    uint64_t numDispatchIterations;
+
     /// Used to protect the allCoreStats and coreStatsHeld vectors.
     static SpinLock mutex;
 

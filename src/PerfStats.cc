@@ -126,6 +126,7 @@ PerfStats::collectStats(PerfStats* total, CorePolicy::CoreList coreList) {
         total->numCoreDecrements += stats->numCoreDecrements;
         total->numContendedCreations += stats->numContendedCreations;
         total->numDispatches += stats->numDispatches;
+        total->numDispatchIterations += stats->numDispatchIterations;
     }
 }
 

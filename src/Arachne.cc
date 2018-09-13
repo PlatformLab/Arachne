@@ -697,6 +697,10 @@ dispatch() {
             // Update stats and check for arbiter preemption; done once per
             // cycle over all contexts on this core.
             checkForArbiterRequest();
+
+            // Record that we've cycled again.
+            PerfStats::threadStats->numDispatchIterations++;
+
             dispatchIterationStartCycles = Cycles::rdtsc();
             // Flush counters to keep times up to date
             idleTimeTracker.updatePerfStats();

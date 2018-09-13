@@ -76,6 +76,9 @@ CoreLoadEstimator::estimate(CorePolicy::CoreList coreList) {
     uint64_t numDispatches =
         currentStats.numDispatches - previousStats.numDispatches;
 
+    uint64_t numDispatchIterations =
+        currentStats.numDispatchIterations - previousStats.numDispatchIterations;
+
     previousStats = currentStats;
 
     if (estimationStrategy == LOAD_FACTOR) {
@@ -121,14 +124,14 @@ CoreLoadEstimator::estimate(CorePolicy::CoreList coreList) {
                     "TimeInCycles = %lu, curActiveCores = %d,"
                     " totalUtilizedCores = %lf, localThreshold = %lf, "
                     "averageloadFactor = %lf, loadFactorThreshold = %lf, "
-                    "numDispatches = %lu\n",
+                    "numDispatches = %lu, numDispatchIterations = %lu\n",
                     currentStats.collectionTime, curActiveCores,
                     totalUtilizedCores, localThreshold, averageLoadFactor,
-                    loadFactorThreshold, numDispatches);
+                    loadFactorThreshold, numDispatches, numDispatchIterations);
             fputs(
                 "KernelThreadId,CoreId,IdleCycles,TotalCycles,"
                 "WeightedLoadedCycles,LoadFactor,"
-                "Utilization,NumDispatches\n",
+                "Utilization,NumDispatches,NumDispatchIterations\n",
                 estimationLog);
             for (auto it : coreToPerfStats) {
                 int coreId = it.first;
@@ -147,11 +150,12 @@ CoreLoadEstimator::estimate(CorePolicy::CoreList coreList) {
                     static_cast<double>(totalCycles - idleCycles) /
                     static_cast<double>(totalCycles);
                 uint64_t numDispatches = cur.numDispatches - prev.numDispatches;
+                uint64_t numDispatchIterations = cur.numDispatchIterations - prev.numDispatchIterations;
 
-                fprintf(estimationLog, "%d,%d,%lu,%lu,%lu,%lf,%lf,%lu\n",
+                fprintf(estimationLog, "%d,%d,%lu,%lu,%lu,%lf,%lf,%lu,%lu\n",
                         allKernelThreadIds[coreId], coreId, idleCycles,
                         totalCycles, weightedLoadedCycles, coreLoadFactor,
-                        utilization, numDispatches);
+                        utilization, numDispatches, numDispatchIterations);
             }
             fputs("END ESTIMATION STATS DUMP\n", estimationLog);
             fclose(estimationLog);
