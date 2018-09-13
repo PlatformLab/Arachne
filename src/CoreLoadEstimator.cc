@@ -13,10 +13,12 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include "CoreLoadEstimator.h"
+#include "PerfUtils/TimeTrace.h"
 
 #include <thread>
 
 #define COLLECT_CORE_STATS 1
+using PerfUtils::TimeTrace;
 
 namespace Arachne {
 
@@ -120,6 +122,7 @@ CoreLoadEstimator::estimate(CorePolicy::CoreList coreList) {
             // Dump all delta statistics on all cores in core list along with
             // rdtsc at collection time.
             fputs("BEGIN ESTIMATION STATS DUMP\n", estimationLog);
+            fprintf(estimationLog, "CoreEstimationKey%u\n", static_cast<uint32_t>(currentStats.collectionTime));
             fprintf(estimationLog,
                     "TimeInCycles = %lu, curActiveCores = %d,"
                     " totalUtilizedCores = %lf, localThreshold = %lf, "
@@ -133,6 +136,9 @@ CoreLoadEstimator::estimate(CorePolicy::CoreList coreList) {
                 "WeightedLoadedCycles,LoadFactor,"
                 "Utilization,NumDispatches,NumDispatchIterations\n",
                 estimationLog);
+            // Ensure that we only dump once per estimation round, even if
+            // multiple cores' stats trigger this.
+            bool dumpedTimeTrace = false;
             for (auto it : coreToPerfStats) {
                 int coreId = it.first;
                 PerfStats cur = it.second;
@@ -151,6 +157,13 @@ CoreLoadEstimator::estimate(CorePolicy::CoreList coreList) {
                     static_cast<double>(totalCycles);
                 uint64_t numDispatches = cur.numDispatches - prev.numDispatches;
                 uint64_t numDispatchIterations = cur.numDispatchIterations - prev.numDispatchIterations;
+
+                if (curActiveCores >= 4 && coreLoadFactor > utilization * 5 && !dumpedTimeTrace) {
+                    TimeTrace::record("CoreEstimationKey%u", static_cast<uint32_t>(currentStats.collectionTime));
+                    TimeTrace::setOutputFileName("/tmp/ArachneEstimationTimeTrace.log");
+                    TimeTrace::print();
+                    dumpedTimeTrace = true;
+                }
 
                 fprintf(estimationLog, "%d,%d,%lu,%lu,%lu,%lf,%lf,%lu,%lu\n",
                         allKernelThreadIds[coreId], coreId, idleCycles,

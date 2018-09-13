@@ -589,6 +589,7 @@ getThreadId() {
  */
 void
 dispatch() {
+    TimeTrace::record("KT %d: Entering Arachne::dispatch()", core.kernelThreadId);
     NestedDispatchDetector detector;
     IdleTimeTracker idleTimeTracker;
     Core& core = Arachne::core;
@@ -649,6 +650,7 @@ dispatch() {
                 // mechanism below.
                 core.highestOccupiedContext = std::max(
                     core.highestOccupiedContext, core.loadedContext->idInCore);
+                TimeTrace::record("KT %d: Leaving Arachne::dispatch()", core.kernelThreadId);
                 return;
             }
             void** saved = &core.loadedContext->sp;
@@ -666,6 +668,7 @@ dispatch() {
             IdleTimeTracker::numThreadsRan++;
             Arachne::core.highestOccupiedContext = std::max(
                 core.highestOccupiedContext, core.loadedContext->idInCore);
+            TimeTrace::record("KT %d: Leaving Arachne::dispatch()", core.kernelThreadId);
             return;
         }
     }
@@ -711,10 +714,14 @@ dispatch() {
                             &core.loadedContext->sp);
             }
 
+            uint64_t loopTime = (dispatchIterationStartCycles - IdleTimeTracker::lastDispatchIterationStart);
             PerfStats::threadStats->weightedLoadedCycles +=
-                IdleTimeTracker::numThreadsRan *
-                (dispatchIterationStartCycles -
-                 IdleTimeTracker::lastDispatchIterationStart);
+                IdleTimeTracker::numThreadsRan * loopTime;
+
+            if (IdleTimeTracker::numThreadsRan > 0)
+                TimeTrace::record("KT %d: Ran %d threads in %d cycles during last dispatch iteration", core.kernelThreadId, IdleTimeTracker::numThreadsRan, loopTime);
+            if (IdleTimeTracker::numThreadsRan == 0 && loopTime > 200)
+                TimeTrace::record("KT %d: Ran %d threads in %d cycles during last dispatch iteration", core.kernelThreadId, IdleTimeTracker::numThreadsRan, loopTime);
 
             IdleTimeTracker::numThreadsRan = 0;
             IdleTimeTracker::lastDispatchIterationStart =
@@ -729,6 +736,7 @@ dispatch() {
             if (currentContext == core.loadedContext) {
                 core.loadedContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
                 IdleTimeTracker::numThreadsRan++;
+                TimeTrace::record("KT %d: Leaving Arachne::dispatch()", core.kernelThreadId);
                 return;
             }
             void** saved = &core.loadedContext->sp;
@@ -746,6 +754,7 @@ dispatch() {
             // in the new context.
             originalContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
             IdleTimeTracker::numThreadsRan++;
+            TimeTrace::record("KT %d: Leaving Arachne::dispatch()", core.kernelThreadId);
             return;
         }
     }
