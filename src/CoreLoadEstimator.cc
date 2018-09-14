@@ -127,10 +127,12 @@ CoreLoadEstimator::estimate(CorePolicy::CoreList coreList) {
                     "TimeInCycles = %lu, curActiveCores = %d,"
                     " totalUtilizedCores = %lf, localThreshold = %lf, "
                     "averageloadFactor = %lf, loadFactorThreshold = %lf, "
-                    "numDispatches = %lu, numDispatchIterations = %lu\n",
+                    "numDispatches = %lu, numDispatchIterations = %lu, "
+                    "myKernelThreadId = %d\n",
                     currentStats.collectionTime, curActiveCores,
                     totalUtilizedCores, localThreshold, averageLoadFactor,
-                    loadFactorThreshold, numDispatches, numDispatchIterations);
+                    loadFactorThreshold, numDispatches, numDispatchIterations,
+                    core.kernelThreadId);
             fputs(
                 "KernelThreadId,CoreId,IdleCycles,TotalCycles,"
                 "WeightedLoadedCycles,LoadFactor,"
