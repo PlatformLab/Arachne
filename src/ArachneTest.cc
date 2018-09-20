@@ -14,6 +14,7 @@
  */
 
 #include <thread>
+#include <regex>
 #include "PerfUtils/Cycles.h"
 #include "gtest/gtest.h"
 
@@ -890,12 +891,17 @@ TEST_F(ArachneTest, setErrorStream) {
     free(str);
 }
 
+void logRampDown(int kernelThreadId, int coreId) {
+    ARACHNE_LOG(NOTICE, "Kernel thread %d on core %d going down!\n", kernelThreadId, coreId);
+}
+
 TEST_F(ArachneTest, setCoreCount) {
     void setCoreCount(uint32_t);
     char* str;
     size_t size;
     FILE* newStream = open_memstream(&str, &size);
     setErrorStream(newStream);
+    setCoreRampDown(logRampDown);
     DefaultCorePolicy* corePolicy =
         reinterpret_cast<DefaultCorePolicy*>(getCorePolicy());
     // Decrement test
@@ -914,11 +920,13 @@ TEST_F(ArachneTest, setCoreCount) {
     EXPECT_EQ(corePolicy->sharedCores.size(), 2U);
 
     fflush(newStream);
-    EXPECT_EQ(
+    auto regex = std::regex(
         "Attempting to change number of cores: 3 --> 2\n"
+        "Kernel thread [0-9]+ on core [0-9]+ going down!\n"
         "Attempting to change number of cores: 2 --> 1\n"
-        "Attempting to change number of cores: 1 --> 2\n",
-        std::string(str));
+        "Kernel thread [0-9]+ on core [0-9]+ going down!\n"
+        "Attempting to change number of cores: 1 --> 2\n");
+    EXPECT_TRUE(std::regex_match(std::string(str),regex));
     free(str);
 }
 

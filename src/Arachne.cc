@@ -49,6 +49,10 @@ FILE* errorStream = stderr;
 // lifetime of each kernel thread.
 std::function<void()> initCore = nullptr;
 
+// This function is provided by applications to be notified of a core being lost.
+// The function this is set to will pass in the kernelThreadId and coreId.
+void (*coreRampDown)(int kernelThreadId, int coreId) = nullptr;
+
 // The following configuration options can be passed into init.
 
 /**
@@ -365,6 +369,11 @@ threadMain() {
         // Release the PerfStats associated with this core, since we are about
         // to give up this core.
         PerfStats::releaseStats(std::move(PerfStats::threadStats));
+
+        // About to give up a core
+        if (coreRampDown) {
+            coreRampDown(core.kernelThreadId, core.id);
+        }
     }
     deinitializeCore(&core);
 
@@ -1751,6 +1760,11 @@ findAndClaimUnusedCore(CorePolicy::CoreList* cores) {
         }
     }
     return -1;
+}
+
+void
+setCoreRampDown(void (*coreRampDown)(int, int)) {
+    Arachne::coreRampDown = coreRampDown;
 }
 
 }  // namespace Arachne

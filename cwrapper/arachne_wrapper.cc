@@ -164,6 +164,10 @@ arachne_set_errorstream(FILE* ptr) {
     Arachne::setErrorStream(ptr);
 }
 
+void arachne_set_core_rampdown(void (*rampDownFunction)(int, int)) {
+    Arachne::setCoreRampDown(rampDownFunction);
+}
+
 #ifdef __cplusplus
 }
 #endif

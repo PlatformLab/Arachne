@@ -60,6 +60,7 @@ int arachne_thread_create_with_class(arachne_thread_id* id,
 void arachne_set_maxutil(double maxutil);
 void arachne_set_loadfactor(double loadfactor);
 void arachne_set_errorstream(FILE* ptr);
+void arachne_set_core_rampdown(void (*rampDownFunction)(int, int));
 #ifdef __cplusplus
 }
 #endif

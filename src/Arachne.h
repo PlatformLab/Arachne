@@ -71,6 +71,8 @@ void dispatch();
 
 extern std::function<void()> initCore;
 
+void setCoreRampDown(void (*coreRampDown)(int, int));
+
 extern std::vector<ThreadContext**> allThreadContexts;
 
 extern CorePolicy* corePolicy;
