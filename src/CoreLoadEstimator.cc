@@ -26,6 +26,64 @@ CoreLoadEstimator::CoreLoadEstimator()
       utilizationThresholds(std::thread::hardware_concurrency()) {}
 CoreLoadEstimator::~CoreLoadEstimator() {}
 
+void
+CoreLoadEstimator::dumpEstimationLog(
+        Arachne::PerfStats& currentStats,
+        std::unordered_map<int, Arachne::PerfStats>& coreToPerfStats,
+        int curActiveCores,
+        double totalUtilizedCores, double localThreshold, double averageLoadFactor,
+        double loadFactorThreshold, uint64_t numDispatches, uint64_t numDispatchIterations) {
+    FILE* estimationLog = fopen("/tmp/ArachneEstimationLog.log", "a");
+    if (!estimationLog) {
+        ARACHNE_LOG(
+                ERROR,
+                "Cannot open file for writing ArachneEstimationLog\n");
+        abort();
+    }
+    // Dump all delta statistics on all cores in core list along with
+    // rdtsc at collection time.
+    fputs("BEGIN ESTIMATION STATS DUMP\n", estimationLog);
+    fprintf(estimationLog,
+            "TimeInCycles = %lu, curActiveCores = %d,"
+            " totalUtilizedCores = %lf, localThreshold = %lf, "
+            "averageloadFactor = %lf, loadFactorThreshold = %lf, "
+            "numDispatches = %lu, numDispatchIterations = %lu\n",
+            currentStats.collectionTime, curActiveCores,
+            totalUtilizedCores, localThreshold, averageLoadFactor,
+            loadFactorThreshold, numDispatches, numDispatchIterations);
+    fputs(
+            "KernelThreadId,CoreId,IdleCycles,TotalCycles,"
+            "WeightedLoadedCycles,LoadFactor,"
+            "Utilization,NumDispatches,NumDispatchIterations\n",
+            estimationLog);
+    for (auto it : coreToPerfStats) {
+        int coreId = it.first;
+        PerfStats cur = it.second;
+        PerfStats prev = previousCoreToPerfStats[coreId];
+
+        // Calculate
+        uint64_t idleCycles = cur.idleCycles - prev.idleCycles;
+        uint64_t totalCycles = cur.totalCycles - prev.totalCycles;
+        uint64_t weightedLoadedCycles =
+            cur.weightedLoadedCycles - prev.weightedLoadedCycles;
+        double coreLoadFactor =
+            static_cast<double>(weightedLoadedCycles) /
+            static_cast<double>(totalCycles);
+        double utilization =
+            static_cast<double>(totalCycles - idleCycles) /
+            static_cast<double>(totalCycles);
+        uint64_t numDispatches = cur.numDispatches - prev.numDispatches;
+        uint64_t numDispatchIterations = cur.numDispatchIterations - prev.numDispatchIterations;
+
+        fprintf(estimationLog, "%d,%d,%lu,%lu,%lu,%lf,%lf,%lu,%lu\n",
+                allKernelThreadIds[coreId], coreId, idleCycles,
+                totalCycles, weightedLoadedCycles, coreLoadFactor,
+                utilization, numDispatches, numDispatchIterations);
+    }
+    fputs("END ESTIMATION STATS DUMP\n", estimationLog);
+    fclose(estimationLog);
+}
+
 /**
  * Returns -1,0,1 to suggest whether the core count should decrease,
  * stay the same, or increase respectively.
@@ -110,55 +168,10 @@ CoreLoadEstimator::estimate(CorePolicy::CoreList coreList) {
                         averageLoadFactor, loadFactorThreshold);
 
 #if COLLECT_CORE_STATS
-            FILE* estimationLog = fopen("/tmp/ArachneEstimationLog.log", "a");
-            if (!estimationLog) {
-                ARACHNE_LOG(
-                    ERROR,
-                    "Cannot open file for writing ArachneEstimationLog\n");
-                abort();
-            }
-            // Dump all delta statistics on all cores in core list along with
-            // rdtsc at collection time.
-            fputs("BEGIN ESTIMATION STATS DUMP\n", estimationLog);
-            fprintf(estimationLog,
-                    "TimeInCycles = %lu, curActiveCores = %d,"
-                    " totalUtilizedCores = %lf, localThreshold = %lf, "
-                    "averageloadFactor = %lf, loadFactorThreshold = %lf, "
-                    "numDispatches = %lu, numDispatchIterations = %lu\n",
-                    currentStats.collectionTime, curActiveCores,
-                    totalUtilizedCores, localThreshold, averageLoadFactor,
-                    loadFactorThreshold, numDispatches, numDispatchIterations);
-            fputs(
-                "KernelThreadId,CoreId,IdleCycles,TotalCycles,"
-                "WeightedLoadedCycles,LoadFactor,"
-                "Utilization,NumDispatches,NumDispatchIterations\n",
-                estimationLog);
-            for (auto it : coreToPerfStats) {
-                int coreId = it.first;
-                PerfStats cur = it.second;
-                PerfStats prev = previousCoreToPerfStats[coreId];
-
-                // Calculate
-                uint64_t idleCycles = cur.idleCycles - prev.idleCycles;
-                uint64_t totalCycles = cur.totalCycles - prev.totalCycles;
-                uint64_t weightedLoadedCycles =
-                    cur.weightedLoadedCycles - prev.weightedLoadedCycles;
-                double coreLoadFactor =
-                    static_cast<double>(weightedLoadedCycles) /
-                    static_cast<double>(totalCycles);
-                double utilization =
-                    static_cast<double>(totalCycles - idleCycles) /
-                    static_cast<double>(totalCycles);
-                uint64_t numDispatches = cur.numDispatches - prev.numDispatches;
-                uint64_t numDispatchIterations = cur.numDispatchIterations - prev.numDispatchIterations;
-
-                fprintf(estimationLog, "%d,%d,%lu,%lu,%lu,%lf,%lf,%lu,%lu\n",
-                        allKernelThreadIds[coreId], coreId, idleCycles,
-                        totalCycles, weightedLoadedCycles, coreLoadFactor,
-                        utilization, numDispatches, numDispatchIterations);
-            }
-            fputs("END ESTIMATION STATS DUMP\n", estimationLog);
-            fclose(estimationLog);
+        dumpEstimationLog(
+                currentStats, coreToPerfStats, curActiveCores,
+                totalUtilizedCores, localThreshold, averageLoadFactor,
+                loadFactorThreshold, numDispatches,  numDispatchIterations);
 #endif
 
             previousCoreToPerfStats = coreToPerfStats;
@@ -172,6 +185,12 @@ CoreLoadEstimator::estimate(CorePolicy::CoreList coreList) {
                         "averageloadFactor = %lf, loadFactorThreshold = %lf\n",
                         curActiveCores, totalUtilizedCores, localThreshold,
                         averageLoadFactor, loadFactorThreshold);
+#if COLLECT_CORE_STATS
+        dumpEstimationLog(
+                currentStats, coreToPerfStats, curActiveCores,
+                totalUtilizedCores, localThreshold, averageLoadFactor,
+                loadFactorThreshold, numDispatches,  numDispatchIterations);
+#endif
             previousCoreToPerfStats = coreToPerfStats;
             return -1;
         }

@@ -38,6 +38,12 @@ class CoreLoadEstimator {
     void setMaxUtilization(double maxUtilization);
 
   private:
+    void dumpEstimationLog(
+            Arachne::PerfStats& currentStats,
+        std::unordered_map<int, Arachne::PerfStats>& coreToPerfStats,
+        int curActiveCores,
+        double totalUtilizedCores, double localThreshold, double averageLoadFactor,
+        double loadFactorThreshold, uint64_t numDispatches, uint64_t numDispatchIterations);
     /**
      * Strategy used by the coreLoadEstimator to estimate load.
      * Multiple choices exist to facilitate experimentation and comparison
