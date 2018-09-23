@@ -219,11 +219,6 @@ alignedAlloc(size_t size, size_t alignment) {
  */
 void
 initializeCore(Core* core) {
-    core->localOccupiedAndCount =
-        reinterpret_cast<std::atomic<Arachne::MaskAndCount>*>(
-            alignedAlloc(sizeof(std::atomic<MaskAndCount>)));
-    memset(core->localOccupiedAndCount, 0, sizeof(std::atomic<MaskAndCount>));
-
     core->localPinnedContexts = reinterpret_cast<std::atomic<uint64_t>*>(
         alignedAlloc(sizeof(uint64_t)));
     // All cores initially poll for work on context 0's stack.
@@ -248,7 +243,6 @@ initializeCore(Core* core) {
  */
 void
 deinitializeCore(Core* core) {
-    free(core->localOccupiedAndCount);
     free(core->localPinnedContexts);
     free(core->highPriorityThreads);
 
@@ -288,7 +282,7 @@ threadMain() {
             PerfStats::releaseStats(std::move(PerfStats::threadStats));
             break;
         }
-        occupiedAndCount[core.id] = core.localOccupiedAndCount;
+        core.localOccupiedAndCount = occupiedAndCount[core.id];
         pinnedContexts[core.id] = core.localPinnedContexts;
         allThreadContexts[core.id] = core.localThreadContexts;
         allHighPriorityThreads[core.id] = core.highPriorityThreads;
@@ -558,8 +552,7 @@ sleep(uint64_t ns) {
  */
 void
 sleepForCycles(uint64_t cycles) {
-    core.loadedContext->wakeupTimeInCycles =
-        Cycles::rdtsc() + cycles;
+    core.loadedContext->wakeupTimeInCycles = Cycles::rdtsc() + cycles;
     dispatch();
 }
 
@@ -860,6 +853,10 @@ waitForTermination() {
     // We now assume that all threads are done executing.
     PerfUtils::Util::serialize();
 
+    for (size_t i = 0; i < occupiedAndCount.size(); i++) {
+        free(occupiedAndCount[i]);
+    }
+
     kernelThreads.clear();
     kernelThreadStacks.clear();
 
@@ -1123,6 +1120,11 @@ init(int* argcp, const char** argv) {
     allHighPriorityThreads.resize(numHardwareCores);
     allThreadContexts.resize(numHardwareCores);
     for (unsigned int i = 0; i < numHardwareCores; i++) {
+        occupiedAndCount[i] =
+            reinterpret_cast<std::atomic<Arachne::MaskAndCount>*>(
+                alignedAlloc(sizeof(std::atomic<MaskAndCount>)));
+        memset(occupiedAndCount[i], 0, sizeof(std::atomic<MaskAndCount>));
+
         coreIdleSemaphores.push_back(new ::Semaphore);
     }
 
@@ -1167,6 +1169,9 @@ init(int* argcp, const char** argv) {
 void
 mainThreadInit() {
     initializeCore(&core);
+    core.localOccupiedAndCount =
+        reinterpret_cast<std::atomic<Arachne::MaskAndCount>*>(
+            alignedAlloc(sizeof(std::atomic<MaskAndCount>)));
     for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
         // It is important to re-initialize stacks here because some of the
         // contexts may be in the middle of dispatch calls from
