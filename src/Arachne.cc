@@ -257,15 +257,6 @@ initializeCore(Core* core) {
     core->publicPriorityMask = reinterpret_cast<std::atomic<uint64_t>*>(
         alignedAlloc(sizeof(std::atomic<uint64_t>)));
     memset(core->publicPriorityMask, 0, sizeof(std::atomic<uint64_t>));
-
-    // Allocate stacks and contexts
-    ThreadContext** contexts = new ThreadContext*[maxThreadsPerCore];
-    for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
-        contexts[k] = reinterpret_cast<ThreadContext*>(
-            alignedAlloc(sizeof(ThreadContext)));
-        new (contexts[k]) ThreadContext(k);
-    }
-    core->localThreadContexts = contexts;
 }
 
 /**
@@ -275,14 +266,6 @@ void
 deinitializeCore(Core* core) {
     free(core->localPinnedContexts);
     free(core->publicPriorityMask);
-
-    for (int k = 0; k < maxThreadsPerCore; k++) {
-        free(core->localThreadContexts[k]->stack);
-        core->localThreadContexts[k]->joinLock.~SpinLock();
-        core->localThreadContexts[k]->joinCV.~ConditionVariable();
-        free(core->localThreadContexts[k]);
-    }
-    delete[] core->localThreadContexts;
 }
 
 /**
@@ -314,7 +297,7 @@ threadMain() {
             std::lock_guard<SpinLock> _(coreChangeMutex);
             core.localOccupiedAndCount = occupiedAndCount[core.id];
             pinnedContexts[core.id] = core.localPinnedContexts;
-            allThreadContexts[core.id] = core.localThreadContexts;
+            core.localThreadContexts = allThreadContexts[core.id];
             publicPriorityMasks[core.id] = core.publicPriorityMask;
 
             IdleTimeTracker::lastTotalCollectionTime = 0;
@@ -872,6 +855,14 @@ waitForTermination() {
 
     for (size_t i = 0; i < occupiedAndCount.size(); i++) {
         free(occupiedAndCount[i]);
+
+        for (int k = 0; k < maxThreadsPerCore; k++) {
+            free(allThreadContexts[i][k]->stack);
+            allThreadContexts[i][k]->joinLock.~SpinLock();
+            allThreadContexts[i][k]->joinCV.~ConditionVariable();
+            free(allThreadContexts[i][k]);
+        }
+        delete[] allThreadContexts[i];
     }
 
     kernelThreads.clear();
@@ -1141,6 +1132,15 @@ init(int* argcp, const char** argv) {
         occupiedAndCount[i] = reinterpret_cast<std::atomic<Arachne::MaskAndCount>*>(
             alignedAlloc(sizeof(std::atomic<MaskAndCount>)));
         memset(occupiedAndCount[i], 0, sizeof(std::atomic<MaskAndCount>));
+
+        // Allocate all the thread contexts and stacks
+        ThreadContext** contexts = new ThreadContext*[maxThreadsPerCore];
+        for (uint8_t k = 0; k < maxThreadsPerCore; k++) {
+            contexts[k] = reinterpret_cast<ThreadContext*>(
+                alignedAlloc(sizeof(ThreadContext)));
+            new (contexts[k]) ThreadContext(k);
+        }
+        allThreadContexts[i] = contexts;
 
         coreIdleSemaphores.push_back(new ::Semaphore);
         coreIdle[i].store(false);
