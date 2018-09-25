@@ -992,10 +992,6 @@ init(int* argcp, const char** argv) {
     // begin to use it in a new thread.
     PerfUtils::Util::serialize();
 
-    // Request the mininum number of cores.
-    std::vector<uint32_t> coreRequest({minNumCores, 0, 0, 0, 0, 0, 0, 0});
-    coreArbiter->setRequestedCores(coreRequest);
-
     // Note that the main thread is not part of the thread pool.
     for (unsigned int i = 0; i < maxNumCores; i++) {
         // These threads are started with threadMain instead of
@@ -1005,9 +1001,16 @@ init(int* argcp, const char** argv) {
         kernelThreads.emplace_back(threadMain);
     }
 
-    // Block until minNumCores is active, per the application's requirements.
-    while (numActiveCores != minNumCores)
-        usleep(1);
+    // Request cores serially to achieve determinism
+    for (uint32_t i = 1; i <= minNumCores; i++) {
+        std::vector<uint32_t> coreRequest({i, 0, 0, 0, 0, 0, 0, 0});
+        coreArbiter->setRequestedCores(coreRequest);
+
+        // Block until minNumCores is active, per the application's
+        // requirements.
+        while (numActiveCores != i)
+            usleep(1);
+    }
 
     mainThreadInit();
     // Only consider Arachne initialized if we've successfully parsed options
