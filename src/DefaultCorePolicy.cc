@@ -47,6 +47,7 @@ DefaultCorePolicy::DefaultCorePolicy(int maxNumCores, bool estimateLoad)
 void
 DefaultCorePolicy::coreAvailable(int myCoreId) {
     Lock guard(lock);
+    printf("Core %d became available\n", myCoreId);
     sharedCores.add(myCoreId);
     if (!coreAdjustmentThreadStarted && coreAdjustmentShouldRun) {
         if (Arachne::createThread(&DefaultCorePolicy::adjustCores, this) ==
@@ -88,6 +89,7 @@ DefaultCorePolicy::getCores(int threadClass) {
             return sharedCores;
         case EXCLUSIVE:
             int coreId = getExclusiveCore();
+            printf("Granting %d as exclusive\n", coreId);
             if (coreId < 0)
                 break;
             CorePolicy::CoreList retVal(1, /*mustFree=*/true);
