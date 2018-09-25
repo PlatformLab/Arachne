@@ -108,7 +108,13 @@ class CorePolicy {
                             index, numFilled);
                 return;
             }
-            cores[index] = cores[numFilled - 1];
+            if (index != numFilled - 1) {
+                memmove(cores + index, cores + index + 1,
+                        (numFilled - 1 - index) * sizeof(int));
+            }
+            // Temporarily disable this mechanism for convenience of
+            // benchmarking load-balanced thread creation.
+            // cores[index] = cores[numFilled - 1];
             numFilled--;
         }
 
