@@ -425,7 +425,6 @@ schedulerMainLoop() {
         // Cancel any wakeups the thread may have scheduled for itself before
         // exiting.
         core.loadedContext->wakeupTimeInCycles = ThreadContext::UNOCCUPIED;
-        TimeTrace::record("About to take joinLock");
 
         // The positioning of this lock is rather subtle, and makes the
         // following three operations atomic.
@@ -478,6 +477,7 @@ schedulerMainLoop() {
             slotMap.occupied = slotMap.occupied &
                                ~(1L << core.loadedContext->idInCore) &
                                0x00FFFFFFFFFFFFFF;
+            TimeTrace::record("About to CAS occupiedAndCount");
             success = core.localOccupiedAndCount->compare_exchange_strong(
                 oldSlotMap, slotMap);
         } while (!success);
