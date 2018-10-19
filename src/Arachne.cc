@@ -415,7 +415,9 @@ schedulerMainLoop() {
         }
         // No thread to execute yet. This call will not return until we have
         // been assigned a new Arachne thread.
+        TimeTrace::record("About to enter dispatch");
         dispatch();
+        TimeTrace::record("Just exited dispatch");
         reinterpret_cast<ThreadInvocationEnabler*>(
             &core.loadedContext->threadInvocation)
             ->runThread();
@@ -423,6 +425,7 @@ schedulerMainLoop() {
         // Cancel any wakeups the thread may have scheduled for itself before
         // exiting.
         core.loadedContext->wakeupTimeInCycles = ThreadContext::UNOCCUPIED;
+        TimeTrace::record("About to take joinLock");
 
         // The positioning of this lock is rather subtle, and makes the
         // following three operations atomic.
@@ -438,6 +441,7 @@ schedulerMainLoop() {
         // lock must be taken and held throughout the process of clearing the
         // occupied bit and notifying threads attempting to join this thread.
         std::lock_guard<SpinLock> joinGuard(core.loadedContext->joinLock);
+        TimeTrace::record("Just took joinLock");
 
         // Bump the generation number for the next newborn thread. This must be
         // done under the joinLock, since any joiner that observed the new
@@ -448,6 +452,7 @@ schedulerMainLoop() {
         // Pin the current context before clearing the occupied bit.
         uint64_t pinMask = 1L << core.loadedContext->idInCore;
         core.localPinnedContexts->store(pinMask);
+        TimeTrace::record("Just updated localPinnedContexts");
 
         // The code below clears the occupied flag for the current
         // ThreadContext.
@@ -476,6 +481,7 @@ schedulerMainLoop() {
             success = core.localOccupiedAndCount->compare_exchange_strong(
                 oldSlotMap, slotMap);
         } while (!success);
+        TimeTrace::record("Just cleared occupiedAndCount");
 
         // Reset highestOccupiedContext based on value of occupied flag, which
         // we just CASed in, and the pinned context mask, which we just set.
@@ -493,14 +499,17 @@ schedulerMainLoop() {
             occupiedOrPinned == 0
                 ? 0
                 : static_cast<uint8_t>(63 - __builtin_clzll(occupiedOrPinned));
+        TimeTrace::record("Just updated highestOccupiedContext");
 
         // Newborn threads should not have elevated priority, even if the
         // predecessors had leftover priority
         core.privatePriorityMask &= ~(1L << (core.loadedContext->idInCore));
         *core.highPriorityThreads &= ~(1L << (core.loadedContext->idInCore));
         PerfStats::threadStats->numThreadsFinished++;
+        TimeTrace::record("Just updated priority masks");
 
         core.loadedContext->joinCV.notifyAll();
+        TimeTrace::record("Just notified on joinCV");
     }
 }
 
