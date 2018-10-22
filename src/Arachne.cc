@@ -711,7 +711,9 @@ dispatch() {
         // Decide whether we can run the current thread.
         if (dispatchIterationStartCycles >=
             currentContext->wakeupTimeInCycles) {
+            TimeTrace::record("Found a runnable context");
             core.nextCandidateIndex = currentIndex + 1;
+            TimeTrace::record("Incremented nextCandidateIndex");
 
             if (currentContext == core.loadedContext) {
                 core.loadedContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
@@ -727,7 +729,9 @@ dispatch() {
             // invocation returns. This is problematic because it resets
             // dispatchStartCycles (used for computing idle cycles) but not
             // lastTotalCollectionTime (used for computing total cycles).
+            TimeTrace::record("About to update perf stats");
             idleTimeTracker.updatePerfStats();
+            TimeTrace::record("About to swapcontext");
             swapcontext(&core.loadedContext->sp, saved);
             // After the old context is swapped out above, this line executes
             // in the new context.
