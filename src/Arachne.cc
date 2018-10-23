@@ -33,6 +33,7 @@ namespace Arachne {
 using CoreArbiter::CoreArbiterClient;
 using PerfUtils::Cycles;
 using PerfUtils::TimeTrace;
+using PerfUtils::Util::prefetch;
 
 /**
  * This variable prevents multiple initializations of the library, but does
@@ -425,7 +426,9 @@ schedulerMainLoop() {
         // Cancel any wakeups the thread may have scheduled for itself before
         // exiting.
         core.loadedContext->wakeupTimeInCycles = ThreadContext::UNOCCUPIED;
+        TimeTrace::record("Just set wakeupTime to unoccupied");
 
+        prefetch(core.localOccupiedAndCount);
         // The positioning of this lock is rather subtle, and makes the
         // following three operations atomic.
         //   1. Bumping the generation number.
@@ -450,7 +453,7 @@ schedulerMainLoop() {
 
         // Pin the current context before clearing the occupied bit.
         uint64_t pinMask = 1L << core.loadedContext->idInCore;
-        core.localPinnedContexts->store(pinMask);
+        core.localPinnedContexts->store(pinMask, std::memory_order_release);
         TimeTrace::record("Just updated localPinnedContexts");
 
         // The code below clears the occupied flag for the current
@@ -479,7 +482,7 @@ schedulerMainLoop() {
                                0x00FFFFFFFFFFFFFF;
             TimeTrace::record("About to CAS occupiedAndCount");
             success = core.localOccupiedAndCount->compare_exchange_strong(
-                oldSlotMap, slotMap);
+                oldSlotMap, slotMap, std::memory_order_acq_rel);
         } while (!success);
         TimeTrace::record("Just cleared occupiedAndCount");
 
@@ -499,7 +502,6 @@ schedulerMainLoop() {
             occupiedOrPinned == 0
                 ? 0
                 : static_cast<uint8_t>(63 - __builtin_clzll(occupiedOrPinned));
-        TimeTrace::record("Just updated highestOccupiedContext");
 
         // Newborn threads should not have elevated priority, even if the
         // predecessors had leftover priority
@@ -509,7 +511,6 @@ schedulerMainLoop() {
         TimeTrace::record("Just updated priority masks");
 
         core.loadedContext->joinCV.notifyAll();
-        TimeTrace::record("Just notified on joinCV");
     }
 }
 
@@ -733,10 +734,13 @@ dispatch() {
             idleTimeTracker.updatePerfStats();
             TimeTrace::record("About to swapcontext");
             swapcontext(&core.loadedContext->sp, saved);
+            TimeTrace::record("Returned from swapcontext");
             // After the old context is swapped out above, this line executes
             // in the new context.
             originalContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
+            TimeTrace::record("Wrote to wakeupTimeInCycles");
             IdleTimeTracker::numThreadsRan++;
+            TimeTrace::record("Incremented PerfStats.");
             return;
         }
     }
