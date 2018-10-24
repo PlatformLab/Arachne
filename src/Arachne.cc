@@ -416,9 +416,11 @@ schedulerMainLoop() {
         }
         // No thread to execute yet. This call will not return until we have
         // been assigned a new Arachne thread.
-        TimeTrace::record("About to enter dispatch");
+        // When we swap back to this one, this should still be the correct context.
+        ThreadContext* originalContext = core.loadedContext;
+        TimeTrace::record("IdInCore %d: About to enter dispatch", originalContext->idInCore);
         dispatch();
-        TimeTrace::record("Just exited dispatch");
+        TimeTrace::record("IdInCore %d: Just exited dispatch", originalContext->idInCore);
         reinterpret_cast<ThreadInvocationEnabler*>(
             &core.loadedContext->threadInvocation)
             ->runThread();
@@ -426,7 +428,7 @@ schedulerMainLoop() {
         // Cancel any wakeups the thread may have scheduled for itself before
         // exiting.
         core.loadedContext->wakeupTimeInCycles = ThreadContext::UNOCCUPIED;
-        TimeTrace::record("Just set wakeupTime to unoccupied");
+        TimeTrace::record("IdInCore %d: Just set wakeupTime to unoccupied", originalContext->idInCore);
 
         prefetch(core.localOccupiedAndCount);
         // The positioning of this lock is rather subtle, and makes the
@@ -443,7 +445,7 @@ schedulerMainLoop() {
         // lock must be taken and held throughout the process of clearing the
         // occupied bit and notifying threads attempting to join this thread.
         std::lock_guard<SpinLock> joinGuard(core.loadedContext->joinLock);
-        TimeTrace::record("Just took joinLock");
+        TimeTrace::record("IdInCore %d: Just took joinLock", originalContext->idInCore);
 
         // Bump the generation number for the next newborn thread. This must be
         // done under the joinLock, since any joiner that observed the new
@@ -454,7 +456,7 @@ schedulerMainLoop() {
         // Pin the current context before clearing the occupied bit.
         uint64_t pinMask = 1L << core.loadedContext->idInCore;
         core.localPinnedContexts->store(pinMask, std::memory_order_release);
-        TimeTrace::record("Just updated localPinnedContexts");
+        TimeTrace::record("IdInCore %d: Just updated localPinnedContexts", originalContext->idInCore);
 
         // The code below clears the occupied flag for the current
         // ThreadContext.
@@ -480,11 +482,11 @@ schedulerMainLoop() {
             slotMap.occupied = slotMap.occupied &
                                ~(1L << core.loadedContext->idInCore) &
                                0x00FFFFFFFFFFFFFF;
-            TimeTrace::record("About to CAS occupiedAndCount");
+            TimeTrace::record("IdInCore %d: About to CAS occupiedAndCount", originalContext->idInCore);
             success = core.localOccupiedAndCount->compare_exchange_strong(
                 oldSlotMap, slotMap, std::memory_order_acq_rel);
         } while (!success);
-        TimeTrace::record("Just cleared occupiedAndCount");
+        TimeTrace::record("IdInCore %d: Just cleared occupiedAndCount", originalContext->idInCore);
 
         // Reset highestOccupiedContext based on value of occupied flag, which
         // we just CASed in, and the pinned context mask, which we just set.
@@ -508,7 +510,7 @@ schedulerMainLoop() {
         core.privatePriorityMask &= ~(1L << (core.loadedContext->idInCore));
         *core.highPriorityThreads &= ~(1L << (core.loadedContext->idInCore));
         PerfStats::threadStats->numThreadsFinished++;
-        TimeTrace::record("Just updated priority masks");
+        TimeTrace::record("IdInCore %d: Just updated priority masks", originalContext->idInCore);
 
         core.loadedContext->joinCV.notifyAll();
     }
@@ -712,9 +714,9 @@ dispatch() {
         // Decide whether we can run the current thread.
         if (dispatchIterationStartCycles >=
             currentContext->wakeupTimeInCycles) {
-            TimeTrace::record("Found a runnable context");
+            TimeTrace::record("IdInCore %d: Found a runnable context", originalContext->idInCore);
             core.nextCandidateIndex = currentIndex + 1;
-            TimeTrace::record("Incremented nextCandidateIndex");
+            TimeTrace::record("IdInCore %d: Incremented nextCandidateIndex", originalContext->idInCore);
 
             if (currentContext == core.loadedContext) {
                 core.loadedContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
@@ -730,17 +732,17 @@ dispatch() {
             // invocation returns. This is problematic because it resets
             // dispatchStartCycles (used for computing idle cycles) but not
             // lastTotalCollectionTime (used for computing total cycles).
-            TimeTrace::record("About to update perf stats");
+            TimeTrace::record("IdInCore %d: About to update perf stats", originalContext->idInCore);
             idleTimeTracker.updatePerfStats();
-            TimeTrace::record("About to swapcontext");
+            TimeTrace::record("IdInCore %d: About to swapcontext", originalContext->idInCore);
             swapcontext(&core.loadedContext->sp, saved);
-            TimeTrace::record("Returned from swapcontext");
+            TimeTrace::record("IdInCore %d: Returned from swapcontext", originalContext->idInCore);
             // After the old context is swapped out above, this line executes
             // in the new context.
             originalContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
-            TimeTrace::record("Wrote to wakeupTimeInCycles");
+            TimeTrace::record("IdInCore %d: Wrote to wakeupTimeInCycles", originalContext->idInCore);
             IdleTimeTracker::numThreadsRan++;
-            TimeTrace::record("Incremented PerfStats.");
+            TimeTrace::record("IdInCore %d: Incremented PerfStats.", originalContext->idInCore);
             return;
         }
     }
