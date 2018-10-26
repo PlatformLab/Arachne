@@ -352,10 +352,6 @@ struct ThreadContext {
      */
     static const uint64_t UNOCCUPIED;
 
-    /// This reference is for convenience and always points at
-    /// threadInvocation->wakeupTimeInCycles.
-    volatile uint64_t& wakeupTimeInCycles;
-
     /// This lock is used for synchronizing threads that attempt to join this
     /// thread.
     SpinLock joinLock;
@@ -553,7 +549,7 @@ createThreadOnCore(uint32_t coreId, _Callable&& __f, _Args&&... __args) {
     // in the microbenchmark. One speculation is that we can get better ILP by
     // not using the same variable for both.
     uint32_t generation = allThreadContexts[coreId][index]->generation;
-    threadContext->wakeupTimeInCycles = 0;
+    threadContext->threadInvocation.wakeupTimeInCycles = 0;
 
     PerfStats::threadStats->numThreadsCreated++;
     if (failureCount)
@@ -664,7 +660,7 @@ ConditionVariable::wait(LockType& lock) {
 template <typename LockType>
 void
 ConditionVariable::waitFor(LockType& lock, uint64_t ns) {
-    core.loadedContext->wakeupTimeInCycles =
+    core.loadedContext->threadInvocation.wakeupTimeInCycles =
         Cycles::rdtsc() + Cycles::fromNanoseconds(ns);
     blockedThreads.push_back(
         ThreadId(core.loadedContext, core.loadedContext->generation));
