@@ -59,9 +59,7 @@ class SpinLock {
     /** Repeatedly try to acquire this resource until success. */
     inline void lock() {
         uint64_t startOfContention = 0;
-        TimeTrace::record("Top of lock method");
         while (locked.exchange(true, std::memory_order_acquire) != false) {
-            TimeTrace::record("Failed to acquire lock");
             if (startOfContention == 0) {
                 startOfContention = Cycles::rdtsc();
             } else {
@@ -76,9 +74,7 @@ class SpinLock {
             if (shouldYield)
                 yield();
         }
-        TimeTrace::record("Acquired lock");
         owner = core.loadedContext;
-        TimeTrace::record("Set owner to loaded context.");
     }
 
     /**
