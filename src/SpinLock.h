@@ -21,10 +21,12 @@
 #include "Common.h"
 #include "Logger.h"
 #include "PerfUtils/Cycles.h"
+#include "PerfUtils/TimeTrace.h"
 
 namespace Arachne {
 
 using PerfUtils::Cycles;
+using PerfUtils::TimeTrace;
 
 // Forward declarations to resolve various circular dependencies of separating
 // this out.
@@ -57,7 +59,9 @@ class SpinLock {
     /** Repeatedly try to acquire this resource until success. */
     inline void lock() {
         uint64_t startOfContention = 0;
+        TimeTrace::record("Top of lock method");
         while (locked.exchange(true, std::memory_order_acquire) != false) {
+            TimeTrace::record("Failed to acquire lock");
             if (startOfContention == 0) {
                 startOfContention = Cycles::rdtsc();
             } else {
@@ -72,7 +76,9 @@ class SpinLock {
             if (shouldYield)
                 yield();
         }
+        TimeTrace::record("Acquired lock");
         owner = core.loadedContext;
+        TimeTrace::record("Set owner to loaded context.");
     }
 
     /**
