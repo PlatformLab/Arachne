@@ -424,7 +424,7 @@ schedulerMainLoop() {
         // The thread has exited.
         // Cancel any wakeups the thread may have scheduled for itself before
         // exiting.
-        core.loadedContext->threadInvocation.wakeupTimeInCycles = ThreadContext::UNOCCUPIED;
+        core.loadedContext->wakeupTimeInCycles = ThreadContext::UNOCCUPIED;
 
         prefetch(core.localOccupiedAndCount);
         // The positioning of this lock is rather subtle, and makes the
@@ -528,7 +528,7 @@ yield() {
         return;
     }
     // This thread is still runnable since it is merely yielding.
-    core.loadedContext->threadInvocation.wakeupTimeInCycles = 0L;
+    core.loadedContext->wakeupTimeInCycles = 0L;
     dispatch();
 }
 
@@ -547,7 +547,7 @@ sleep(uint64_t ns) {
  */
 void
 sleepForCycles(uint64_t cycles) {
-    core.loadedContext->threadInvocation.wakeupTimeInCycles = Cycles::rdtsc() + cycles;
+    core.loadedContext->wakeupTimeInCycles = Cycles::rdtsc() + cycles;
     dispatch();
 }
 
@@ -621,9 +621,9 @@ dispatch() {
         ThreadContext* targetContext = core.localThreadContexts[firstSetBit];
 
         // Verify wakeup and occupied.
-        if (targetContext->threadInvocation.wakeupTimeInCycles == 0) {
+        if (targetContext->wakeupTimeInCycles == 0) {
             if (targetContext == core.loadedContext) {
-                core.loadedContext->threadInvocation.wakeupTimeInCycles = ThreadContext::BLOCKED;
+                core.loadedContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
                 IdleTimeTracker::numThreadsRan++;
 
                 // It is necessary to update core.highestOccupiedContext
@@ -647,7 +647,7 @@ dispatch() {
             // lastTotalCollectionTime (used for computing total cycles).
             idleTimeTracker.updatePerfStats();
             swapcontext(&core.loadedContext->sp, saved);
-            originalContext->threadInvocation.wakeupTimeInCycles = ThreadContext::BLOCKED;
+            originalContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
             IdleTimeTracker::numThreadsRan++;
             Arachne::core.highestOccupiedContext = std::max(
                 core.highestOccupiedContext, core.loadedContext->idInCore);
@@ -669,7 +669,7 @@ dispatch() {
         if (currentIndex == core.highestOccupiedContext + 1) {
             // Check whether we need to increment core.highestOccupiedContext or
             // reset currentIndex.
-            if (currentContext->threadInvocation.wakeupTimeInCycles !=
+            if (currentContext->wakeupTimeInCycles !=
                 ThreadContext::UNOCCUPIED) {
                 core.highestOccupiedContext++;
             } else {
@@ -704,11 +704,11 @@ dispatch() {
 
         // Decide whether we can run the current thread.
         if (dispatchIterationStartCycles >=
-            currentContext->threadInvocation.wakeupTimeInCycles) {
+            currentContext->wakeupTimeInCycles) {
             core.nextCandidateIndex = currentIndex + 1;
 
             if (currentContext == core.loadedContext) {
-                core.loadedContext->threadInvocation.wakeupTimeInCycles = ThreadContext::BLOCKED;
+                core.loadedContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
                 IdleTimeTracker::numThreadsRan++;
                 return;
             }
@@ -725,7 +725,7 @@ dispatch() {
             swapcontext(&core.loadedContext->sp, saved);
             // After the old context is swapped out above, this line executes
             // in the new context.
-            originalContext->threadInvocation.wakeupTimeInCycles = ThreadContext::BLOCKED;
+            originalContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
             IdleTimeTracker::numThreadsRan++;
             return;
         }
@@ -793,7 +793,7 @@ signal(ThreadId id) {
     // execute on an empty ThreadContext
     uint64_t oldWakeupTime = ThreadContext::BLOCKED;
     uint64_t newValue = 0L;
-    oldWakeupTime = compareExchange(&id.context->threadInvocation.wakeupTimeInCycles,
+    oldWakeupTime = compareExchange(&id.context->wakeupTimeInCycles,
                                     oldWakeupTime, newValue);
 
     // The original value was not BLOCKED, so we try again with the true
@@ -802,7 +802,7 @@ signal(ThreadId id) {
     // blocked.
     if (oldWakeupTime != ThreadContext::BLOCKED &&
         oldWakeupTime != ThreadContext::UNOCCUPIED && oldWakeupTime != 0L) {
-        compareExchange(&id.context->threadInvocation.wakeupTimeInCycles, oldWakeupTime,
+        compareExchange(&id.context->wakeupTimeInCycles, oldWakeupTime,
                         newValue);
     }
     // Raise the priority of the newly awakened thread except the UNOCCUPIED.
@@ -969,9 +969,10 @@ ThreadContext::ThreadContext(uint8_t idInCore)
       originalCoreId(coreId),
       idInCore(idInCore),
       threadInvocation(),
+      wakeupTimeInCycles(threadInvocation.wakeupTimeInCycles),
       joinLock(),
       joinCV() {
-    threadInvocation.wakeupTimeInCycles = ThreadContext::UNOCCUPIED;
+    wakeupTimeInCycles = ThreadContext::UNOCCUPIED;
     // Allocate memory here so we can error-check the return value of malloc.
     stack = alignedAlloc(stackSize, PAGE_SIZE);
     if (stack == NULL) {
@@ -1192,7 +1193,7 @@ mainThreadInit() {
         core.localThreadContexts[k]->initializeStack();
     }
     core.loadedContext = *core.localThreadContexts;
-    core.loadedContext->threadInvocation.wakeupTimeInCycles = ThreadContext::BLOCKED;
+    core.loadedContext->wakeupTimeInCycles = ThreadContext::BLOCKED;
     *core.localOccupiedAndCount = {1, 1};
     PerfStats::threadStats = std::unique_ptr<PerfStats>(new PerfStats());
 }
@@ -1521,7 +1522,7 @@ preventCreationsToCore(int coreId) {
             // There is no race with completions here because no other thread
             // can be running on this core since we are running.
             if (((targetOccupiedAndCount.occupied >> i) & 1) &&
-                core.localThreadContexts[i]->threadInvocation.wakeupTimeInCycles ==
+                core.localThreadContexts[i]->wakeupTimeInCycles ==
                     ThreadContext::UNOCCUPIED) {
                 pendingCreation = true;
                 break;
