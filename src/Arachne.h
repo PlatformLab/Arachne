@@ -295,14 +295,6 @@ struct ThreadContext {
     /// in this ThreadContext.
     uint32_t generation;
 
-    /// This lock is used for synchronizing threads that attempt to join this
-    /// thread.
-    SpinLock joinLock;
-
-    /// Threads attempting to join the thread that currently occupies this
-    /// context shall wait on this CV.
-    ConditionVariable joinCV;
-
     // Value of coreId before this ThreadContext is assigned to a core.
     static const uint8_t CORE_UNASSIGNED;
 
@@ -363,6 +355,15 @@ struct ThreadContext {
     /// This reference is for convenience and always points at
     /// threadInvocation->wakeupTimeInCycles.
     volatile uint64_t& wakeupTimeInCycles;
+
+    /// This lock is used for synchronizing threads that attempt to join this
+    /// thread.
+    SpinLock joinLock;
+
+    /// Threads attempting to join the thread that currently occupies this
+    /// context shall wait on this CV.
+    ConditionVariable joinCV;
+
 
     void initializeStack();
     ThreadContext() = delete;

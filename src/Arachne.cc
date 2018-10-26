@@ -981,13 +981,13 @@ ThreadContext::ThreadContext(uint8_t idInCore)
     : stack(NULL),
       sp(NULL),
       generation(1),
-      joinLock(),
-      joinCV(),
       coreId(CORE_UNASSIGNED),
       originalCoreId(coreId),
       idInCore(idInCore),
       threadInvocation(),
-      wakeupTimeInCycles(threadInvocation.wakeupTimeInCycles) {
+      wakeupTimeInCycles(threadInvocation.wakeupTimeInCycles),
+      joinLock(),
+      joinCV() {
     wakeupTimeInCycles = ThreadContext::UNOCCUPIED;
     // Allocate memory here so we can error-check the return value of malloc.
     stack = alignedAlloc(stackSize, PAGE_SIZE);
