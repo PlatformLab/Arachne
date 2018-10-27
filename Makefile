@@ -78,6 +78,14 @@ check:
 	! grep '.\{81\}' $(SRC_DIR)/*.h $(SRC_DIR)/*.cc $(WRAPPER_DIR)/*.h $(WRAPPER_DIR)/*.cc
 
 ################################################################################
+# Nanobenchmark targets
+Perf: $(OBJECT_DIR)/Perf
+	$(OBJECT_DIR)/Perf
+
+$(OBJECT_DIR)/Perf: $(OBJECT_DIR)/Perf.o
+	$(CXX) $(INCLUDE) $(CXXFLAGS) $< $(OBJECT_DIR)/libArachne.a $(LIBS)  -o $@
+
+################################################################################
 # Test Targets
 GTEST_DIR=../googletest/googletest
 GMOCK_DIR=../googletest/googlemock
