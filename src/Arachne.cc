@@ -33,6 +33,7 @@ namespace Arachne {
 using CoreArbiter::CoreArbiterClient;
 using PerfUtils::Cycles;
 using PerfUtils::TimeTrace;
+using PerfUtils::Util::prefetch;
 
 /**
  * This variable prevents multiple initializations of the library, but does
@@ -424,6 +425,7 @@ schedulerMainLoop() {
         // exiting.
         core.loadedContext->wakeupTimeInCycles = ThreadContext::UNOCCUPIED;
 
+        prefetch(core.localOccupiedAndCount);
         // The positioning of this lock is rather subtle, and makes the
         // following three operations atomic.
         //   1. Bumping the generation number.
@@ -447,7 +449,7 @@ schedulerMainLoop() {
 
         // Pin the current context before clearing the occupied bit.
         uint64_t pinMask = 1L << core.loadedContext->idInCore;
-        core.localPinnedContexts->store(pinMask);
+        core.localPinnedContexts->store(pinMask, std::memory_order_release);
 
         // The code below clears the occupied flag for the current
         // ThreadContext.
@@ -474,7 +476,7 @@ schedulerMainLoop() {
                                ~(1L << core.loadedContext->idInCore) &
                                0x00FFFFFFFFFFFFFF;
             success = core.localOccupiedAndCount->compare_exchange_strong(
-                oldSlotMap, slotMap);
+                oldSlotMap, slotMap, std::memory_order_acq_rel);
         } while (!success);
 
         // Reset highestOccupiedContext based on value of occupied flag, which
