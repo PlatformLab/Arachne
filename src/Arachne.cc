@@ -1595,6 +1595,13 @@ migrateThreadsFromCore() {
                        index < maxThreadsPerCore)
                     index++;
 
+                // Not able to find a context, likely because unoccupied
+                // contexts were pinned.
+                if (index == maxThreadsPerCore) {
+                    success = false;
+                    break;
+                }
+
                 slotMap.occupied =
                     (slotMap.occupied | (1L << index)) & 0x00FFFFFFFFFFFFFF;
                 slotMap.numOccupied++;
