@@ -15,23 +15,60 @@
 
 #include "Logger.h"
 #include <execinfo.h>
+#include "PerfUtils/Cycles.h"
+
+using PerfUtils::Cycles;
 
 namespace Arachne {
 
 extern FILE* errorStream;
-LogLevel Logger::displayMinLevel = WARNING;
+LogLevel Logger::displayMinLevel = DEBUG;
 std::mutex Logger::mutex;
+PerfUtils::Initialize Logger::_(Logger::init);
+uint64_t Logger::startingTsc;
 
+/**
+  * Friendly names for each #LogLevel value.
+  * Keep this in sync with the LogLevel enum.
+  */
+static const char* logLevelNames[] = {"VERBOSE", "DEBUG", "NOTICE", "WARNING",
+                                      "ERROR", "SILENT"};
+
+
+void
+Logger::init()
+{
+startingTsc = Cycles::rdtsc();	
+}
 void
 Logger::log(LogLevel level, const char* fmt, ...) {
     if (level < displayMinLevel) {
         return;
     }
 
-    Lock lock(mutex);
+    // First format the message; timestamps are in seconds since the first log
+#define MAX_MESSAGE_CHARS 2000
+    // Construct a message on the stack and then print it out with the lock
+    char buffer[MAX_MESSAGE_CHARS];
+    int spaceLeft = MAX_MESSAGE_CHARS;
+    int charsWritten = 0;
+    int actual;
+    double time = Cycles::toSeconds(Cycles::rdtsc() - startingTsc);
+
+    // Add a header including rdtsc time and location in the file.
+    actual = snprintf(buffer + charsWritten, spaceLeft,
+                      "%.10lf: %s: ", time, logLevelNames[level]);
+    charsWritten += actual;
+    spaceLeft -= actual;
+
+    // Add the intended message
     va_list args;
     va_start(args, fmt);
-    vfprintf(errorStream, fmt, args);
+    actual = vsnprintf(buffer + charsWritten, spaceLeft, fmt, args);
+    va_end(args);
+
+    Lock lock(mutex);
+    fprintf(errorStream, "%s\n", buffer);
     fflush(errorStream);
     va_end(args);
 }
