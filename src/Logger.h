@@ -19,6 +19,7 @@
 #include <stdarg.h>
 #include <stdint.h>
 #include <mutex>
+#include <PerfUtils/Initialize.h>
 
 #define ARACHNE_LOG Logger::log
 #define ARACHNE_BACKTRACE Logger::logBacktrace
@@ -52,12 +53,17 @@ class Logger {
     static void logBacktrace(LogLevel level);
 
   private:
+    static void init(); 
     // The minimum severity level to print.
     static LogLevel displayMinLevel;
 
     // Lock around printing since Arachne is multithreaded.
     typedef std::unique_lock<std::mutex> Lock;
     static std::mutex mutex;
+
+    // Initialize
+    static PerfUtils::Initialize _;
+    static uint64_t startingTsc;
 };
 
 }  // namespace Arachne
