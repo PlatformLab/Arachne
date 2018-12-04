@@ -56,6 +56,7 @@ using PerfUtils::Cycles;
 struct ThreadContext;
 struct Core;
 extern thread_local Core core;
+extern thread_local bool isEstimatorCore;
 
 // This is used in createThread.
 extern std::atomic<uint32_t> numActiveCores;

@@ -149,6 +149,11 @@ std::vector<::Semaphore*> coreIdleSemaphores;
  */
 thread_local Core core;
 
+/**
+  * True iff this is the core that is running the load estimator
+  */
+thread_local bool isEstimatorCore;
+
 // BEGIN Testing-Specific Flags
 bool disableLoadEstimation;
 // END   Testing-Specific Flags
@@ -416,9 +421,17 @@ schedulerMainLoop() {
         // No thread to execute yet. This call will not return until we have
         // been assigned a new Arachne thread.
         dispatch();
+        if (isEstimatorCore) {
+            TimeTrace::record("Core %d found a new thread to on context %d", Arachne::core.id,
+                    Arachne::core.loadedContext->idInCore);
+        }
         reinterpret_cast<ThreadInvocationEnabler*>(
             &core.loadedContext->threadInvocation)
             ->runThread();
+        if (isEstimatorCore) {
+            TimeTrace::record("Core %d completed a thread on context %d", Arachne::core.id,
+                    Arachne::core.loadedContext->idInCore);
+        }
         // The thread has exited.
         // Cancel any wakeups the thread may have scheduled for itself before
         // exiting.
@@ -526,6 +539,9 @@ yield() {
     }
     // This thread is still runnable since it is merely yielding.
     core.loadedContext->wakeupTimeInCycles = 0L;
+    if (isEstimatorCore) {
+        TimeTrace::record("Thread is yielding on core %d", Arachne::core.id);
+    }
     dispatch();
 }
 
@@ -572,6 +588,9 @@ getThreadId() {
  */
 void
 dispatch() {
+    if (isEstimatorCore) {
+        TimeTrace::record("Dispatch invoked on core %d", Arachne::core.id);
+    }
     NestedDispatchDetector detector;
     IdleTimeTracker idleTimeTracker;
     Core& core = Arachne::core;
@@ -1076,6 +1095,7 @@ getCorePolicy() {
  */
 void
 init(int* argcp, const char** argv) {
+    Logger::setLogLevel(DEBUG);
     if (initialized)
         return;
 

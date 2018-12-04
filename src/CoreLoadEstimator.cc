@@ -18,6 +18,8 @@
 
 namespace Arachne {
 
+extern thread_local bool isEstimatorCore;
+
 CoreLoadEstimator::CoreLoadEstimator()
     : lock("CoreLoadEstimator", false),
       utilizationThresholds(std::thread::hardware_concurrency()) {}

@@ -16,8 +16,13 @@
 #include "DefaultCorePolicy.h"
 #include <atomic>
 #include "Arachne.h"
+#include "PerfUtils/TimeTrace.h"
+#include "PerfUtils/Cycles.h"
 
 namespace Arachne {
+
+using PerfUtils::TimeTrace;
+using PerfUtils::Cycles;
 
 // Forward declarations
 void prepareForExclusiveUse(int coreId);
@@ -150,19 +155,35 @@ DefaultCorePolicy::getExclusiveCore() {
  */
 void
 DefaultCorePolicy::adjustCores() {
+    TimeTrace::keepOldEvents = true;
+    TimeTrace::setOutputFileName("/tmp/EstimationTrace.log");
     while (true) {
+        isEstimatorCore = true;
+        TimeTrace::record("load estimator going to sleep on core %d", Arachne::core.id);
+        uint64_t napTime = Cycles::rdtsc();
         Arachne::sleep(measurementPeriod);
+        TimeTrace::record("load estimator woke up on core %d", Arachne::core.id);
+        uint64_t wakeTime = Cycles::rdtsc();
+        if (Cycles::toMilliseconds(wakeTime - napTime)  > 200) {
+            TimeTrace::print();
+            abort();
+        }
         if (!coreAdjustmentShouldRun.load()) {
             loadEstimator.clearHistory();
             continue;
         }
         Lock guard(lock);
         int estimate = loadEstimator.estimate(sharedCores);
+        TimeTrace::record("Load estimator completed estimation on core %d", Arachne::core.id);
         if (estimate == 0)
             continue;
         if (estimate == -1) {
-            if (sharedCores.size() > 1)
+            if (sharedCores.size() > 1) {
                 setCoreCount(Arachne::numActiveCores - 1);
+                // Abort when experiment is over.
+                TimeTrace::print();
+                abort();
+            }
             continue;
         }
         // Estimator believes we need more cores.
