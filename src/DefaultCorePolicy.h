@@ -88,7 +88,7 @@ class DefaultCorePolicy : public CorePolicy {
      * The period in ns over which we measure before deciding to increase or
      * reduce the number of cores we use.
      */
-    uint64_t measurementPeriod = 50 * 1000 * 1000;
+    uint64_t measurementPeriod = 5 * 1000 * 1000;
 };
 }  // namespace Arachne
 #endif  // DEFAULTCOREPOLICY_H_

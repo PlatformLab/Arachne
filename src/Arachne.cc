@@ -262,6 +262,13 @@ threadMain() {
 
     initializeCore(&core);
     for (;;) {
+        // Check if we are yielding when there is still work to do
+        if (core.localOccupiedAndCount && core.localOccupiedAndCount->load().occupied != 0) {
+            ARACHNE_LOG(ERROR, "Attempting to return core with localOccupiedAndCount = %lx,%lu",
+                    core.localOccupiedAndCount->load().occupied,
+                    core.localOccupiedAndCount->load().numOccupied);
+            abort();
+        }
         // Get id from coreArbiter
         core.id = coreArbiter->blockUntilCoreAvailable();
 
@@ -307,8 +314,8 @@ threadMain() {
         // This marks the point at which new thread creations may begin.
         corePolicy->coreAvailable(core.id);
         numActiveCores++;
-        ARACHNE_LOG(DEBUG, "Number of cores increased from %d to %d\n",
-                    numActiveCores - 1, numActiveCores.load());
+        ARACHNE_LOG(ERROR, "Number of cores increased from %d to %d\n; Core %d coming online.",
+                    numActiveCores - 1, numActiveCores.load(), core.id);
 #if TIME_TRACE
         TimeTrace::record("Core Count %d --> %d", numActiveCores - 1,
                           numActiveCores.load());
@@ -332,7 +339,7 @@ threadMain() {
             PerfStats::releaseStats(std::move(PerfStats::threadStats));
             break;
         }
-        ARACHNE_LOG(DEBUG,
+        ARACHNE_LOG(ERROR,
                     "Number of cores decreased from %d to %d\n; Core %d "
                     "going offline.",
                     numActiveCores + 1, numActiveCores.load(), core.id);
@@ -1648,7 +1655,22 @@ migrateThreadsFromCore() {
                     threadClass);
                 failureCount++;
                 if (failureCount >= MAX_MIGRATION_RETRIES) {
-                    abort();
+                    // Abort the attempt to migrate away, since we are clearly
+                    // overloaded.
+                    ARACHNE_LOG(
+                            WARNING,
+                            "multiple failures to migrate thread; aborting attempt");
+                    core.coreDeschedulingScheduled = false;
+                    // Restore the core to a useable state by reversing the changes made by preventCreationsToCore
+                    int count = 0;
+                    for (int k = 0; k < 56; k++) {
+                        count += (blockedOccupiedAndCount.occupied >> k) & 1;
+                    }
+                    blockedOccupiedAndCount.numOccupied = count;
+                    *core.localOccupiedAndCount = blockedOccupiedAndCount;
+                    corePolicy->coreAvailable(core.id);
+                    return;
+//                    abort();
                 }
                 i--;
             }
@@ -1685,7 +1707,9 @@ void
 releaseCore() {
     // Remove all other threads from this core.
     migrateThreadsFromCore();
-    core.coreReadyForReturnToArbiter = true;
+    if (core.coreDeschedulingScheduled) {
+        core.coreReadyForReturnToArbiter = true;
+    }
 }
 
 /*

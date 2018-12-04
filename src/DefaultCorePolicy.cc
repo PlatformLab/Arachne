@@ -182,7 +182,7 @@ DefaultCorePolicy::adjustCores() {
                 setCoreCount(Arachne::numActiveCores - 1);
                 // Abort when experiment is over.
                 TimeTrace::print();
-                abort();
+//                abort();
             }
             continue;
         }
