@@ -13,6 +13,7 @@
  * OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
  */
 #include "CoreLoadEstimator.h"
+#include "Arachne.h"
 
 #include <thread>
 
@@ -121,8 +122,9 @@ CoreLoadEstimator::estimate(CorePolicy::CoreList coreList) {
                     loadFactorThreshold);
             fputs(
                 "CoreId,IdleCycles,TotalCycles,WeightedLoadedCycles,BeforeWLC,AfterWLC,LoadFactor,"
-                "Utilization\n",
+                "Utilization,OccupiedAndCount\n",
                 estimationLog);
+            uint8_t shouldDump = 0;
             for (auto it : coreToPerfStats) {
                 int coreId = it.first;
                 PerfStats cur = it.second;
@@ -140,12 +142,26 @@ CoreLoadEstimator::estimate(CorePolicy::CoreList coreList) {
                     static_cast<double>(totalCycles - idleCycles) /
                     static_cast<double>(totalCycles);
 
-                fprintf(estimationLog, "%d,%lu,%lu,%lu,%lu,%lu,%lf,%lf\n", coreId,
+                MaskAndCount maskAndCount = *occupiedAndCount[coreId];
+                fprintf(estimationLog, "%d,%lu,%lu,%lu,%lu,%lu,%lf,%lf,%lx:%lu\n", coreId,
                         idleCycles, totalCycles, weightedLoadedCycles, prev.weightedLoadedCycles, cur.weightedLoadedCycles,
-                        coreLoadFactor, utilization);
+                        coreLoadFactor, utilization, maskAndCount.occupied, maskAndCount.numOccupied);
+
+                if (averageLoadFactor > 30 && maskAndCount.numOccupied == 0) {
+                    shouldDump |= 1;
+                }
+                if (maskAndCount.numOccupied > 30) {
+                    shouldDump |= (1 << 1);
+                }
+
             }
             fputs("END ESTIMATION STATS DUMP\n", estimationLog);
             fclose(estimationLog);
+            if (shouldDump == 3) {
+                TimeTrace::print();
+//                invokeGDB(0);
+                abort();
+            }
 #endif
 
             previousCoreToPerfStats = coreToPerfStats;

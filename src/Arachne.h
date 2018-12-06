@@ -33,6 +33,7 @@
 #include "Logger.h"
 #include "PerfStats.h"
 #include "PerfUtils/Cycles.h"
+#include "PerfUtils/TimeTrace.h"
 #include "PerfUtils/Util.h"
 
 /**
@@ -51,6 +52,7 @@ namespace Arachne {
 #endif
 
 using PerfUtils::Cycles;
+using PerfUtils::TimeTrace;
 
 // Forward declarations
 struct ThreadContext;
@@ -467,6 +469,8 @@ chooseCore(const CorePolicy::CoreList& coreList) {
 
     int choice1 = coreList.get(index1);
     int choice2 = coreList.get(index2);
+
+    TimeTrace::record("Choosing between %d and %d\n", choice1, choice2);
 
     if (occupiedAndCount[choice1]->load().numOccupied <
         occupiedAndCount[choice2]->load().numOccupied)
