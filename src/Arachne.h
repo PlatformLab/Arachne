@@ -470,11 +470,13 @@ chooseCore(const CorePolicy::CoreList& coreList) {
     int choice1 = coreList.get(index1);
     int choice2 = coreList.get(index2);
 
-    TimeTrace::record("Choosing between %d and %d\n", choice1, choice2);
 
     if (occupiedAndCount[choice1]->load().numOccupied <
-        occupiedAndCount[choice2]->load().numOccupied)
+        occupiedAndCount[choice2]->load().numOccupied) {
+        TimeTrace::record("Core %d: Choosing between %d and %d; choice=%d", Arachne::core.id, choice1, choice2, choice1);
         return choice1;
+    }
+    TimeTrace::record("Core %d: Choosing between %d and %d; choice=%d", Arachne::core.id, choice1, choice2, choice2);
     return choice2;
 }
 
