@@ -102,7 +102,7 @@ CoreLoadEstimator::estimate(CorePolicy::CoreList coreList) {
                         averageLoadFactor, loadFactorThreshold);
 
 #if COLLECT_CORE_STATS
-            FILE* estimationLog = fopen("/tmp/ArachneEstimationLog.log", "w");
+            FILE* estimationLog = fopen("/tmp/ArachneEstimationLog.log", "a");
             if (!estimationLog) {
                 ARACHNE_LOG(
                     ERROR,
@@ -120,7 +120,7 @@ CoreLoadEstimator::estimate(CorePolicy::CoreList coreList) {
                     totalUtilizedCores, localThreshold, averageLoadFactor,
                     loadFactorThreshold);
             fputs(
-                "CoreId,IdleCycles,TotalCycles,WeightedLoadedCycles,LoadFactor,"
+                "CoreId,IdleCycles,TotalCycles,WeightedLoadedCycles,BeforeWLC,AfterWLC,LoadFactor,"
                 "Utilization\n",
                 estimationLog);
             for (auto it : coreToPerfStats) {
@@ -140,8 +140,8 @@ CoreLoadEstimator::estimate(CorePolicy::CoreList coreList) {
                     static_cast<double>(totalCycles - idleCycles) /
                     static_cast<double>(totalCycles);
 
-                fprintf(estimationLog, "%d,%lu,%lu,%lu,%lf,%lf\n", coreId,
-                        idleCycles, totalCycles, weightedLoadedCycles,
+                fprintf(estimationLog, "%d,%lu,%lu,%lu,%lu,%lu,%lf,%lf\n", coreId,
+                        idleCycles, totalCycles, weightedLoadedCycles, prev.weightedLoadedCycles, cur.weightedLoadedCycles,
                         coreLoadFactor, utilization);
             }
             fputs("END ESTIMATION STATS DUMP\n", estimationLog);

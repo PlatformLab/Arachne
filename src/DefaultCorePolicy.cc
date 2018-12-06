@@ -158,11 +158,11 @@ DefaultCorePolicy::adjustCores() {
     TimeTrace::keepOldEvents = true;
     TimeTrace::setOutputFileName("/tmp/EstimationTrace.log");
     while (true) {
-        isEstimatorCore = true;
-        TimeTrace::record("load estimator going to sleep on core %d", Arachne::core.id);
+//        isEstimatorCore = true;
+//        TimeTrace::record("load estimator going to sleep on core %d", Arachne::core.id);
         uint64_t napTime = Cycles::rdtsc();
         Arachne::sleep(measurementPeriod);
-        TimeTrace::record("load estimator woke up on core %d", Arachne::core.id);
+//        TimeTrace::record("load estimator woke up on core %d", Arachne::core.id);
         uint64_t wakeTime = Cycles::rdtsc();
         if (Cycles::toMilliseconds(wakeTime - napTime)  > 200) {
             TimeTrace::print();
@@ -174,16 +174,11 @@ DefaultCorePolicy::adjustCores() {
         }
         Lock guard(lock);
         int estimate = loadEstimator.estimate(sharedCores);
-        TimeTrace::record("Load estimator completed estimation on core %d", Arachne::core.id);
+//        TimeTrace::record("Load estimator completed estimation on core %d", Arachne::core.id);
         if (estimate == 0)
             continue;
         if (estimate == -1) {
-            if (sharedCores.size() > 1) {
-                setCoreCount(Arachne::numActiveCores - 1);
-                // Abort when experiment is over.
-                TimeTrace::print();
-//                abort();
-            }
+            setCoreCount(Arachne::numActiveCores - 1);
             continue;
         }
         // Estimator believes we need more cores.
@@ -192,6 +187,10 @@ DefaultCorePolicy::adjustCores() {
         // creation that just received an exclusive core, but such a race is
         // safe as long as it results only in the failure of the exclusive
         // thread creation.
+        if (sharedCores.size() == 13) {
+            // Print as we ramp to 14 cores.
+            TimeTrace::print();
+        }
         int coreId = findAndClaimUnusedCore(&exclusiveCores);
         if (coreId != -1) {
             sharedCores.add(coreId);
