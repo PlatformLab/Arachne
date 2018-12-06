@@ -462,6 +462,45 @@ random(void) {
 // random() function above.
 static int __attribute__((unused))
 chooseCore(const CorePolicy::CoreList& coreList) {
+#define NUM_CHOICES 2
+    int allCandidates[NUM_CHOICES];
+    if (coreList.size() == 1) {
+        return coreList.get(0);
+    }
+    uint64_t lowestNumOccupied = 56;
+    int chosenCore = -1;
+
+    for (int i = 0; i < NUM_CHOICES; i++) {
+       uint64_t index;
+       // Ensure at least two unique choices.
+       do {
+           index =  static_cast<uint32_t>(random()) % coreList.size();
+       } while (coreList.get(index) == chosenCore);
+       int candidateCore = coreList.get(index);
+       allCandidates[i] = candidateCore;
+
+       if (chosenCore == -1) {
+           chosenCore = candidateCore;
+           lowestNumOccupied = occupiedAndCount[chosenCore]->load().numOccupied;
+           continue;
+       }
+       uint64_t candidateNumOccupied = occupiedAndCount[candidateCore]->load().numOccupied;
+       if (candidateNumOccupied < lowestNumOccupied) {
+           chosenCore = candidateCore;
+           lowestNumOccupied = occupiedAndCount[chosenCore]->load().numOccupied;
+       }
+    }
+    // TimeTrace can handle 2 or 3 in a single line
+#if NUM_CHOICES == 2
+    TimeTrace::record("Choosing between %d and %d; choice=%d", allCandidates[0], allCandidates[1], chosenCore);
+#elif NUM_CHOICES == 3
+    TimeTrace::record("Choosing between %d and %d and %d; choice=%d", allCandidates[0], allCandidates[1], allCandidates[2], chosenCore);
+#else
+    TimeTrace::record("Choosing between > 3 cores; choice=%d", chosenCore);
+#endif
+    return chosenCore;
+
+#if 0
     uint32_t index1 = static_cast<uint32_t>(random()) % coreList.size();
     uint32_t index2 = static_cast<uint32_t>(random()) % coreList.size();
     while (index2 == index1 && coreList.size() > 1)
@@ -478,6 +517,7 @@ chooseCore(const CorePolicy::CoreList& coreList) {
     }
     TimeTrace::record("Core %d: Choosing between %d and %d; choice=%d", Arachne::core.id, choice1, choice2, choice2);
     return choice2;
+#endif
 }
 
 /**
