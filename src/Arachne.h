@@ -462,7 +462,7 @@ random(void) {
 // random() function above.
 static int __attribute__((unused))
 chooseCore(const CorePolicy::CoreList& coreList) {
-#define NUM_CHOICES 2
+#define NUM_CHOICES 3
     int allCandidates[NUM_CHOICES];
     if (coreList.size() == 1) {
         return coreList.get(0);

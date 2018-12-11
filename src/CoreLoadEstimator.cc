@@ -147,7 +147,7 @@ CoreLoadEstimator::estimate(CorePolicy::CoreList coreList) {
                         idleCycles, totalCycles, weightedLoadedCycles, prev.weightedLoadedCycles, cur.weightedLoadedCycles,
                         coreLoadFactor, utilization, maskAndCount.occupied, maskAndCount.numOccupied);
 
-                if (averageLoadFactor > 30 && maskAndCount.numOccupied == 0) {
+                if (averageLoadFactor > 30 && maskAndCount.numOccupied == 0 && utilization < 0.6) {
                     shouldDump |= 1;
                 }
                 if (maskAndCount.numOccupied > 30) {
