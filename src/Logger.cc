@@ -62,8 +62,8 @@ Logger::log(LogLevel level, const char* fmt, ...) {
     spaceLeft -= actual;
 
     // Add the intended message
-    va_list args;
-    va_start(args, fmt);
+    //va_list args;
+    va_start(va_list args, fmt);
     actual = vsnprintf(buffer + charsWritten, spaceLeft, fmt, args);
     va_end(args);
 
