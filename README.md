@@ -28,7 +28,7 @@ Arachne is the first step towards core-aware scheduling, allowing an
 application to run only as many threads in parallel as cores available to it.
 
 Arachne is a user-level, cooperative thread management system written in C++,
-designed to improve core utlization and maximize throughput in server
+designed to improve core utilization and maximize throughput in server
 applications without impacting latency. It performs M:N scheduling over kernel
 threads running exclusively on CPU cores and features ~200 ns cross-core thread
 creations and ~100 ns cross-core signals on Nehalem X3470. Arachne also
